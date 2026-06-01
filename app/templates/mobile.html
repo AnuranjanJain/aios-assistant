@@ -14,6 +14,7 @@
       <p class="eyebrow">AiOS mobile</p>
       <h1>Anuranjan, here is today.</h1>
       <p data-live-plan-summary>{{ plan.summary }}</p>
+      <small class="live-sync" data-live-updated>Waiting for sync...</small>
     </header>
 
     <section id="today" class="mobile-card glass">
@@ -64,7 +65,7 @@
         <h2>Latest</h2>
         <span>{{ opportunities|length }} items</span>
       </div>
-      <div class="list">
+      <div class="list" data-live-list="opportunities">
         {% for item in opportunities[:5] %}
           <article class="list-row">
             <span class="status-dot"></span>
@@ -83,7 +84,7 @@
       <div class="mobile-card-head">
         <h2>Wellbeing</h2>
       </div>
-      <div class="list">
+      <div class="list" data-live-list="activities">
         {% for item in activity_events[:3] %}
           <article class="list-row">
             <span class="activity-badge">{{ item.duration_minutes }}m</span>
@@ -103,7 +104,7 @@
         <h2>Reminders</h2>
         <span>{{ reminders|length }} total</span>
       </div>
-      <div class="list">
+      <div class="list" data-live-list="reminders">
         {% for reminder in reminders[:5] %}
           <article class="list-row reminder-row {% if reminder.is_done %}done{% endif %}">
             <div>
@@ -118,6 +119,26 @@
           </article>
         {% else %}
           <p class="empty">No reminders yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="mobile-card glass">
+      <div class="mobile-card-head">
+        <h2>Connectors</h2>
+        <a class="mini-link" href="{{ url_for('main.connectors') }}">Run</a>
+      </div>
+      <div class="list" data-live-list="connector_runs">
+        {% for run in connector_runs[:3] %}
+          <article class="list-row">
+            <span class="activity-badge">{{ run.records_imported }}</span>
+            <div>
+              <strong>{{ run.connector_id }} - {{ run.status }}</strong>
+              <small>{{ run.message }}</small>
+            </div>
+          </article>
+        {% else %}
+          <p class="empty">Connector runs will appear here.</p>
         {% endfor %}
       </div>
     </section>

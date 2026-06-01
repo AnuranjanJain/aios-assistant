@@ -107,6 +107,7 @@ def build_dashboard_context():
     reminders = Reminder.query.order_by(Reminder.due_at.asc()).all()
     inbox_items = InboxItem.query.order_by(InboxItem.created_at.desc()).limit(8).all()
     activity_events = ActivityEvent.query.order_by(ActivityEvent.created_at.desc()).limit(5).all()
+    connector_runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(5).all()
     plan = build_daily_plan(opportunities, reminders)
     stats = build_dashboard_stats(opportunities, reminders, inbox_items, activity_events)
 
@@ -115,6 +116,7 @@ def build_dashboard_context():
         "reminders": reminders,
         "inbox_items": inbox_items,
         "activity_events": activity_events,
+        "connector_runs": connector_runs,
         "plan": plan,
         "stats": stats,
     }
@@ -278,6 +280,7 @@ def api_live():
     context = build_dashboard_context()
     latest_opportunity = context["opportunities"][0] if context["opportunities"] else None
     latest_activity = context["activity_events"][0] if context["activity_events"] else None
+    latest_connector = context["connector_runs"][0] if context["connector_runs"] else None
 
     return jsonify(
         {
@@ -286,6 +289,11 @@ def api_live():
             "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
             "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
             "reminders": [serialize_reminder(item) for item in context["reminders"][:5]],
+            "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:6]],
+            "activities": [serialize_activity(item) for item in context["activity_events"][:5]],
+            "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:6]],
+            "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
+            "latest_connector": serialize_connector_run(latest_connector) if latest_connector else None,
             "updated_at": datetime.utcnow().isoformat(),
         }
     )
@@ -360,6 +368,29 @@ def serialize_activity(item):
         "actual_task": item.actual_task,
         "duration_minutes": item.duration_minutes,
         "agent_summary": item.agent_summary,
+        "created_at": item.created_at.isoformat(),
+    }
+
+
+def serialize_inbox_item(item):
+    return {
+        "id": item.id,
+        "sender": item.sender,
+        "subject": item.subject,
+        "category": item.category,
+        "confidence": item.confidence,
+        "created_at": item.created_at.isoformat(),
+    }
+
+
+def serialize_connector_run(item):
+    return {
+        "id": item.id,
+        "connector_id": item.connector_id,
+        "status": item.status,
+        "message": item.message,
+        "records_seen": item.records_seen,
+        "records_imported": item.records_imported,
         "created_at": item.created_at.isoformat(),
     }
 

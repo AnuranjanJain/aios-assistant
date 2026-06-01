@@ -32,8 +32,8 @@
       <div class="agent-card">
         <span class="pulse"></span>
         <div>
-          <strong>Local brain</strong>
-          <small>Ollama-ready with fallback active</small>
+          <strong>Live local agent</strong>
+          <small data-live-updated>Waiting for sync...</small>
         </div>
       </div>
     </aside>
@@ -45,9 +45,10 @@
           <h1>Good evening, Anuranjan.</h1>
           <p class="hero-copy" data-live-plan-summary>{{ plan.summary }}</p>
         </div>
-        <form method="post" action="{{ url_for('main.seed_demo') }}">
-          <button type="submit" class="primary-action">Seed Demo</button>
-        </form>
+        <div class="hero-actions">
+          <a class="primary-action link-action" href="{{ url_for('main.sources') }}">Connect Sources</a>
+          <a class="secondary-action link-action" href="{{ url_for('main.connectors') }}">Run Connectors</a>
+        </div>
       </header>
 
       <section id="overview" class="stats-grid" aria-label="Dashboard stats">
@@ -161,7 +162,7 @@
               <h2>Tracked Opportunities</h2>
             </div>
           </div>
-          <div class="list">
+          <div class="list" data-live-list="opportunities">
             {% for item in opportunities %}
               <article class="list-row">
                 <span class="status-dot"></span>
@@ -183,7 +184,7 @@
               <h2>Reminders</h2>
             </div>
           </div>
-          <div class="list">
+          <div class="list" data-live-list="reminders">
             {% for reminder in reminders %}
               <article class="list-row reminder-row {% if reminder.is_done %}done{% endif %}">
                 <div>
@@ -216,7 +217,7 @@
               <h2>Recent Inbox Intelligence</h2>
             </div>
           </div>
-          <div class="list">
+          <div class="list" data-live-list="inbox_items">
             {% for item in inbox_items %}
               <article class="list-row">
                 <span class="confidence">{{ "%.0f"|format(item.confidence * 100) }}%</span>
@@ -238,7 +239,7 @@
               <h2>Activity Feed</h2>
             </div>
           </div>
-          <div class="list">
+          <div class="list" data-live-list="activities">
             {% for item in activity_events %}
               <article class="list-row">
                 <span class="activity-badge">{{ item.duration_minutes }}m</span>
@@ -249,6 +250,28 @@
               </article>
             {% else %}
               <p class="empty">Activity signals from the plugin or wellbeing app will appear here.</p>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Connectors</p>
+              <h2>Live Pipeline Runs</h2>
+            </div>
+          </div>
+          <div class="list" data-live-list="connector_runs">
+            {% for run in connector_runs %}
+              <article class="list-row">
+                <span class="activity-badge">{{ run.records_imported }}</span>
+                <div>
+                  <strong>{{ run.connector_id }} - {{ run.status }}</strong>
+                  <small>{{ run.message }}</small>
+                </div>
+              </article>
+            {% else %}
+              <p class="empty">Connector runs will appear here.</p>
             {% endfor %}
           </div>
         </article>
