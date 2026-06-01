@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4c1d95">
+  <title>AiOS Connectors</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page">
+    <section class="source-hero glass">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <p class="eyebrow">Connectors</p>
+      <h1>Real data inlets.</h1>
+      <p>Run local connectors for Gmail exports, reminder notifications, and job portal imports.</p>
+    </section>
+
+    {% if result %}
+      <section class="panel glass">
+        <p class="eyebrow">Last run</p>
+        <h2>{{ result.connector_id }} - {{ result.status }}</h2>
+        <p class="source-note">{{ result.message }}</p>
+      </section>
+    {% endif %}
+
+    <section class="source-grid">
+      {% for connector in connectors %}
+        <article class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">{{ "Ready" if connector.configured else "Setup needed" }}</p>
+              <h2>{{ connector.name }}</h2>
+            </div>
+          </div>
+          <p class="source-note">{{ connector.description }}</p>
+          <p class="source-note">{{ connector.setup }}</p>
+          <form method="post" action="{{ url_for('main.run_connector_route', connector_id=connector.id) }}">
+            <button type="submit">Run Connector</button>
+          </form>
+        </article>
+      {% endfor %}
+    </section>
+
+    <section class="panel glass">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">History</p>
+          <h2>Connector Runs</h2>
+        </div>
+      </div>
+      <div class="list">
+        {% for run in runs %}
+          <article class="list-row">
+            <span class="activity-badge">{{ run.records_imported }}</span>
+            <div>
+              <strong>{{ run.connector_id }} - {{ run.status }}</strong>
+              <small>{{ run.message }} - {{ run.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+            </div>
+          </article>
+        {% else %}
+          <p class="empty">No connector runs yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

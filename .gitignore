@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+instance/
+*.sqlite
+*.db
+.aios_worker_state.json
+imports/
+credentials/

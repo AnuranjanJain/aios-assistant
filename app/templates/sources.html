@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4c1d95">
+  <title>AiOS Sources</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page">
+    <section class="source-hero glass">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <p class="eyebrow">Real data pipelines</p>
+      <h1>Connect real inputs.</h1>
+      <p>Import exported email files or structured data. The local agent classifies them and updates the dashboard.</p>
+    </section>
+
+    <section class="source-grid">
+      <article class="panel glass">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Import</p>
+            <h2>Email and Data Files</h2>
+          </div>
+        </div>
+        <form class="source-form" method="post" action="{{ url_for('main.import_source') }}" enctype="multipart/form-data">
+          <input type="file" name="source_file" accept=".eml,.mbox,.json,.csv" required>
+          <button type="submit">Import Real Data</button>
+        </form>
+        <p class="source-note">Supported: .eml, .mbox, .json, .csv. Limit: first 100 records per import.</p>
+      </article>
+
+      <article class="panel glass">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Live</p>
+            <h2>Current Pipelines</h2>
+          </div>
+        </div>
+        <div class="pipeline-list">
+          <div>
+            <strong>Browser extension</strong>
+            <small>Real pages, selected text, jobs, hackathons, wellbeing activity.</small>
+          </div>
+          <div>
+            <strong>Local file import</strong>
+            <small>Exported emails and structured data without cloud AI.</small>
+          </div>
+          <div>
+            <strong>Desktop activity worker</strong>
+            <small>Foreground window tracking for real Digital Wellbeing signals.</small>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    {% if result %}
+      <section class="panel glass">
+        <p class="eyebrow">Import result</p>
+        <h2>{{ result.imported }} records imported</h2>
+        <p class="source-note">{{ result.filename }}</p>
+      </section>
+    {% endif %}
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

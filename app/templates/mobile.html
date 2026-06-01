@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4c1d95">
+  <title>AiOS Mobile</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="mobile-body">
+  <main class="mobile-app">
+    <header class="mobile-hero glass">
+      <p class="eyebrow">AiOS mobile</p>
+      <h1>Anuranjan, here is today.</h1>
+      <p data-live-plan-summary>{{ plan.summary }}</p>
+    </header>
+
+    <section id="today" class="mobile-card glass">
+      <div class="mobile-card-head">
+        <h2>Focus Plan</h2>
+        <span><span data-live-stat="active_reminders">{{ stats.active_reminders }}</span> open</span>
+      </div>
+      <div class="focus-list">
+        {% for block in plan.focus_blocks %}
+          <div class="focus-item">
+            <span>{{ loop.index }}</span>
+            <strong>{{ block }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section id="stats" class="mobile-stats">
+      <article class="stat-card glass">
+        <span>Tracked</span>
+        <strong data-live-stat="opportunities">{{ stats.opportunities }}</strong>
+      </article>
+      <article class="stat-card glass">
+        <span>AI</span>
+        <strong><span data-live-stat="avg_confidence">{{ stats.avg_confidence }}</span>%</strong>
+      </article>
+      <article class="stat-card glass">
+        <span>Wellbeing</span>
+        <strong data-live-stat="wellbeing_minutes">{{ stats.wellbeing_minutes }}</strong>
+      </article>
+    </section>
+
+    <section id="capture" class="mobile-card ingest glass">
+      <div class="mobile-card-head">
+        <h2>Quick Capture</h2>
+        <a class="mini-link" href="{{ url_for('main.connectors') }}">Connectors</a>
+      </div>
+      <form method="post" action="{{ url_for('main.ingest_message') }}">
+        <input name="sender" placeholder="sender@example.com">
+        <input name="subject" placeholder="Email subject" required>
+        <textarea name="body" placeholder="Paste email, job, or deadline"></textarea>
+        <button type="submit">Classify</button>
+      </form>
+    </section>
+
+    <section id="items" class="mobile-card glass">
+      <div class="mobile-card-head">
+        <h2>Latest</h2>
+        <span>{{ opportunities|length }} items</span>
+      </div>
+      <div class="list">
+        {% for item in opportunities[:5] %}
+          <article class="list-row">
+            <span class="status-dot"></span>
+            <div>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.kind }} - {{ item.status }}</small>
+            </div>
+          </article>
+        {% else %}
+          <p class="empty">No tracked items yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section id="wellbeing" class="mobile-card glass">
+      <div class="mobile-card-head">
+        <h2>Wellbeing</h2>
+      </div>
+      <div class="list">
+        {% for item in activity_events[:3] %}
+          <article class="list-row">
+            <span class="activity-badge">{{ item.duration_minutes }}m</span>
+            <div>
+              <strong>{{ item.app_name or item.category }}</strong>
+              <small>{{ item.agent_summary }}</small>
+            </div>
+          </article>
+        {% else %}
+          <p class="empty">No wellbeing signals yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section id="reminders" class="mobile-card glass">
+      <div class="mobile-card-head">
+        <h2>Reminders</h2>
+        <span>{{ reminders|length }} total</span>
+      </div>
+      <div class="list">
+        {% for reminder in reminders[:5] %}
+          <article class="list-row reminder-row {% if reminder.is_done %}done{% endif %}">
+            <div>
+              <strong>{{ reminder.title }}</strong>
+              <small>{{ reminder.due_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+            </div>
+            {% if not reminder.is_done and not reminder.is_read %}
+              <form method="post" action="{{ url_for('main.mark_reminder_read', reminder_id=reminder.id) }}">
+                <button type="submit" class="ghost-button">Read</button>
+              </form>
+            {% endif %}
+          </article>
+        {% else %}
+          <p class="empty">No reminders yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+
+  <nav class="mobile-nav glass" aria-label="Mobile navigation">
+    <a href="#today">Today</a>
+    <a href="#capture">Capture</a>
+    <a href="#items">Items</a>
+    <a href="#reminders">Alerts</a>
+  </nav>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

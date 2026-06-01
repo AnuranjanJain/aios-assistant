@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4c1d95">
+  <title>AiOS Assistant</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar glass">
+      <a class="brand" href="{{ url_for('main.dashboard') }}" aria-label="AiOS Assistant home">
+        <span class="brand-mark">A</span>
+        <span>
+          <strong>AiOS</strong>
+          <small>Local Agent</small>
+        </span>
+      </a>
+
+      <nav class="menu" aria-label="Dashboard navigation">
+        <a class="active" href="#overview">Overview</a>
+        <a href="#opportunities">Opportunities</a>
+        <a href="#reminders">Reminders</a>
+        <a href="#inbox">Inbox AI</a>
+        <a href="#wellbeing">Wellbeing</a>
+        <a href="{{ url_for('main.sources') }}">Sources</a>
+        <a href="{{ url_for('main.connectors') }}">Connectors</a>
+      </nav>
+
+      <div class="agent-card">
+        <span class="pulse"></span>
+        <div>
+          <strong>Local brain</strong>
+          <small>Ollama-ready with fallback active</small>
+        </div>
+      </div>
+    </aside>
+
+    <main class="dashboard">
+      <header class="hero glass">
+        <div>
+          <p class="eyebrow">Personal AI productivity system</p>
+          <h1>Good evening, Anuranjan.</h1>
+          <p class="hero-copy" data-live-plan-summary>{{ plan.summary }}</p>
+        </div>
+        <form method="post" action="{{ url_for('main.seed_demo') }}">
+          <button type="submit" class="primary-action">Seed Demo</button>
+        </form>
+      </header>
+
+      <section id="overview" class="stats-grid" aria-label="Dashboard stats">
+        <article class="stat-card glass">
+          <span>Tracked</span>
+          <strong data-live-stat="opportunities">{{ stats.opportunities }}</strong>
+          <small>jobs, hackathons, interviews</small>
+        </article>
+        <article class="stat-card glass">
+          <span>Reminders</span>
+          <strong data-live-stat="active_reminders">{{ stats.active_reminders }}</strong>
+          <small>open action items</small>
+        </article>
+        <article class="stat-card glass">
+          <span>AI Confidence</span>
+          <strong><span data-live-stat="avg_confidence">{{ stats.avg_confidence }}</span>%</strong>
+          <small>recent inbox average</small>
+        </article>
+        <article class="stat-card glass">
+          <span>Wellbeing</span>
+          <strong data-live-stat="wellbeing_minutes">{{ stats.wellbeing_minutes }}</strong>
+          <small>minutes observed</small>
+        </article>
+      </section>
+
+      <section class="main-grid">
+        <article class="panel plan-panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Today</p>
+              <h2>Focus Plan</h2>
+            </div>
+          </div>
+          <div class="focus-list">
+            {% for block in plan.focus_blocks %}
+              <div class="focus-item">
+                <span>{{ loop.index }}</span>
+                <strong>{{ block }}</strong>
+              </div>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Graph</p>
+              <h2>Opportunity Mix</h2>
+            </div>
+          </div>
+          <div class="bars">
+            {% for item in stats.opportunity_graph %}
+              <div class="bar-row">
+                <div class="bar-meta">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.count }}</strong>
+                </div>
+                <div class="bar-track">
+                  <span style="width: {{ item.percent }}%"></span>
+                </div>
+              </div>
+            {% else %}
+              <p class="empty">No tracked opportunities yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="panel ingest glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Input</p>
+              <h2>Test Email Intake</h2>
+            </div>
+          </div>
+          <form method="post" action="{{ url_for('main.ingest_message') }}">
+            <input name="sender" placeholder="sender@example.com">
+            <input name="subject" placeholder="Email subject" required>
+            <textarea name="body" placeholder="Paste email body"></textarea>
+            <button type="submit">Classify Message</button>
+          </form>
+        </article>
+
+        <article id="wellbeing" class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Graph</p>
+              <h2>Wellbeing Signals</h2>
+            </div>
+          </div>
+          <div class="activity-chart">
+            {% for item in stats.wellbeing_graph %}
+              <div class="activity-column">
+                <div class="column-track">
+                  <span style="height: {{ item.percent }}%"></span>
+                </div>
+                <strong>{{ item.minutes }}m</strong>
+                <small>{{ item.label }}</small>
+              </div>
+            {% else %}
+              <p class="empty">Activity graphs appear after wellbeing events arrive.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section class="data-grid">
+        <article id="opportunities" class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Pipeline</p>
+              <h2>Tracked Opportunities</h2>
+            </div>
+          </div>
+          <div class="list">
+            {% for item in opportunities %}
+              <article class="list-row">
+                <span class="status-dot"></span>
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.kind }} - {{ item.status }} - {{ item.organization or "Unknown" }}</small>
+                </div>
+              </article>
+            {% else %}
+              <p class="empty">No opportunities yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article id="reminders" class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Actions</p>
+              <h2>Reminders</h2>
+            </div>
+          </div>
+          <div class="list">
+            {% for reminder in reminders %}
+              <article class="list-row reminder-row {% if reminder.is_done %}done{% endif %}">
+                <div>
+                  <strong>{{ reminder.title }}</strong>
+                  <small>{{ reminder.due_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+                </div>
+                {% if not reminder.is_done %}
+                  <div class="reminder-actions">
+                    {% if not reminder.is_read %}
+                      <form method="post" action="{{ url_for('main.mark_reminder_read', reminder_id=reminder.id) }}">
+                        <button type="submit" class="ghost-button">Read</button>
+                      </form>
+                    {% endif %}
+                    <form method="post" action="{{ url_for('main.complete_reminder', reminder_id=reminder.id) }}">
+                      <button type="submit" class="ghost-button">Done</button>
+                    </form>
+                  </div>
+                {% endif %}
+              </article>
+            {% else %}
+              <p class="empty">No reminders yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article id="inbox" class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Classifier</p>
+              <h2>Recent Inbox Intelligence</h2>
+            </div>
+          </div>
+          <div class="list">
+            {% for item in inbox_items %}
+              <article class="list-row">
+                <span class="confidence">{{ "%.0f"|format(item.confidence * 100) }}%</span>
+                <div>
+                  <strong>{{ item.subject }}</strong>
+                  <small>{{ item.category }} - {{ item.sender or "Manual input" }}</small>
+                </div>
+              </article>
+            {% else %}
+              <p class="empty">Classified emails will appear here.</p>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">What do you do</p>
+              <h2>Activity Feed</h2>
+            </div>
+          </div>
+          <div class="list">
+            {% for item in activity_events %}
+              <article class="list-row">
+                <span class="activity-badge">{{ item.duration_minutes }}m</span>
+                <div>
+                  <strong>{{ item.app_name or item.category }}</strong>
+                  <small>{{ item.agent_summary }}</small>
+                </div>
+              </article>
+            {% else %}
+              <p class="empty">Activity signals from the plugin or wellbeing app will appear here.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

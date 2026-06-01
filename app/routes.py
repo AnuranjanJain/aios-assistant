@@ -1,0 +1,404 @@
+from datetime import datetime
+from pathlib import Path
+
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, url_for
+from werkzeug.utils import secure_filename
+
+from app.models import ActivityEvent, ConnectorRun, InboxItem, Opportunity, Reminder, db
+from app.services.agent_ingest import ingest_message as ingest_agent_message
+from app.services.ai_classifier import get_classifier
+from app.services.connectors import list_connectors, run_connector
+from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
+from app.services.daily_planner import build_daily_plan
+from app.services.wellbeing import summarize_activity
+
+
+bp = Blueprint("main", __name__)
+
+
+@bp.after_app_request
+def add_local_api_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+
+@bp.get("/")
+def dashboard():
+    context = build_dashboard_context()
+    return render_template("dashboard.html", **context)
+
+
+@bp.get("/mobile")
+def mobile_dashboard():
+    context = build_dashboard_context()
+    return render_template("mobile.html", **context)
+
+
+@bp.get("/sources")
+def sources():
+    return render_template("sources.html", result=None)
+
+
+@bp.get("/connectors")
+def connectors():
+    runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(12).all()
+    return render_template(
+        "connectors.html",
+        connectors=list_connectors(current_app.config),
+        runs=runs,
+        result=None,
+    )
+
+
+@bp.post("/connectors/<connector_id>/run")
+def run_connector_route(connector_id):
+    result = run_connector(
+        connector_id,
+        current_app.config,
+        classifier=build_classifier(),
+        provider=current_app.config["AI_PROVIDER"],
+        model=current_app.config["OLLAMA_MODEL"],
+    )
+    db.session.commit()
+
+    runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(12).all()
+    return render_template(
+        "connectors.html",
+        connectors=list_connectors(current_app.config),
+        runs=runs,
+        result=result,
+    )
+
+
+@bp.post("/sources/import")
+def import_source():
+    upload = request.files.get("source_file")
+    if not upload or not upload.filename:
+        return render_template("sources.html", result={"imported": 0, "filename": "No file selected."}), 400
+
+    filename = secure_filename(upload.filename)
+    suffix = Path(filename).suffix.lower()
+    if suffix not in SUPPORTED_IMPORTS:
+        return render_template("sources.html", result={"imported": 0, "filename": f"Unsupported file type: {suffix}"}), 400
+
+    import_dir = Path("imports")
+    import_dir.mkdir(exist_ok=True)
+    import_path = import_dir / filename
+    upload.save(import_path)
+
+    imported = import_source_file(
+        import_path,
+        classifier=build_classifier(),
+        provider=current_app.config["AI_PROVIDER"],
+        model=current_app.config["OLLAMA_MODEL"],
+    )
+    db.session.commit()
+
+    return render_template(
+        "sources.html",
+        result={"imported": len(imported), "filename": filename},
+    )
+
+
+def build_dashboard_context():
+    opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
+    reminders = Reminder.query.order_by(Reminder.due_at.asc()).all()
+    inbox_items = InboxItem.query.order_by(InboxItem.created_at.desc()).limit(8).all()
+    activity_events = ActivityEvent.query.order_by(ActivityEvent.created_at.desc()).limit(5).all()
+    plan = build_daily_plan(opportunities, reminders)
+    stats = build_dashboard_stats(opportunities, reminders, inbox_items, activity_events)
+
+    return {
+        "opportunities": opportunities,
+        "reminders": reminders,
+        "inbox_items": inbox_items,
+        "activity_events": activity_events,
+        "plan": plan,
+        "stats": stats,
+    }
+
+
+@bp.post("/ingest")
+def ingest_message():
+    subject = request.form.get("subject", "").strip()
+    sender = request.form.get("sender", "").strip()
+    body = request.form.get("body", "").strip()
+
+    if not subject:
+        return redirect(url_for("main.dashboard"))
+
+    classifier = build_classifier()
+    ingest_agent_message(
+        sender=sender,
+        subject=subject,
+        body=body,
+        source="manual inbox",
+        classifier=classifier,
+        provider=current_app.config["AI_PROVIDER"],
+        model=current_app.config["OLLAMA_MODEL"],
+    )
+
+    db.session.commit()
+    return redirect(url_for("main.dashboard"))
+
+
+@bp.post("/reminders/<int:reminder_id>/done")
+def complete_reminder(reminder_id):
+    reminder = Reminder.query.get_or_404(reminder_id)
+    reminder.is_done = True
+    reminder.is_read = True
+    db.session.commit()
+    return redirect(url_for("main.dashboard"))
+
+
+@bp.post("/reminders/<int:reminder_id>/read")
+def mark_reminder_read(reminder_id):
+    reminder = Reminder.query.get_or_404(reminder_id)
+    reminder.is_read = True
+    db.session.commit()
+    return redirect(request.referrer or url_for("main.dashboard"))
+
+
+@bp.post("/seed")
+def seed_demo():
+    examples = [
+        ("jobs@example.com", "Your application received for ML Intern", "Thank you for applying."),
+        ("talent@example.com", "Interview schedule for Backend Intern", "Please join your technical round tomorrow."),
+        ("team@devfolio.co", "Hackathon submission deadline reminder", "Your prototype is due this weekend."),
+    ]
+
+    classifier = build_classifier()
+    for sender, subject, body in examples:
+        ingest_agent_message(
+            sender=sender,
+            subject=subject,
+            body=body,
+            source="demo seed",
+            classifier=classifier,
+            provider=current_app.config["AI_PROVIDER"],
+            model=current_app.config["OLLAMA_MODEL"],
+        )
+
+    db.session.commit()
+    return redirect(url_for("main.dashboard"))
+
+
+@bp.get("/api/plan")
+def api_plan():
+    opportunities = Opportunity.query.all()
+    reminders = Reminder.query.all()
+    return jsonify(build_daily_plan(opportunities, reminders))
+
+
+@bp.post("/api/ingest-email")
+@bp.post("/api/track-job")
+@bp.post("/api/track-hackathon")
+def api_ingest_message():
+    data = request.get_json(silent=True) or {}
+    subject = (data.get("subject") or data.get("title") or "").strip()
+    sender = (data.get("sender") or data.get("organization") or "").strip()
+    body = (data.get("body") or data.get("content") or data.get("notes") or "").strip()
+    source = (data.get("source") or "local api").strip()
+
+    if not subject:
+        return jsonify({"error": "subject or title is required"}), 400
+
+    result = ingest_agent_message(
+        sender=sender,
+        subject=subject,
+        body=body,
+        source=source,
+        classifier=build_classifier(),
+        provider=current_app.config["AI_PROVIDER"],
+        model=current_app.config["OLLAMA_MODEL"],
+    )
+    db.session.commit()
+
+    opportunity = result["opportunity"]
+    return jsonify(
+        {
+            "classification": result["classification"].__dict__,
+            "opportunity_id": opportunity.id if opportunity else None,
+            "inbox_item_id": result["inbox_item"].id,
+        }
+    ), 201
+
+
+@bp.post("/api/wellbeing/activity")
+def api_wellbeing_activity():
+    data = request.get_json(silent=True) or {}
+    category = (data.get("category") or "unknown").strip().lower()
+    duration_minutes = int(data.get("duration_minutes") or 0)
+    planned_task = (data.get("planned_task") or "").strip()
+    actual_task = (data.get("actual_task") or "").strip()
+    summary = summarize_activity(category, duration_minutes, planned_task, actual_task)
+
+    event = ActivityEvent(
+        source=(data.get("source") or "local api").strip(),
+        app_name=(data.get("app_name") or "").strip(),
+        category=category,
+        planned_task=planned_task,
+        actual_task=actual_task,
+        duration_minutes=duration_minutes,
+        agent_summary=summary,
+    )
+    db.session.add(event)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "activity_event_id": event.id,
+            "category": event.category,
+            "duration_minutes": event.duration_minutes,
+            "agent_summary": event.agent_summary,
+        }
+    ), 201
+
+
+@bp.get("/api/today")
+def api_today():
+    opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
+    reminders = Reminder.query.order_by(Reminder.due_at.asc()).all()
+    activities = ActivityEvent.query.order_by(ActivityEvent.created_at.desc()).limit(5).all()
+
+    return jsonify(
+        {
+            "plan": build_daily_plan(opportunities, reminders),
+            "opportunities": [serialize_opportunity(item) for item in opportunities],
+            "reminders": [serialize_reminder(item) for item in reminders],
+            "recent_activity": [serialize_activity(item) for item in activities],
+        }
+    )
+
+
+@bp.get("/api/live")
+def api_live():
+    context = build_dashboard_context()
+    latest_opportunity = context["opportunities"][0] if context["opportunities"] else None
+    latest_activity = context["activity_events"][0] if context["activity_events"] else None
+
+    return jsonify(
+        {
+            "plan": context["plan"],
+            "stats": context["stats"],
+            "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
+            "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
+            "reminders": [serialize_reminder(item) for item in context["reminders"][:5]],
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    )
+
+
+@bp.get("/api/opportunities")
+def api_opportunities():
+    opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
+    return jsonify([serialize_opportunity(item) for item in opportunities])
+
+
+@bp.get("/api/connectors")
+def api_connectors():
+    return jsonify(list_connectors(current_app.config))
+
+
+@bp.post("/api/connectors/<connector_id>/run")
+def api_run_connector(connector_id):
+    result = run_connector(
+        connector_id,
+        current_app.config,
+        classifier=build_classifier(),
+        provider=current_app.config["AI_PROVIDER"],
+        model=current_app.config["OLLAMA_MODEL"],
+    )
+    db.session.commit()
+    return jsonify(result.__dict__), 200 if result.status != "not_found" else 404
+
+
+def build_classifier():
+    return get_classifier(
+        current_app.config["AI_PROVIDER"],
+        current_app.config["OLLAMA_URL"],
+        current_app.config["OLLAMA_MODEL"],
+    )
+
+
+def serialize_opportunity(item):
+    return {
+        "id": item.id,
+        "kind": item.kind,
+        "title": item.title,
+        "organization": item.organization,
+        "status": item.status,
+        "source": item.source,
+        "deadline": item.deadline.isoformat() if item.deadline else None,
+        "notes": item.notes,
+        "updated_at": item.updated_at.isoformat(),
+    }
+
+
+def serialize_reminder(item):
+    return {
+        "id": item.id,
+        "title": item.title,
+        "due_at": item.due_at.isoformat(),
+        "channel": item.channel,
+        "is_done": item.is_done,
+        "is_read": item.is_read,
+        "notified_at": item.notified_at.isoformat() if item.notified_at else None,
+        "opportunity_id": item.opportunity_id,
+    }
+
+
+def serialize_activity(item):
+    return {
+        "id": item.id,
+        "source": item.source,
+        "app_name": item.app_name,
+        "category": item.category,
+        "planned_task": item.planned_task,
+        "actual_task": item.actual_task,
+        "duration_minutes": item.duration_minutes,
+        "agent_summary": item.agent_summary,
+        "created_at": item.created_at.isoformat(),
+    }
+
+
+def build_dashboard_stats(opportunities, reminders, inbox_items, activity_events):
+    active_reminders = [item for item in reminders if not item.is_done]
+    avg_confidence = 0
+    if inbox_items:
+        avg_confidence = round(sum(item.confidence for item in inbox_items) / len(inbox_items) * 100)
+
+    category_counts = {}
+    for item in opportunities:
+        category_counts[item.kind] = category_counts.get(item.kind, 0) + 1
+
+    max_category = max(category_counts.values(), default=1)
+    opportunity_graph = [
+        {
+            "label": label.title(),
+            "count": count,
+            "percent": max(8, round(count / max_category * 100)),
+        }
+        for label, count in sorted(category_counts.items())
+    ]
+
+    wellbeing_minutes = sum(item.duration_minutes for item in activity_events)
+    wellbeing_graph = [
+        {
+            "label": item.app_name or item.category.title(),
+            "minutes": item.duration_minutes,
+            "percent": max(6, min(100, item.duration_minutes * 2)),
+        }
+        for item in activity_events
+    ]
+
+    return {
+        "opportunities": len(opportunities),
+        "active_reminders": len(active_reminders),
+        "avg_confidence": avg_confidence,
+        "wellbeing_minutes": wellbeing_minutes,
+        "opportunity_graph": opportunity_graph,
+        "wellbeing_graph": wellbeing_graph,
+    }
