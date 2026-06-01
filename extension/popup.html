@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AiOS Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup">
+    <header>
+      <span class="mark">A</span>
+      <div>
+        <strong>AiOS Capture</strong>
+        <small>Local agent companion</small>
+      </div>
+    </header>
+
+    <section class="settings">
+      <label for="apiBase">Local API</label>
+      <input id="apiBase" type="url" value="http://127.0.0.1:5000">
+    </section>
+
+    <section class="actions">
+      <button id="savePage" type="button">Save Page</button>
+      <button id="trackJob" type="button">Track Job</button>
+      <button id="trackHackathon" type="button">Track Hackathon</button>
+      <button id="logWellbeing" type="button">Log Activity</button>
+    </section>
+
+    <section class="wellbeing">
+      <label for="category">Activity category</label>
+      <select id="category">
+        <option value="coding">Coding</option>
+        <option value="study">Study</option>
+        <option value="interview_prep">Interview prep</option>
+        <option value="dsa">DSA</option>
+        <option value="entertainment">Entertainment</option>
+        <option value="social">Social</option>
+      </select>
+      <label for="duration">Minutes</label>
+      <input id="duration" type="number" min="1" max="600" value="25">
+    </section>
+
+    <p id="status" class="status">Ready.</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

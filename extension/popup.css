@@ -1,0 +1,118 @@
+:root {
+  color-scheme: dark;
+  --text: #f8f7ff;
+  --muted: #c8bfdd;
+  --line: rgba(255, 255, 255, 0.2);
+  --panel: rgba(255, 255, 255, 0.12);
+  --pink: #ff7ac8;
+  --violet: #9d7cff;
+  --cyan: #54e0ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 340px;
+  margin: 0;
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(255, 122, 200, 0.35), transparent 34%),
+    linear-gradient(135deg, #210c4d, #4c1d95);
+}
+
+.popup {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--pink), var(--violet));
+  font-weight: 900;
+}
+
+strong,
+small,
+label {
+  display: block;
+}
+
+small,
+label,
+.status {
+  color: var(--muted);
+}
+
+label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settings,
+.wellbeing {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 12px;
+}
+
+.wellbeing {
+  display: grid;
+  gap: 8px;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+button,
+input,
+select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font: inherit;
+}
+
+button {
+  background: linear-gradient(135deg, var(--pink), var(--violet));
+  cursor: pointer;
+  font-weight: 850;
+}
+
+button:hover {
+  filter: brightness(1.08);
+}
+
+input,
+select {
+  outline: 0;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 0 10px;
+}
+
+.status {
+  min-height: 18px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
