@@ -695,6 +695,34 @@ textarea {
   padding: 22px;
 }
 
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 22px;
+}
+
+.auth-card {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 440px);
+  border-radius: 28px;
+  padding: 28px;
+}
+
+.auth-card h1 {
+  font-size: 38px;
+}
+
+.auth-error {
+  border: 1px solid rgba(255, 122, 200, 0.45);
+  border-radius: 14px;
+  background: rgba(255, 122, 200, 0.12);
+  color: #ffd7ee;
+  margin: 0;
+  padding: 12px;
+}
+
 .source-hero {
   border-radius: 28px;
   padding: 30px;

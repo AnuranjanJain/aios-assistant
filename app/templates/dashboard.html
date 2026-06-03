@@ -37,6 +37,9 @@
           <small data-live-updated>Waiting for sync...</small>
         </div>
       </div>
+      <form method="post" action="{{ url_for('main.logout') }}">
+        <button type="submit" class="ghost-button">Lock</button>
+      </form>
     </aside>
 
     <main class="dashboard">

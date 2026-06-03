@@ -1,12 +1,13 @@
 from datetime import datetime
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.utils import secure_filename
 
 from app.models import ActivityEvent, ConnectorRun, InboxItem, Opportunity, Reminder, db
 from app.services.agent_ingest import ingest_message as ingest_agent_message
 from app.services.ai_classifier import get_classifier
+from app.services.auth import clear_pin, has_pin, set_pin, verify_pin
 from app.services.connectors import list_connectors, run_connector
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
@@ -17,12 +18,63 @@ from app.services.wellbeing import summarize_activity
 bp = Blueprint("main", __name__)
 
 
+@bp.before_app_request
+def require_ui_auth():
+    if not has_pin():
+        return None
+
+    if session.get("is_unlocked"):
+        return None
+
+    if request.endpoint in {"main.login", "main.unlock"}:
+        return None
+
+    if request.path.startswith("/static/"):
+        return None
+
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "locked"}), 401
+
+    return redirect(url_for("main.login", next=request.full_path))
+
+
 @bp.after_app_request
 def add_local_api_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
+
+
+@bp.get("/login")
+def login():
+    return render_template("login.html", has_pin=has_pin(), error="", next_url=request.args.get("next", ""))
+
+
+@bp.post("/login")
+def unlock():
+    pin = request.form.get("pin", "")
+    next_url = request.form.get("next") or url_for("main.dashboard")
+
+    if not has_pin():
+        if len(pin) < 4:
+            return render_template("login.html", has_pin=False, error="Use at least 4 digits.", next_url=next_url), 400
+        set_pin(pin)
+        db.session.commit()
+        session["is_unlocked"] = True
+        return redirect(next_url)
+
+    if verify_pin(pin):
+        session["is_unlocked"] = True
+        return redirect(next_url)
+
+    return render_template("login.html", has_pin=True, error="Incorrect PIN.", next_url=next_url), 401
+
+
+@bp.post("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("main.login"))
 
 
 @bp.get("/")
@@ -76,15 +128,23 @@ def run_connector_route(connector_id):
 @bp.get("/settings")
 def settings():
     values = get_effective_config(current_app.config)
-    return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=False)
+    return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=False, pin_enabled=has_pin())
 
 
 @bp.post("/settings")
 def save_settings():
+    pin_action = request.form.get("pin_action", "")
+    new_pin = request.form.get("new_pin", "")
+
+    if pin_action == "set_pin" and new_pin:
+        set_pin(new_pin)
+    elif pin_action == "clear_pin":
+        clear_pin()
+
     apply_settings(request.form)
     db.session.commit()
     values = get_effective_config(current_app.config)
-    return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=True)
+    return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=True, pin_enabled=has_pin())
 
 
 @bp.post("/sources/import")

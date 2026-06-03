@@ -309,6 +309,13 @@ http://127.0.0.1:5000/settings
 
 Use settings to configure the AI provider, Ollama URL/model, Gmail Takeout mbox path, Gmail OAuth paths, job portal import folder, and watch import folder.
 
+Security:
+
+- Open `/settings` to enable a local PIN.
+- When enabled, dashboard/mobile/API routes require an unlocked browser session.
+- Use the Lock button in the sidebar or mobile page to clear the session.
+- Keep API PIN/token hardening on the roadmap before exposing this outside trusted LAN.
+
 Supported import formats:
 
 - `.eml`: one exported email file.

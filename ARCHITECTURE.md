@@ -318,6 +318,20 @@ get_effective_config()
 connectors + classifier + watch worker
 ```
 
+### Local Auth Flow
+
+```text
+/login
+        |
+PIN hash in Setting table
+        |
+Flask session unlock
+        |
+dashboard + mobile + API access
+```
+
+The PIN lock is local-session protection. Before public exposure, add per-client API tokens and HTTPS.
+
 ### Connector Flow
 
 ```text

@@ -42,6 +42,25 @@
         <button type="submit">Save Settings</button>
       </form>
     </section>
+
+    <section class="panel glass">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Privacy</p>
+          <h2>Local PIN Lock</h2>
+        </div>
+      </div>
+      <form class="settings-form" method="post" action="{{ url_for('main.save_settings') }}">
+        <label>
+          <span>{{ "Change PIN" if pin_enabled else "Set PIN" }}</span>
+          <input name="new_pin" type="password" inputmode="numeric" placeholder="At least 4 digits">
+        </label>
+        <button type="submit" name="pin_action" value="set_pin">{{ "Update PIN" if pin_enabled else "Enable PIN" }}</button>
+        {% if pin_enabled %}
+          <button type="submit" name="pin_action" value="clear_pin" class="ghost-button">Disable PIN</button>
+        {% endif %}
+      </form>
+    </section>
   </main>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

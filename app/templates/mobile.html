@@ -142,6 +142,9 @@
         {% endfor %}
       </div>
     </section>
+    <form method="post" action="{{ url_for('main.logout') }}">
+      <button type="submit" class="ghost-button">Lock AiOS</button>
+    </form>
   </main>
 
   <nav class="mobile-nav glass" aria-label="Mobile navigation">
