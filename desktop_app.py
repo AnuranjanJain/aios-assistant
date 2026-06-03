@@ -7,6 +7,9 @@ from werkzeug.serving import make_server
 
 from app import create_app
 from local_worker import CHECK_INTERVAL_SECONDS, check_reminders, load_state, save_state
+from watch_import_worker import scan_once as scan_watch_once
+from watch_import_worker import load_state as load_watch_state
+from watch_import_worker import save_state as save_watch_state
 
 
 HOST = "127.0.0.1"
@@ -45,6 +48,23 @@ class ReminderWorkerThread(threading.Thread):
         self.is_running = False
 
 
+class WatchImportWorkerThread(threading.Thread):
+    def __init__(self, app):
+        super().__init__(daemon=True)
+        self.app = app
+        self.state = load_watch_state()
+        self.is_running = True
+
+    def run(self):
+        while self.is_running:
+            scan_watch_once(self.app, self.state)
+            save_watch_state(self.state)
+            time.sleep(20)
+
+    def shutdown(self):
+        self.is_running = False
+
+
 def wait_for_server(timeout=8):
     started = time.time()
     while time.time() - started < timeout:
@@ -61,6 +81,8 @@ def main():
     server.start()
     worker = ReminderWorkerThread(server.app)
     worker.start()
+    watch_worker = WatchImportWorkerThread(server.app)
+    watch_worker.start()
 
     if not wait_for_server():
         raise RuntimeError("AiOS Assistant server did not start.")
@@ -78,6 +100,7 @@ def main():
         )
         webview.start()
         worker.shutdown()
+        watch_worker.shutdown()
         server.shutdown()
         return window
     except Exception:
@@ -89,6 +112,7 @@ def main():
                 time.sleep(1)
         except KeyboardInterrupt:
             worker.shutdown()
+            watch_worker.shutdown()
             server.shutdown()
 
 

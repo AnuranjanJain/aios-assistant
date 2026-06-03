@@ -6,5 +6,6 @@ instance/
 *.sqlite
 *.db
 .aios_worker_state.json
+.aios_watch_state.json
 imports/
 credentials/

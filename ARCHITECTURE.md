@@ -241,6 +241,7 @@ Current real input sources:
 ```text
 Browser extension
 Local file import
+Watch folder import
 Desktop activity worker
 Manual dashboard/mobile capture
 Connector registry
@@ -285,6 +286,36 @@ agent_ingest.py
 local AI classifier
         |
 InboxItem + Opportunity + Reminder + AgentDecision
+```
+
+### Watch Folder Flow
+
+```text
+watch_import_worker.py
+        |
+WATCH_IMPORT_DIR
+        |
+.eml / .mbox / .json / .csv
+        |
+data_pipelines.py parser
+        |
+agent_ingest.py
+        |
+live dashboard
+```
+
+The desktop wrapper starts this worker automatically. Browser mode can run it separately.
+
+### Settings Flow
+
+```text
+/settings
+        |
+Setting table
+        |
+get_effective_config()
+        |
+connectors + classifier + watch worker
 ```
 
 ### Connector Flow

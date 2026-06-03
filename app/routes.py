@@ -10,6 +10,7 @@ from app.services.ai_classifier import get_classifier
 from app.services.connectors import list_connectors, run_connector
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
+from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config
 from app.services.wellbeing import summarize_activity
 
 
@@ -46,7 +47,7 @@ def connectors():
     runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(12).all()
     return render_template(
         "connectors.html",
-        connectors=list_connectors(current_app.config),
+        connectors=list_connectors(get_effective_config(current_app.config)),
         runs=runs,
         result=None,
     )
@@ -56,20 +57,34 @@ def connectors():
 def run_connector_route(connector_id):
     result = run_connector(
         connector_id,
-        current_app.config,
+        get_effective_config(current_app.config),
         classifier=build_classifier(),
-        provider=current_app.config["AI_PROVIDER"],
-        model=current_app.config["OLLAMA_MODEL"],
+        provider=get_effective_config(current_app.config)["AI_PROVIDER"],
+        model=get_effective_config(current_app.config)["OLLAMA_MODEL"],
     )
     db.session.commit()
 
     runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(12).all()
     return render_template(
         "connectors.html",
-        connectors=list_connectors(current_app.config),
+        connectors=list_connectors(get_effective_config(current_app.config)),
         runs=runs,
         result=result,
     )
+
+
+@bp.get("/settings")
+def settings():
+    values = get_effective_config(current_app.config)
+    return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=False)
+
+
+@bp.post("/settings")
+def save_settings():
+    apply_settings(request.form)
+    db.session.commit()
+    values = get_effective_config(current_app.config)
+    return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=True)
 
 
 @bp.post("/sources/import")
@@ -91,8 +106,8 @@ def import_source():
     imported = import_source_file(
         import_path,
         classifier=build_classifier(),
-        provider=current_app.config["AI_PROVIDER"],
-        model=current_app.config["OLLAMA_MODEL"],
+        provider=get_effective_config(current_app.config)["AI_PROVIDER"],
+        model=get_effective_config(current_app.config)["OLLAMA_MODEL"],
     )
     db.session.commit()
 
@@ -138,8 +153,8 @@ def ingest_message():
         body=body,
         source="manual inbox",
         classifier=classifier,
-        provider=current_app.config["AI_PROVIDER"],
-        model=current_app.config["OLLAMA_MODEL"],
+        provider=get_effective_config(current_app.config)["AI_PROVIDER"],
+        model=get_effective_config(current_app.config)["OLLAMA_MODEL"],
     )
 
     db.session.commit()
@@ -179,8 +194,8 @@ def seed_demo():
             body=body,
             source="demo seed",
             classifier=classifier,
-            provider=current_app.config["AI_PROVIDER"],
-            model=current_app.config["OLLAMA_MODEL"],
+            provider=get_effective_config(current_app.config)["AI_PROVIDER"],
+            model=get_effective_config(current_app.config)["OLLAMA_MODEL"],
         )
 
     db.session.commit()
@@ -213,8 +228,8 @@ def api_ingest_message():
         body=body,
         source=source,
         classifier=build_classifier(),
-        provider=current_app.config["AI_PROVIDER"],
-        model=current_app.config["OLLAMA_MODEL"],
+        provider=get_effective_config(current_app.config)["AI_PROVIDER"],
+        model=get_effective_config(current_app.config)["OLLAMA_MODEL"],
     )
     db.session.commit()
 
@@ -307,27 +322,28 @@ def api_opportunities():
 
 @bp.get("/api/connectors")
 def api_connectors():
-    return jsonify(list_connectors(current_app.config))
+    return jsonify(list_connectors(get_effective_config(current_app.config)))
 
 
 @bp.post("/api/connectors/<connector_id>/run")
 def api_run_connector(connector_id):
     result = run_connector(
         connector_id,
-        current_app.config,
+        get_effective_config(current_app.config),
         classifier=build_classifier(),
-        provider=current_app.config["AI_PROVIDER"],
-        model=current_app.config["OLLAMA_MODEL"],
+        provider=get_effective_config(current_app.config)["AI_PROVIDER"],
+        model=get_effective_config(current_app.config)["OLLAMA_MODEL"],
     )
     db.session.commit()
     return jsonify(result.__dict__), 200 if result.status != "not_found" else 404
 
 
 def build_classifier():
+    values = get_effective_config(current_app.config)
     return get_classifier(
-        current_app.config["AI_PROVIDER"],
-        current_app.config["OLLAMA_URL"],
-        current_app.config["OLLAMA_MODEL"],
+        values["AI_PROVIDER"],
+        values["OLLAMA_URL"],
+        values["OLLAMA_MODEL"],
     )
 
 

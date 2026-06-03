@@ -23,3 +23,4 @@ class Config:
     GMAIL_CREDENTIALS_PATH = os.getenv("GMAIL_CREDENTIALS_PATH", "credentials/google_client_secret.json")
     GMAIL_TOKEN_PATH = os.getenv("GMAIL_TOKEN_PATH", "credentials/gmail_token.json")
     JOB_PORTAL_IMPORT_DIR = os.getenv("JOB_PORTAL_IMPORT_DIR", "imports/job_portals")
+    WATCH_IMPORT_DIR = os.getenv("WATCH_IMPORT_DIR", "imports/watch")

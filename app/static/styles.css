@@ -728,9 +728,21 @@ textarea {
 }
 
 .source-form,
-.pipeline-list {
+.pipeline-list,
+.settings-form {
   display: grid;
   gap: 12px;
+}
+
+.settings-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-form label span {
+  color: #eadfff;
+  font-size: 13px;
+  font-weight: 850;
 }
 
 .pipeline-list div {

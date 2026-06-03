@@ -198,6 +198,14 @@ python desktop_activity_worker.py
 
 This watches the active window title locally and logs Digital Wellbeing events when you spend at least 60 seconds in a window.
 
+Auto-import real files from a watch folder:
+
+```powershell
+python watch_import_worker.py
+```
+
+By default it watches `imports/watch`. Drop `.eml`, `.mbox`, `.json`, or `.csv` files there and AiOS imports each file once.
+
 Packaging starter:
 
 ```powershell
@@ -225,6 +233,7 @@ config.py
 run.py
 desktop_app.py
 desktop_app.spec
+watch_import_worker.py
 requirements.txt
 .env.example
 ARCHITECTURE.md
@@ -282,6 +291,7 @@ The app should not depend on fake seed data. Current real-data inputs are:
 
 - Browser extension: captures real web pages, selected text, job pages, hackathons, and activity signals.
 - Local import page: imports `.eml`, `.mbox`, `.json`, and `.csv` files.
+- Watch folder worker: imports real files dropped into `imports/watch`.
 - Desktop activity worker: records active desktop window time into wellbeing events.
 - Manual capture: paste an actual email/job/deadline into the dashboard or mobile dashboard.
 
@@ -291,6 +301,14 @@ Open:
 http://127.0.0.1:5000/sources
 ```
 
+Settings:
+
+```text
+http://127.0.0.1:5000/settings
+```
+
+Use settings to configure the AI provider, Ollama URL/model, Gmail Takeout mbox path, Gmail OAuth paths, job portal import folder, and watch import folder.
+
 Supported import formats:
 
 - `.eml`: one exported email file.
@@ -299,6 +317,18 @@ Supported import formats:
 - `.csv`: columns like `sender`, `subject`, `body` or `from`, `title`, `notes`.
 
 The import pipeline sends each record through the same local classifier and saves real inbox items, opportunities, reminders, and agent decisions.
+
+Watch-folder flow:
+
+```text
+imports/watch/*.csv
+        |
+watch_import_worker.py
+        |
+local classifier
+        |
+database + live dashboard
+```
 
 ## Connectors
 

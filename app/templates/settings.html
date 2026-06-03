@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4c1d95">
+  <title>AiOS Settings</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page">
+    <section class="source-hero glass">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <p class="eyebrow">Local settings</p>
+      <h1>Configure the real agent.</h1>
+      <p>These values are stored locally in the SQLite database and override `.env` defaults.</p>
+    </section>
+
+    {% if saved %}
+      <section class="panel glass">
+        <p class="eyebrow">Saved</p>
+        <h2>Settings updated</h2>
+        <p class="source-note">Connectors and classifiers will use these values on the next run.</p>
+      </section>
+    {% endif %}
+
+    <section class="panel glass">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Config</p>
+          <h2>Connector and AI Settings</h2>
+        </div>
+      </div>
+      <form class="settings-form" method="post" action="{{ url_for('main.save_settings') }}">
+        {% for key, label in keys.items() %}
+          <label>
+            <span>{{ label }}</span>
+            <input name="{{ key }}" value="{{ values.get(key, '') }}" placeholder="{{ key }}">
+          </label>
+        {% endfor %}
+        <button type="submit">Save Settings</button>
+      </form>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
