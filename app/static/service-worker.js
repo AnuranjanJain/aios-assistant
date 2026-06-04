@@ -1,4 +1,4 @@
-const CACHE_NAME = "aios-assistant-v5";
+const CACHE_NAME = "aios-assistant-v6";
 const APP_SHELL = [
   "/",
   "/mobile",

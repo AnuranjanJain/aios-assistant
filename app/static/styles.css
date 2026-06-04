@@ -780,6 +780,25 @@ textarea {
   padding: 14px;
 }
 
+.worker-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.07);
+}
+
+.worker-dot.on {
+  background: var(--green);
+  box-shadow: 0 0 0 8px rgba(114, 242, 180, 0.14);
+}
+
+.worker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .pipeline-list strong,
 .pipeline-list small {
   display: block;

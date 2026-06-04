@@ -13,6 +13,7 @@ from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
 from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config
 from app.services.wellbeing import summarize_activity
+from app.services.workers import list_worker_status, start_worker, stop_worker
 
 
 bp = Blueprint("main", __name__)
@@ -129,6 +130,23 @@ def run_connector_route(connector_id):
 def settings():
     values = get_effective_config(current_app.config)
     return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=False, pin_enabled=has_pin())
+
+
+@bp.get("/workers")
+def workers():
+    return render_template("workers.html", workers=list_worker_status(), result=None)
+
+
+@bp.post("/workers/<worker_id>/start")
+def start_worker_route(worker_id):
+    result = start_worker(worker_id)
+    return render_template("workers.html", workers=list_worker_status(), result=result)
+
+
+@bp.post("/workers/<worker_id>/stop")
+def stop_worker_route(worker_id):
+    result = stop_worker(worker_id)
+    return render_template("workers.html", workers=list_worker_status(), result=result)
 
 
 @bp.post("/settings")
@@ -396,6 +414,23 @@ def api_run_connector(connector_id):
     )
     db.session.commit()
     return jsonify(result.__dict__), 200 if result.status != "not_found" else 404
+
+
+@bp.get("/api/workers")
+def api_workers():
+    return jsonify(list_worker_status())
+
+
+@bp.post("/api/workers/<worker_id>/start")
+def api_start_worker(worker_id):
+    result = start_worker(worker_id)
+    return jsonify(result), 200 if result["status"] != "not_found" else 404
+
+
+@bp.post("/api/workers/<worker_id>/stop")
+def api_stop_worker(worker_id):
+    result = stop_worker(worker_id)
+    return jsonify(result), 200 if result["status"] != "not_found" else 404
 
 
 def build_classifier():

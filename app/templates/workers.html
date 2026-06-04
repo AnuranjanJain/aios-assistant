@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4c1d95">
+  <title>AiOS Workers</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page">
+    <section class="source-hero glass">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <p class="eyebrow">Worker control</p>
+      <h1>Run the local agent loops.</h1>
+      <p>Start or stop the standalone reminder, desktop activity, and watch-folder workers.</p>
+    </section>
+
+    {% if result %}
+      <section class="panel glass">
+        <p class="eyebrow">{{ result.status }}</p>
+        <h2>{{ result.message }}</h2>
+      </section>
+    {% endif %}
+
+    <section class="source-grid">
+      {% for worker in workers %}
+        <article class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">{{ "Running" if worker.running else "Stopped" }}</p>
+              <h2>{{ worker.name }}</h2>
+            </div>
+            <span class="worker-dot {{ 'on' if worker.running else '' }}"></span>
+          </div>
+          <p class="source-note">{{ worker.description }}</p>
+          <p class="source-note">{{ worker.script }}{% if worker.pid %} - PID {{ worker.pid }}{% endif %}</p>
+          <div class="worker-actions">
+            <form method="post" action="{{ url_for('main.start_worker_route', worker_id=worker.id) }}">
+              <button type="submit">Start</button>
+            </form>
+            <form method="post" action="{{ url_for('main.stop_worker_route', worker_id=worker.id) }}">
+              <button type="submit" class="ghost-button">Stop</button>
+            </form>
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

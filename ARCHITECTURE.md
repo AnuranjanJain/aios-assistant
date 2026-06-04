@@ -306,6 +306,24 @@ live dashboard
 
 The desktop wrapper starts this worker automatically. Browser mode can run it separately.
 
+### Worker Control Flow
+
+```text
+/workers
+        |
+workers.py
+        |
+start/stop standalone Python worker processes
+        |
+.aios_workers.json PID state
+```
+
+Managed workers:
+
+- reminder worker
+- desktop activity worker
+- watch import worker
+
 ### Settings Flow
 
 ```text

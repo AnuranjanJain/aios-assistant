@@ -7,5 +7,6 @@ instance/
 *.db
 .aios_worker_state.json
 .aios_watch_state.json
+.aios_workers.json
 imports/
 credentials/

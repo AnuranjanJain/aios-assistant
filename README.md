@@ -206,6 +206,26 @@ python watch_import_worker.py
 
 By default it watches `imports/watch`. Drop `.eml`, `.mbox`, `.json`, or `.csv` files there and AiOS imports each file once.
 
+Worker control UI:
+
+```text
+http://127.0.0.1:5000/workers
+```
+
+From there you can start/stop the reminder worker, desktop activity worker, and watch import worker.
+
+Worker API:
+
+```text
+GET  /api/workers
+POST /api/workers/reminders/start
+POST /api/workers/reminders/stop
+POST /api/workers/activity/start
+POST /api/workers/activity/stop
+POST /api/workers/watch_imports/start
+POST /api/workers/watch_imports/stop
+```
+
 Packaging starter:
 
 ```powershell
