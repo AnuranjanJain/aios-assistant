@@ -1,8 +1,9 @@
 import json
 from datetime import datetime
 
-from app.models import AgentDecision, InboxItem, Opportunity, db
+from app.models import AgentDecision, InboxItem, db
 from app.services.hackathons import ingest_hackathon_signal
+from app.services.placements import ingest_placement_signal
 from app.services.reminder_engine import create_follow_up_reminder
 
 
@@ -32,17 +33,16 @@ def ingest_message(sender, subject, body, source, classifier, provider, model=No
             deadline=result.deadline,
         )
     elif result.category in TRACKED_CATEGORIES:
-        opportunity = Opportunity(
-            kind="job" if result.category == "interview" else result.category,
-            title=(result.title or subject)[:180],
-            organization=result.organization or sender or "Unknown",
-            status=result.status,
+        opportunity, _update, created = ingest_placement_signal(
+            title=result.title or subject,
             source=source,
+            body=body,
+            organization=result.organization or sender,
+            status=result.status,
             deadline=parse_optional_datetime(result.deadline),
-            notes=result.action_needed or result.reason,
         )
-        db.session.add(opportunity)
-        db.session.add(create_follow_up_reminder(opportunity))
+        if created and not opportunity.reminders:
+            db.session.add(create_follow_up_reminder(opportunity))
 
     decision = AgentDecision(
         input_type="message",

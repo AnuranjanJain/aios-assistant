@@ -13,7 +13,7 @@ def scan_once(app):
         classifier = get_classifier(values["AI_PROVIDER"], values["OLLAMA_URL"], values["OLLAMA_MODEL"])
         results = []
 
-        for connector_id in ("gmail", "hackathon_platforms"):
+        for connector_id in ("gmail", "hackathon_platforms", "job_portals"):
             result = run_connector(
                 connector_id,
                 values,
@@ -29,7 +29,7 @@ def scan_once(app):
 
 def main():
     app = create_app()
-    print("AiOS hackathon monitor is running. Press Ctrl+C to stop.")
+    print("AiOS opportunity monitor is running. Press Ctrl+C to stop.")
 
     while True:
         with app.app_context():

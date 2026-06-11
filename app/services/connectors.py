@@ -6,8 +6,9 @@ from pathlib import Path
 
 from app.models import ConnectorRun, Reminder, db
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
-from app.services.hackathons import ingest_hackathon_signal
+from app.services.hackathons import detect_platform, ingest_hackathon_signal
 from app.services.notifications import send_desktop_notification
+from app.services.placements import ingest_placement_signal, is_neopat_signal
 
 
 @dataclass
@@ -68,7 +69,7 @@ class GmailConnector(BaseConnector):
         if (token_path and Path(token_path).exists()) or (
             credentials_path and Path(credentials_path).exists()
         ):
-            return self._run_gmail_api(app_config)
+            return self._run_gmail_api(app_config, classifier)
 
         mbox_path = app_config.get("GMAIL_MBOX_PATH", "")
         if mbox_path and Path(mbox_path).exists():
@@ -87,12 +88,13 @@ class GmailConnector(BaseConnector):
             message="No Gmail source configured. Add GMAIL_MBOX_PATH for local import or configure Gmail OAuth credentials.",
         )
 
-    def _run_gmail_api(self, app_config):
+    def _run_gmail_api(self, app_config, classifier):
         try:
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
             from google_auth_oauthlib.flow import InstalledAppFlow
             from googleapiclient.discovery import build
+            from googleapiclient.errors import HttpError
         except ImportError:
             return ConnectorResult(
                 connector_id=self.connector_id,
@@ -124,14 +126,28 @@ class GmailConnector(BaseConnector):
             token_path.write_text(credentials.to_json(), encoding="utf-8")
 
         service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
-        query = app_config.get("GMAIL_HACKATHON_QUERY") or (
-            "newer_than:90d (from:unstop.com OR from:hack2skill.com OR "
+        query = app_config.get("GMAIL_OPPORTUNITY_QUERY") or app_config.get("GMAIL_HACKATHON_QUERY") or (
+            "newer_than:365d (from:unstop.com OR from:hack2skill.com OR "
             "from:hackerearth.com OR from:devfolio.co OR from:devpost.com OR "
-            "subject:hackathon OR subject:shortlisted OR subject:submission)"
+            "subject:hackathon OR subject:submission OR subject:shortlisted OR "
+            "subject:application OR subject:applied OR subject:interview OR "
+            "subject:assessment OR subject:\"online assessment\" OR subject:offer OR "
+            "subject:rejected OR subject:rejection OR subject:intern OR subject:placement OR "
+            "subject:neopat)"
         )
-        response = service.users().messages().list(userId="me", q=query, maxResults=100).execute()
+        try:
+            response = service.users().messages().list(userId="me", q=query, maxResults=100).execute()
+        except HttpError as exc:
+            return ConnectorResult(
+                connector_id=self.connector_id,
+                status="setup_required",
+                message=f"Gmail API request failed. {format_google_api_error(exc)}",
+            )
         messages = response.get("messages", [])
         imported = 0
+        hackathon_imported = 0
+        placement_imported = 0
+        neopat_imported = 0
 
         for item in messages:
             message = service.users().messages().get(
@@ -144,20 +160,54 @@ class GmailConnector(BaseConnector):
                 header["name"].lower(): header["value"]
                 for header in message.get("payload", {}).get("headers", [])
             }
-            _opportunity, _update, created = ingest_hackathon_signal(
-                title=headers.get("subject") or "Hackathon email update",
-                source=f"gmail:{headers.get('from', '')}",
-                body=message.get("snippet", ""),
-                organization=headers.get("from", ""),
-                external_id=f"gmail:{item['id']}",
-                occurred_at=datetime.fromtimestamp(int(message.get("internalDate", "0")) / 1000),
-            )
-            imported += int(created)
+            subject = headers.get("subject") or "Gmail update"
+            sender = headers.get("from", "")
+            snippet = message.get("snippet", "")
+            occurred_at = datetime.fromtimestamp(int(message.get("internalDate", "0")) / 1000)
+            classification = classifier.classify(subject, snippet)
+            platform = detect_platform(sender, subject, snippet)
+
+            if classification.category == "hackathon" or platform != "other":
+                _opportunity, _update, created = ingest_hackathon_signal(
+                    title=subject,
+                    source=f"gmail:{sender}",
+                    body=snippet,
+                    organization=sender,
+                    platform=platform,
+                    status=classification.status,
+                    deadline=classification.deadline,
+                    external_id=f"gmail:hackathon:{item['id']}",
+                    occurred_at=occurred_at,
+                )
+                hackathon_imported += int(created)
+            elif classification.category in {"job", "interview", "deadline", "meeting"}:
+                is_neopat = is_neopat_signal(subject, sender, snippet)
+                _opportunity, _update, created = ingest_placement_signal(
+                    title=classification.title or subject,
+                    source=f"gmail:{sender}",
+                    body=snippet,
+                    organization=classification.organization or sender,
+                    status=classification.status,
+                    kind="neopat" if is_neopat else "job",
+                    deadline=classification.deadline,
+                    external_id=f"gmail:placement:{item['id']}",
+                    occurred_at=occurred_at,
+                )
+                if is_neopat:
+                    neopat_imported += int(created)
+                else:
+                    placement_imported += int(created)
+
+        imported = hackathon_imported + placement_imported + neopat_imported
 
         return ConnectorResult(
             connector_id=self.connector_id,
             status="ok",
-            message=f"Scanned {len(messages)} matching Gmail messages and imported {imported} new hackathon updates.",
+            message=(
+                f"Scanned {len(messages)} matching Gmail messages and imported "
+                f"{hackathon_imported} hackathon updates, {placement_imported} placement updates, "
+                f"and {neopat_imported} NeoPat updates."
+            ),
             records_seen=len(messages),
             records_imported=imported,
         )
@@ -289,6 +339,19 @@ def read_hackathon_export(path):
 
     with path.open("r", encoding="utf-8-sig", newline="") as file:
         return list(csv.DictReader(file))
+
+
+def format_google_api_error(exc):
+    try:
+        payload = json.loads(exc.content.decode("utf-8"))
+        details = payload.get("error", {})
+        message = details.get("message", "")
+    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+        message = str(exc)
+
+    if "Gmail API has not been used" in message or "disabled" in message:
+        return "Enable Gmail API for the Google Cloud project attached to credentials/google_client_secret.json, wait a minute, then run Gmail again."
+    return message or "Check Google Cloud API settings and OAuth consent configuration."
 
 
 CONNECTORS = {

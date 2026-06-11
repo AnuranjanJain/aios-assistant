@@ -21,12 +21,18 @@ class RuleBasedClassifier:
         text = f"{subject} {body}".lower()
 
         rules = [
-            ("interview", "Interview Scheduled", ["interview", "technical round", "hr round"]),
-            ("job", "OA Received", ["online assessment", "coding assessment", "oa"]),
-            ("job", "Rejected", ["unfortunately", "not moving forward", "rejection"]),
-            ("job", "Applied", ["application received", "thank you for applying", "applied"]),
-            ("hackathon", "Registration", ["hackathon", "devfolio", "unstop"]),
-            ("deadline", "Deadline", ["deadline", "due date", "submission"]),
+            (
+                "hackathon",
+                "Registration",
+                ["hackathon", "devfolio", "unstop", "hack2skill", "hackerearth", "devpost"],
+            ),
+            ("job", "Rejected", ["unfortunately", "not moving forward", "not selected", "rejection", "rejected"]),
+            ("job", "Offer", ["offer letter", "pleased to offer", "congratulations"]),
+            ("interview", "Interview Scheduled", ["interview", "technical round", "hr round", "manager round"]),
+            ("job", "OA Received", ["online assessment", "coding assessment", "assessment", "test link", "oa"]),
+            ("job", "Shortlisted", ["shortlisted", "shortlist", "qualified", "next round"]),
+            ("job", "Applied", ["application received", "thank you for applying", "successfully applied", "applied"]),
+            ("deadline", "Deadline", ["deadline", "due date", "last date", "complete by", "submission"]),
             ("meeting", "Meeting", ["meeting", "calendar invite", "schedule a call"]),
         ]
 

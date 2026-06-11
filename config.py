@@ -22,6 +22,7 @@ class Config:
     GMAIL_MBOX_PATH = os.getenv("GMAIL_MBOX_PATH", "")
     GMAIL_CREDENTIALS_PATH = os.getenv("GMAIL_CREDENTIALS_PATH", "credentials/google_client_secret.json")
     GMAIL_TOKEN_PATH = os.getenv("GMAIL_TOKEN_PATH", "credentials/gmail_token.json")
+    GMAIL_OPPORTUNITY_QUERY = os.getenv("GMAIL_OPPORTUNITY_QUERY", "")
     GMAIL_HACKATHON_QUERY = os.getenv("GMAIL_HACKATHON_QUERY", "")
     JOB_PORTAL_IMPORT_DIR = os.getenv("JOB_PORTAL_IMPORT_DIR", "imports/job_portals")
     HACKATHON_IMPORT_DIR = os.getenv("HACKATHON_IMPORT_DIR", "imports/hackathons")

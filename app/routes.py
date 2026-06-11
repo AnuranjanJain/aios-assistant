@@ -4,7 +4,16 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.utils import secure_filename
 
-from app.models import ActivityEvent, ConnectorRun, HackathonUpdate, InboxItem, Opportunity, Reminder, db
+from app.models import (
+    ActivityEvent,
+    ConnectorRun,
+    HackathonUpdate,
+    InboxItem,
+    Opportunity,
+    PlacementUpdate,
+    Reminder,
+    db,
+)
 from app.services.agent_ingest import ingest_message as ingest_agent_message
 from app.services.ai_classifier import get_classifier
 from app.services.api_auth import has_valid_api_token
@@ -13,6 +22,7 @@ from app.services.connectors import list_connectors, run_connector
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
 from app.services.hackathons import ingest_hackathon_signal, serialize_hackathon
+from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
 from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config
 from app.services.wellbeing import summarize_activity
 from app.services.workers import list_worker_status, start_worker, stop_worker
@@ -112,11 +122,12 @@ def sources():
 @bp.get("/connectors")
 def connectors():
     runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(12).all()
+    result = runs[0] if request.args.get("last_run") and runs else None
     return render_template(
         "connectors.html",
         connectors=list_connectors(get_effective_config(current_app.config)),
         runs=runs,
-        result=None,
+        result=result,
     )
 
 
@@ -130,14 +141,12 @@ def run_connector_route(connector_id):
         model=get_effective_config(current_app.config)["OLLAMA_MODEL"],
     )
     db.session.commit()
+    return redirect(url_for("main.connectors", last_run=connector_id))
 
-    runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(12).all()
-    return render_template(
-        "connectors.html",
-        connectors=list_connectors(get_effective_config(current_app.config)),
-        runs=runs,
-        result=result,
-    )
+
+@bp.get("/connectors/<connector_id>/run")
+def connector_run_get_redirect(connector_id):
+    return redirect(url_for("main.connectors"))
 
 
 @bp.get("/settings")
@@ -414,6 +423,115 @@ def api_mark_hackathon_update_read(update_id):
     return jsonify({"ok": True, "update_id": update.id})
 
 
+@bp.get("/api/placements")
+def api_placements():
+    placements = [
+        item
+        for item in Opportunity.query.filter_by(kind="job").order_by(Opportunity.updated_at.desc()).all()
+        if not is_neopat_opportunity(item)
+    ]
+    connector_runs = (
+        ConnectorRun.query.filter(
+            ConnectorRun.connector_id.in_(["gmail", "job_portals"])
+        )
+        .order_by(ConnectorRun.created_at.desc())
+        .limit(8)
+        .all()
+    )
+    return jsonify(
+        {
+            "placements": [serialize_placement(item) for item in placements],
+            "connectors": [serialize_connector_run(item) for item in connector_runs],
+            "unread_updates": sum(
+                1
+                for item in PlacementUpdate.query.join(Opportunity).filter(Opportunity.kind == "job").all()
+                if not item.is_read and not is_neopat_opportunity(item.opportunity)
+            ),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    )
+
+
+@bp.get("/api/neopat")
+def api_neopat():
+    neopat_items = [
+        item
+        for item in Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
+        if item.kind == "neopat" or is_neopat_opportunity(item)
+    ]
+    connector_runs = (
+        ConnectorRun.query.filter_by(connector_id="gmail")
+        .order_by(ConnectorRun.created_at.desc())
+        .limit(8)
+        .all()
+    )
+    return jsonify(
+        {
+            "placements": [serialize_placement(item) for item in neopat_items],
+            "connectors": [serialize_connector_run(item) for item in connector_runs],
+            "unread_updates": sum(
+                1
+                for item in PlacementUpdate.query.join(Opportunity).all()
+                if not item.is_read and (item.opportunity.kind == "neopat" or is_neopat_opportunity(item.opportunity))
+            ),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    )
+
+
+@bp.post("/api/placements/capture")
+def api_capture_placement():
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or data.get("subject") or "").strip()
+    if not title:
+        return jsonify({"error": "title is required"}), 400
+
+    opportunity, update, created = ingest_placement_signal(
+        title=title,
+        source=(data.get("source") or "local api").strip(),
+        body=(data.get("body") or data.get("content") or "").strip(),
+        organization=(data.get("organization") or data.get("company") or "").strip(),
+        status=(data.get("status") or "").strip(),
+        kind=(data.get("kind") or "job").strip(),
+        deadline=data.get("deadline"),
+        external_id=(data.get("external_id") or "").strip(),
+        occurred_at=data.get("occurred_at"),
+    )
+    db.session.commit()
+    return jsonify(
+        {
+            "created": created,
+            "placement": serialize_placement(opportunity),
+            "update_id": update.id,
+        }
+    ), 201 if created else 200
+
+
+@bp.post("/api/placements/refresh")
+def api_refresh_placements():
+    values = get_effective_config(current_app.config)
+    results = []
+    for connector_id in ("gmail", "job_portals"):
+        result = run_connector(
+            connector_id,
+            values,
+            classifier=build_classifier(),
+            provider=values["AI_PROVIDER"],
+            model=values["OLLAMA_MODEL"],
+        )
+        results.append(result.__dict__)
+    db.session.commit()
+    return jsonify({"ok": True, "connectors": results})
+
+
+@bp.post("/api/placement-updates/<int:update_id>/read")
+def api_mark_placement_update_read(update_id):
+    update = PlacementUpdate.query.get_or_404(update_id)
+    update.is_read = True
+    db.session.commit()
+    return jsonify({"ok": True, "update_id": update.id})
+
+
 @bp.post("/api/wellbeing/activity")
 def api_wellbeing_activity():
     data = request.get_json(silent=True) or {}
@@ -597,6 +715,10 @@ def serialize_connector_run(item):
         "records_imported": item.records_imported,
         "created_at": item.created_at.isoformat(),
     }
+
+
+def is_neopat_opportunity(item):
+    return is_neopat_signal(item.title, item.organization, item.source, item.notes)
 
 
 def build_dashboard_stats(opportunities, reminders, inbox_items, activity_events):

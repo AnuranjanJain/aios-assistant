@@ -38,9 +38,9 @@ WORKERS = {
     ),
     "hackathons": WorkerDefinition(
         worker_id="hackathons",
-        name="Hackathon Monitor",
+        name="Opportunity Monitor",
         script="hackathon_monitor_worker.py",
-        description="Scans Gmail and platform exports for hackathon updates.",
+        description="Scans Gmail, hackathon exports, and job portal exports for live opportunity updates.",
     ),
 }
 
