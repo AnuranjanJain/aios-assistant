@@ -461,9 +461,9 @@ For collector-level background sync, set `LOCAL_API_TOKEN` in AiOS settings or `
 
 The CORS layer allows credentialed browser requests only from local `127.0.0.1` and `localhost` origins. Do not expose this API outside a trusted local device or LAN without HTTPS and a rotated per-client token.
 
-## Hackathon Monitor
+## Live Opportunity Monitor
 
-AiOS now acts as the local source-of-truth for the `What Do You Do` Hackathon Corner.
+AiOS now acts as the local source-of-truth for the `What Do You Do` Hackathon Corner and placement/company tracker.
 
 It tracks:
 
@@ -472,20 +472,71 @@ It tracks:
 - team invitations
 - submission and deadline messages
 - submitted projects and result announcements
+- company applications
+- online assessment and test links
+- interview rounds
+- rejection, offer, and follow-up emails
 - unread source updates
 
-### Gmail scan
+### Real Gmail test flow
+
+AiOS can scan your actual Gmail inbox with Google's read-only Gmail API. It does not need your Gmail password, and it does not send email content to OpenAI/Gemini when `AI_PROVIDER=rule_based` or local Ollama is used.
 
 1. Enable the Gmail API in Google Cloud.
 2. Create OAuth credentials for a desktop application.
 3. Place the downloaded file at `credentials/google_client_secret.json`.
-4. Install dependencies with `pip install -r requirements.txt`.
-5. Run the Gmail connector once from `/connectors` to approve read-only access.
-6. Start the Hackathon Monitor from `/workers`.
+4. Install dependencies:
 
-The default query scans recent messages from Unstop, Hack2Skill, HackerEarth, Devfolio, and Devpost, plus subjects containing hackathon/shortlist/submission signals. Override it with `GMAIL_HACKATHON_QUERY`.
+```powershell
+python -m pip install -r requirements.txt
+```
+
+5. Start AiOS:
+
+```powershell
+python run.py
+```
+
+6. Open `http://127.0.0.1:5000/connectors`.
+7. Run the Gmail connector once and approve the read-only Google consent screen.
+8. Open `http://127.0.0.1:5000/workers` and start the monitor worker.
+9. Check the live feeds:
+
+```text
+GET http://127.0.0.1:5000/api/hackathons
+GET http://127.0.0.1:5000/api/placements
+```
+
+After first approval, Google stores a local OAuth token at `credentials/gmail_token.json`. Delete that file to disconnect Gmail from this local app.
+
+The default Gmail query scans the past year for:
+
+- Unstop, Hack2Skill, HackerEarth, Devfolio, and Devpost updates
+- hackathon, shortlist, submission, result, and deadline subjects
+- placement, application, interview, assessment, offer, rejection, and internship subjects
+
+Override it with `GMAIL_OPPORTUNITY_QUERY`. Existing `GMAIL_HACKATHON_QUERY` still works as a backward-compatible fallback.
 
 The integration uses the read-only Gmail scope. Gmail message IDs are stored as deduplication keys, so repeated scans do not create repeated updates.
+
+### Placement company tracker
+
+Placement updates are stored as company/application timelines. Each timeline tracks:
+
+- current status: Applied, OA Received, Shortlisted, Interview Scheduled, Rejected, Offer, Deadline, or Tracked
+- source connector and latest Gmail/platform update
+- unread updates, so repeated notifications can be muted after review
+- optional deadline
+- next action suggested by the local rule engine
+
+Supported APIs:
+
+```text
+GET  /api/placements
+POST /api/placements/capture
+POST /api/placements/refresh
+POST /api/placement-updates/{id}/read
+```
 
 ### Platform monitoring
 

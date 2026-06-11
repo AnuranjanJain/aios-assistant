@@ -10,3 +10,6 @@ instance/
 .aios_workers.json
 imports/
 credentials/
+*.log
+*.out.log
+*.err.log

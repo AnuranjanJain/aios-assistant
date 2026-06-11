@@ -1106,7 +1106,9 @@ textarea {
 .source-page {
   display: grid;
   gap: 20px;
+  width: 100%;
   max-width: 1100px;
+  min-width: 0;
   margin: 0 auto;
   padding: 22px;
 }
@@ -1151,6 +1153,47 @@ textarea {
 .source-hero p:last-child,
 .source-note {
   color: var(--muted);
+}
+
+.source-note {
+  max-width: 100%;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.connector-result {
+  overflow: hidden;
+}
+
+.connector-history {
+  overflow: hidden;
+}
+
+.connector-run-row {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.connector-run-copy {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.connector-run-copy small {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.connector-run-row:hover .connector-run-copy small,
+.connector-run-row:focus-within .connector-run-copy small {
+  -webkit-line-clamp: unset;
 }
 
 .back-link {

@@ -18,7 +18,7 @@
     </section>
 
     {% if result %}
-      <section class="panel glass">
+      <section class="panel glass connector-result">
         <p class="eyebrow">Last run</p>
         <h2>{{ result.connector_id }} - {{ result.status }}</h2>
         <p class="source-note">{{ result.message }}</p>
@@ -43,7 +43,7 @@
       {% endfor %}
     </section>
 
-    <section class="panel glass">
+    <section class="panel glass connector-history">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">History</p>
@@ -52,9 +52,9 @@
       </div>
       <div class="list">
         {% for run in runs %}
-          <article class="list-row">
+          <article class="list-row connector-run-row">
             <span class="activity-badge">{{ run.records_imported }}</span>
-            <div>
+            <div class="connector-run-copy">
               <strong>{{ run.connector_id }} - {{ run.status }}</strong>
               <small>{{ run.message }} - {{ run.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
             </div>
