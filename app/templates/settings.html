@@ -36,11 +36,19 @@
         {% for key, label in keys.items() %}
           <label>
             <span>{{ label }}</span>
-            <input name="{{ key }}" value="{{ values.get(key, '') }}" placeholder="{{ key }}">
+            <input
+              name="{{ key }}"
+              type="{{ 'password' if key == 'LOCAL_API_TOKEN' else 'text' }}"
+              value="{{ values.get(key, '') }}"
+              placeholder="{{ key }}"
+            >
           </label>
         {% endfor %}
         <button type="submit">Save Settings</button>
       </form>
+      <p class="source-note">
+        `LOCAL_API_TOKEN` lets trusted local clients send `X-AiOS-Token` for background API sync without using the browser PIN session.
+      </p>
     </section>
 
     <section class="panel glass">

@@ -8,27 +8,27 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-<body>
-  <div class="shell">
-    <aside class="sidebar glass">
+<body class="workspace-body">
+  <div class="shell workspace-shell">
+    <aside class="sidebar workspace-sidebar">
       <a class="brand" href="{{ url_for('main.dashboard') }}" aria-label="AiOS Assistant home">
         <span class="brand-mark">A</span>
         <span>
-          <strong>AiOS</strong>
-          <small>Local Agent</small>
+          <strong>WORKSPACE</strong>
+          <small>AiOS local agent</small>
         </span>
       </a>
 
       <nav class="menu" aria-label="Dashboard navigation">
-        <a class="active" href="#overview">Overview</a>
-        <a href="#opportunities">Opportunities</a>
-        <a href="#reminders">Reminders</a>
-        <a href="#inbox">Inbox AI</a>
-        <a href="#wellbeing">Wellbeing</a>
-        <a href="{{ url_for('main.sources') }}">Sources</a>
-        <a href="{{ url_for('main.connectors') }}">Connectors</a>
-        <a href="{{ url_for('main.workers') }}">Workers</a>
-        <a href="{{ url_for('main.settings') }}">Settings</a>
+        <a class="active" href="#overview"><span class="nav-initial">O</span><span class="nav-label">Overview</span></a>
+        <a href="#opportunities"><span class="nav-initial">P</span><span class="nav-label">Opportunities</span></a>
+        <a href="#reminders"><span class="nav-initial">R</span><span class="nav-label">Reminders</span></a>
+        <a href="#inbox"><span class="nav-initial">I</span><span class="nav-label">Inbox AI</span></a>
+        <a href="#wellbeing"><span class="nav-initial">W</span><span class="nav-label">Wellbeing</span></a>
+        <a href="{{ url_for('main.sources') }}"><span class="nav-initial">S</span><span class="nav-label">Sources</span></a>
+        <a href="{{ url_for('main.connectors') }}"><span class="nav-initial">C</span><span class="nav-label">Connectors</span></a>
+        <a href="{{ url_for('main.workers') }}"><span class="nav-initial">M</span><span class="nav-label">Workers</span></a>
+        <a href="{{ url_for('main.settings') }}"><span class="nav-initial">⚙</span><span class="nav-label">Settings</span></a>
       </nav>
 
       <div class="agent-card">
@@ -44,7 +44,24 @@
     </aside>
 
     <main class="dashboard">
-      <header class="hero glass">
+      <header class="workspace-topbar">
+        <div class="schedule-pill">
+          <span>Your Schedule</span>
+          <strong data-live-updated>Live local sync</strong>
+        </div>
+        <div class="top-rail">
+          <span>Gmail</span>
+          <span>Hackathons</span>
+          <span>Jobs</span>
+          <span>Wellbeing</span>
+        </div>
+        <div class="profile-stack" aria-label="Local profile">
+          <span>A</span>
+          <span>AJ</span>
+        </div>
+      </header>
+
+      <header class="hero workspace-hero">
         <div>
           <p class="eyebrow">Personal AI productivity system</p>
           <h1>Good evening, Anuranjan.</h1>
@@ -57,30 +74,118 @@
       </header>
 
       <section id="overview" class="stats-grid" aria-label="Dashboard stats">
-        <article class="stat-card glass">
+        <article class="stat-card">
           <span>Tracked</span>
           <strong data-live-stat="opportunities">{{ stats.opportunities }}</strong>
           <small>jobs, hackathons, interviews</small>
         </article>
-        <article class="stat-card glass">
+        <article class="stat-card">
           <span>Reminders</span>
           <strong data-live-stat="active_reminders">{{ stats.active_reminders }}</strong>
           <small>open action items</small>
         </article>
-        <article class="stat-card glass">
+        <article class="stat-card">
           <span>AI Confidence</span>
           <strong><span data-live-stat="avg_confidence">{{ stats.avg_confidence }}</span>%</strong>
           <small>recent inbox average</small>
         </article>
-        <article class="stat-card glass">
+        <article class="stat-card">
           <span>Wellbeing</span>
           <strong data-live-stat="wellbeing_minutes">{{ stats.wellbeing_minutes }}</strong>
           <small>minutes observed</small>
         </article>
       </section>
 
+      <section class="workspace-grid">
+        <div class="workspace-main">
+          <section class="lead-section">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">New leads</p>
+                <h2>Opportunity pipeline</h2>
+              </div>
+              <a class="mini-link" href="{{ url_for('main.connectors') }}">Run scan</a>
+            </div>
+            <div class="lead-card-grid" data-live-list="opportunities">
+              {% for item in opportunities[:6] %}
+                <article class="lead-card">
+                  <div class="lead-avatar">{{ (item.title or "A")[:1] }}</div>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                    <small>{{ item.kind }} - {{ item.status }}</small>
+                  </div>
+                  <div class="lead-tags">
+                    <span>{{ item.organization or "Unknown" }}</span>
+                    <span>{{ item.source or "local" }}</span>
+                  </div>
+                  <div class="lead-dots" aria-hidden="true">
+                    <i></i><i></i><i></i><i></i>
+                  </div>
+                </article>
+              {% else %}
+                <p class="empty">No opportunities yet.</p>
+              {% endfor %}
+            </div>
+          </section>
+
+          <section class="task-strip">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Your day's tasks</p>
+                <h2>Next actions</h2>
+              </div>
+            </div>
+            <div class="task-card-row">
+              {% for reminder in reminders[:3] %}
+                <article class="task-card {% if loop.first %}accent{% endif %}">
+                  <span>{{ reminder.due_at.strftime("%I:%M %p") }}</span>
+                  <strong>{{ reminder.title }}</strong>
+                  <small>{{ reminder.channel }}</small>
+                </article>
+              {% else %}
+                {% for block in plan.focus_blocks[:3] %}
+                  <article class="task-card {% if loop.first %}accent{% endif %}">
+                    <span>Focus block</span>
+                    <strong>{{ block }}</strong>
+                    <small>Generated from local plan</small>
+                  </article>
+                {% endfor %}
+              {% endfor %}
+            </div>
+          </section>
+        </div>
+
+        <aside class="agent-summary-panel">
+          <div class="call-preview">
+            <div class="call-avatar">AJ</div>
+            <div>
+              <strong>Anuranjan</strong>
+              <small>Local AI companion</small>
+            </div>
+          </div>
+          <div class="summary-sheet">
+            <p class="eyebrow">Summary</p>
+            <h2>Today at a glance</h2>
+            <div class="summary-card">
+              <span>Focus plan</span>
+              <strong data-live-plan-summary>{{ plan.summary }}</strong>
+            </div>
+            <div class="summary-card">
+              <span>Latest signal</span>
+              {% if activity_events %}
+                <strong>{{ activity_events[0].app_name or activity_events[0].category }}</strong>
+                <small>{{ activity_events[0].agent_summary }}</small>
+              {% else %}
+                <strong>No wellbeing signals yet</strong>
+                <small>Connect What Do You Do for live context.</small>
+              {% endif %}
+            </div>
+          </div>
+        </aside>
+      </section>
+
       <section class="main-grid">
-        <article class="panel plan-panel glass">
+        <article class="panel plan-panel">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Today</p>
@@ -97,7 +202,7 @@
           </div>
         </article>
 
-        <article class="panel glass">
+        <article class="panel">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Graph</p>
@@ -121,7 +226,7 @@
           </div>
         </article>
 
-        <article class="panel ingest glass">
+        <article class="panel ingest">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Input</p>
@@ -136,7 +241,7 @@
           </form>
         </article>
 
-        <article id="wellbeing" class="panel glass">
+        <article id="wellbeing" class="panel">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Graph</p>
@@ -160,7 +265,7 @@
       </section>
 
       <section class="data-grid">
-        <article id="opportunities" class="panel glass">
+        <article id="opportunities" class="panel">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Pipeline</p>
@@ -182,7 +287,7 @@
           </div>
         </article>
 
-        <article id="reminders" class="panel glass">
+        <article id="reminders" class="panel">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Actions</p>
@@ -215,7 +320,7 @@
           </div>
         </article>
 
-        <article id="inbox" class="panel glass">
+        <article id="inbox" class="panel">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Classifier</p>
@@ -237,7 +342,7 @@
           </div>
         </article>
 
-        <article class="panel glass">
+        <article class="panel">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">What do you do</p>
@@ -259,7 +364,7 @@
           </div>
         </article>
 
-        <article class="panel glass">
+        <article class="panel">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Connectors</p>

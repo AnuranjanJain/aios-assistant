@@ -4,13 +4,15 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.utils import secure_filename
 
-from app.models import ActivityEvent, ConnectorRun, InboxItem, Opportunity, Reminder, db
+from app.models import ActivityEvent, ConnectorRun, HackathonUpdate, InboxItem, Opportunity, Reminder, db
 from app.services.agent_ingest import ingest_message as ingest_agent_message
 from app.services.ai_classifier import get_classifier
+from app.services.api_auth import has_valid_api_token
 from app.services.auth import clear_pin, has_pin, set_pin, verify_pin
 from app.services.connectors import list_connectors, run_connector
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
+from app.services.hackathons import ingest_hackathon_signal, serialize_hackathon
 from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config
 from app.services.wellbeing import summarize_activity
 from app.services.workers import list_worker_status, start_worker, stop_worker
@@ -21,6 +23,9 @@ bp = Blueprint("main", __name__)
 
 @bp.before_app_request
 def require_ui_auth():
+    if request.method == "OPTIONS":
+        return None
+
     if not has_pin():
         return None
 
@@ -33,6 +38,9 @@ def require_ui_auth():
     if request.path.startswith("/static/"):
         return None
 
+    if request.path.startswith("/api/") and has_valid_api_token(request, current_app.config):
+        return None
+
     if request.path.startswith("/api/"):
         return jsonify({"error": "locked"}), 401
 
@@ -41,8 +49,14 @@ def require_ui_auth():
 
 @bp.after_app_request
 def add_local_api_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    origin = request.headers.get("Origin")
+    if origin and origin.startswith(("http://127.0.0.1:", "http://localhost:")):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Vary"] = "Origin"
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-AiOS-Token"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
@@ -319,6 +333,85 @@ def api_ingest_message():
             "inbox_item_id": result["inbox_item"].id,
         }
     ), 201
+
+
+@bp.get("/api/hackathons")
+def api_hackathons():
+    hackathons = (
+        Opportunity.query.filter_by(kind="hackathon")
+        .order_by(Opportunity.updated_at.desc())
+        .all()
+    )
+    connector_runs = (
+        ConnectorRun.query.filter(
+            ConnectorRun.connector_id.in_(["gmail", "hackathon_platforms"])
+        )
+        .order_by(ConnectorRun.created_at.desc())
+        .limit(8)
+        .all()
+    )
+    return jsonify(
+        {
+            "hackathons": [serialize_hackathon(item) for item in hackathons],
+            "connectors": [serialize_connector_run(item) for item in connector_runs],
+            "unread_updates": HackathonUpdate.query.filter_by(is_read=False).count(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    )
+
+
+@bp.post("/api/hackathons/capture")
+def api_capture_hackathon():
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or data.get("subject") or "").strip()
+    if not title:
+        return jsonify({"error": "title is required"}), 400
+
+    opportunity, update, created = ingest_hackathon_signal(
+        title=title,
+        source=(data.get("source") or "local api").strip(),
+        body=(data.get("body") or data.get("content") or "").strip(),
+        organization=(data.get("organization") or "").strip(),
+        platform=(data.get("platform") or "").strip(),
+        url=(data.get("url") or "").strip(),
+        status=(data.get("status") or "").strip(),
+        deadline=data.get("deadline"),
+        external_id=(data.get("external_id") or "").strip(),
+        occurred_at=data.get("occurred_at"),
+    )
+    db.session.commit()
+    return jsonify(
+        {
+            "created": created,
+            "hackathon": serialize_hackathon(opportunity),
+            "update_id": update.id,
+        }
+    ), 201 if created else 200
+
+
+@bp.post("/api/hackathons/refresh")
+def api_refresh_hackathons():
+    values = get_effective_config(current_app.config)
+    results = []
+    for connector_id in ("gmail", "hackathon_platforms"):
+        result = run_connector(
+            connector_id,
+            values,
+            classifier=build_classifier(),
+            provider=values["AI_PROVIDER"],
+            model=values["OLLAMA_MODEL"],
+        )
+        results.append(result.__dict__)
+    db.session.commit()
+    return jsonify({"ok": True, "connectors": results})
+
+
+@bp.post("/api/hackathon-updates/<int:update_id>/read")
+def api_mark_hackathon_update_read(update_id):
+    update = HackathonUpdate.query.get_or_404(update_id)
+    update.is_read = True
+    db.session.commit()
+    return jsonify({"ok": True, "update_id": update.id})
 
 
 @bp.post("/api/wellbeing/activity")

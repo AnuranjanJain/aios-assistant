@@ -12,6 +12,20 @@ It is designed to become a personal executive assistant for:
 - Calendar-ready scheduling
 - Digital wellbeing and focus tracking
 
+## Demo
+
+| Workspace dashboard | Mobile dashboard |
+| --- | --- |
+| ![AiOS workspace dashboard](docs/screenshots/aios-workspace-dashboard.png) | ![AiOS mobile dashboard](docs/screenshots/aios-mobile-dashboard.png) |
+
+The current UI is a dark workspace-style command center inspired by compact agent dashboards:
+
+- neon-lime command rail and schedule strip
+- opportunity cards for jobs, interviews, and hackathons
+- local reminders, source connectors, and live pipeline runs
+- right-side agent summary panel
+- mobile dashboard for phone or LAN access
+
 ## MVP Features
 
 - Classifies incoming email-like messages into jobs, hackathons, interviews, rejections, deadlines, and general updates.
@@ -433,6 +447,71 @@ Agent response:
 ```
 
 This makes the assistant more than a reminder app. It becomes a feedback loop between intention and actual behavior.
+
+### Local `What Do You Do` Bridge
+
+`What Do You Do` connects from the local Vite app to AiOS Assistant:
+
+1. It calls `GET /api/live` to confirm AiOS is running.
+2. If the local PIN is enabled and AiOS is locked, the API returns `401`.
+3. After the user unlocks AiOS in the browser, the wellbeing dashboard can call `POST /api/wellbeing/activity`.
+4. AiOS stores the event locally as an `ActivityEvent` and includes it in dashboard/mobile live state.
+
+For collector-level background sync, set `LOCAL_API_TOKEN` in AiOS settings or `.env`, then run the `What Do You Do` collector with the same value in `WDYD_AIOS_API_TOKEN`. The collector sends it as `X-AiOS-Token`, so it can write approved local wellbeing events even when no browser dashboard is open.
+
+The CORS layer allows credentialed browser requests only from local `127.0.0.1` and `localhost` origins. Do not expose this API outside a trusted local device or LAN without HTTPS and a rotated per-client token.
+
+## Hackathon Monitor
+
+AiOS now acts as the local source-of-truth for the `What Do You Do` Hackathon Corner.
+
+It tracks:
+
+- applications and registrations
+- shortlist or qualification updates
+- team invitations
+- submission and deadline messages
+- submitted projects and result announcements
+- unread source updates
+
+### Gmail scan
+
+1. Enable the Gmail API in Google Cloud.
+2. Create OAuth credentials for a desktop application.
+3. Place the downloaded file at `credentials/google_client_secret.json`.
+4. Install dependencies with `pip install -r requirements.txt`.
+5. Run the Gmail connector once from `/connectors` to approve read-only access.
+6. Start the Hackathon Monitor from `/workers`.
+
+The default query scans recent messages from Unstop, Hack2Skill, HackerEarth, Devfolio, and Devpost, plus subjects containing hackathon/shortlist/submission signals. Override it with `GMAIL_HACKATHON_QUERY`.
+
+The integration uses the read-only Gmail scope. Gmail message IDs are stored as deduplication keys, so repeated scans do not create repeated updates.
+
+### Platform monitoring
+
+Unstop, Hack2Skill, and HackerEarth do not provide one common stable API for every user application workflow. AiOS therefore uses two local paths:
+
+- the browser extension automatically captures supported hackathon pages when you visit them
+- `.json` or `.csv` exports can be placed in `imports/hackathons`
+
+Supported export columns include:
+
+```text
+id,title,organizer,platform,status,deadline,url,notes,updated_at
+```
+
+The extension supports Unstop, Hack2Skill, HackerEarth, Devfolio, and Devpost. Enable `Auto-capture hackathon pages` in the popup and configure the local API token when AiOS PIN lock is active.
+
+### APIs
+
+```text
+GET  /api/hackathons
+POST /api/hackathons/capture
+POST /api/hackathons/refresh
+POST /api/hackathon-updates/{id}/read
+```
+
+`What Do You Do` polls the feed every 30 seconds and can trigger an immediate local source scan.
 
 ## Plugin Workflow
 

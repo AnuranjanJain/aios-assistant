@@ -36,6 +36,12 @@ WORKERS = {
         script="watch_import_worker.py",
         description="Imports real files dropped into the configured watch folder.",
     ),
+    "hackathons": WorkerDefinition(
+        worker_id="hackathons",
+        name="Hackathon Monitor",
+        script="hackathon_monitor_worker.py",
+        description="Scans Gmail and platform exports for hackathon updates.",
+    ),
 }
 
 

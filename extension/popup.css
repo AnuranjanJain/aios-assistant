@@ -71,6 +71,27 @@ label {
   padding: 12px;
 }
 
+.settings {
+  display: grid;
+  gap: 8px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 2px 0 0;
+}
+
+.toggle-row input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.toggle-row span {
+  color: var(--text);
+}
+
 .wellbeing {
   display: grid;
   gap: 8px;

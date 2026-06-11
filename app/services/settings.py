@@ -8,8 +8,12 @@ SETTING_KEYS = {
     "GMAIL_MBOX_PATH": "Gmail Takeout mbox path",
     "GMAIL_CREDENTIALS_PATH": "Gmail credentials path",
     "GMAIL_TOKEN_PATH": "Gmail token path",
+    "GMAIL_HACKATHON_QUERY": "Gmail hackathon search query",
     "JOB_PORTAL_IMPORT_DIR": "Job portal import folder",
+    "HACKATHON_IMPORT_DIR": "Hackathon platform import folder",
+    "HACKATHON_SCAN_INTERVAL_MINUTES": "Hackathon scan interval (minutes)",
     "WATCH_IMPORT_DIR": "Watch import folder",
+    "LOCAL_API_TOKEN": "Local API token",
 }
 
 

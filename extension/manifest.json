@@ -2,15 +2,28 @@
   "manifest_version": 3,
   "name": "AiOS Assistant Capture",
   "description": "Send pages, selected text, and wellbeing signals to the local AiOS Assistant.",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "AiOS Assistant"
   },
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
     "http://127.0.0.1:5000/*",
-    "http://localhost:5000/*"
+    "http://localhost:5000/*",
+    "https://unstop.com/*",
+    "https://*.unstop.com/*",
+    "https://hack2skill.com/*",
+    "https://*.hack2skill.com/*",
+    "https://hackerearth.com/*",
+    "https://*.hackerearth.com/*",
+    "https://devfolio.co/*",
+    "https://*.devfolio.co/*",
+    "https://devpost.com/*",
+    "https://*.devpost.com/*"
   ],
   "content_scripts": [
     {

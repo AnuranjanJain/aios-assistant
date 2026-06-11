@@ -80,6 +80,23 @@ class ConnectorRun(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class HackathonUpdate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    opportunity_id = db.Column(db.Integer, db.ForeignKey("opportunity.id"), nullable=False)
+    opportunity = db.relationship("Opportunity", backref="hackathon_updates")
+    platform = db.Column(db.String(80), nullable=False, default="other")
+    source = db.Column(db.String(180), nullable=False)
+    external_id = db.Column(db.String(240), nullable=True, unique=True)
+    event_type = db.Column(db.String(60), nullable=False, default="update")
+    title = db.Column(db.String(240), nullable=False)
+    summary = db.Column(db.Text, nullable=True)
+    action_needed = db.Column(db.Text, nullable=True)
+    deadline = db.Column(db.DateTime, nullable=True)
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    occurred_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Setting(db.Model):
     key = db.Column(db.String(120), primary_key=True)
     value = db.Column(db.Text, nullable=True)

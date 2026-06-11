@@ -1,5 +1,7 @@
 const statusNode = document.querySelector("#status");
 const apiBaseNode = document.querySelector("#apiBase");
+const apiTokenNode = document.querySelector("#apiToken");
+const autoCaptureHackathonsNode = document.querySelector("#autoCaptureHackathons");
 const categoryNode = document.querySelector("#category");
 const durationNode = document.querySelector("#duration");
 
@@ -12,14 +14,22 @@ const endpointByAction = {
 init();
 
 async function init() {
-  const stored = await chrome.storage.sync.get(["apiBase"]);
+  const stored = await chrome.storage.sync.get(["apiBase", "apiToken", "autoCaptureHackathons"]);
   if (stored.apiBase) {
     apiBaseNode.value = stored.apiBase;
   }
+  apiTokenNode.value = stored.apiToken || "";
+  autoCaptureHackathonsNode.checked = stored.autoCaptureHackathons !== false;
 
   apiBaseNode.addEventListener("change", async () => {
     await chrome.storage.sync.set({ apiBase: normalizeApiBase(apiBaseNode.value) });
     apiBaseNode.value = normalizeApiBase(apiBaseNode.value);
+  });
+  apiTokenNode.addEventListener("change", async () => {
+    await chrome.storage.sync.set({ apiToken: apiTokenNode.value.trim() });
+  });
+  autoCaptureHackathonsNode.addEventListener("change", async () => {
+    await chrome.storage.sync.set({ autoCaptureHackathons: autoCaptureHackathonsNode.checked });
   });
 
   for (const [id, endpoint] of Object.entries(endpointByAction)) {
@@ -102,7 +112,10 @@ function buildBody(page) {
 async function postJson(endpoint, body) {
   const response = await fetch(`${normalizeApiBase(apiBaseNode.value)}${endpoint}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(apiTokenNode.value.trim() ? { "X-AiOS-Token": apiTokenNode.value.trim() } : {})
+    },
     body: JSON.stringify(body)
   });
 
