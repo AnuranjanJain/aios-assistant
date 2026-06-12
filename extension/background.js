@@ -5,7 +5,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     return;
   }
 
-  const settings = await chrome.storage.sync.get(["apiBase", "apiToken", "autoCaptureHackathons"]);
+  const [settings, localSecrets] = await Promise.all([
+    chrome.storage.sync.get(["apiBase", "autoCaptureHackathons"]),
+    chrome.storage.local.get(["apiToken"])
+  ]);
   if (settings.autoCaptureHackathons === false) {
     return;
   }
@@ -23,7 +26,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(settings.apiToken ? { "X-AiOS-Token": settings.apiToken } : {})
+        ...(localSecrets.apiToken ? { "X-AiOS-Token": localSecrets.apiToken } : {})
       },
       body: JSON.stringify({
         title: page.heading || page.title,

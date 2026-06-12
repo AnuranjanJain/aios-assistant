@@ -27,7 +27,18 @@
   ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "https://unstop.com/*",
+        "https://*.unstop.com/*",
+        "https://hack2skill.com/*",
+        "https://*.hack2skill.com/*",
+        "https://hackerearth.com/*",
+        "https://*.hackerearth.com/*",
+        "https://devfolio.co/*",
+        "https://*.devfolio.co/*",
+        "https://devpost.com/*",
+        "https://*.devpost.com/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

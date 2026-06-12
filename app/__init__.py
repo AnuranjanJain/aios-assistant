@@ -1,3 +1,7 @@
+import os
+import secrets
+from pathlib import Path
+
 from flask import Flask
 from sqlalchemy import text
 
@@ -9,6 +13,7 @@ from app.routes import bp
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    configure_secret_key(app)
 
     db.init_app(app)
     app.register_blueprint(bp)
@@ -18,6 +23,27 @@ def create_app(config_class=Config):
         apply_lightweight_migrations()
 
     return app
+
+
+def configure_secret_key(app):
+    configured = str(app.config.get("SECRET_KEY") or "").strip()
+    if configured and configured not in {"change-me", "dev-secret"}:
+        return
+
+    secret_path = Path(app.instance_path) / "secret_key"
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if secret_path.exists():
+        app.config["SECRET_KEY"] = secret_path.read_text(encoding="utf-8").strip()
+        return
+
+    generated = secrets.token_urlsafe(48)
+    secret_path.write_text(generated, encoding="utf-8")
+    try:
+        os.chmod(secret_path, 0o600)
+    except OSError:
+        pass
+    app.config["SECRET_KEY"] = generated
 
 
 def apply_lightweight_migrations():

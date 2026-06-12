@@ -14,19 +14,28 @@ const endpointByAction = {
 init();
 
 async function init() {
-  const stored = await chrome.storage.sync.get(["apiBase", "apiToken", "autoCaptureHackathons"]);
-  if (stored.apiBase) {
-    apiBaseNode.value = stored.apiBase;
+  const [preferences, localSecrets] = await Promise.all([
+    chrome.storage.sync.get(["apiBase", "apiToken", "autoCaptureHackathons"]),
+    chrome.storage.local.get(["apiToken"])
+  ]);
+  const apiToken = localSecrets.apiToken || preferences.apiToken || "";
+  if (preferences.apiToken && !localSecrets.apiToken) {
+    await chrome.storage.local.set({ apiToken: preferences.apiToken });
+    await chrome.storage.sync.remove("apiToken");
   }
-  apiTokenNode.value = stored.apiToken || "";
-  autoCaptureHackathonsNode.checked = stored.autoCaptureHackathons !== false;
+  if (preferences.apiBase) {
+    apiBaseNode.value = preferences.apiBase;
+  }
+  apiTokenNode.value = apiToken;
+  autoCaptureHackathonsNode.checked = preferences.autoCaptureHackathons !== false;
 
   apiBaseNode.addEventListener("change", async () => {
     await chrome.storage.sync.set({ apiBase: normalizeApiBase(apiBaseNode.value) });
     apiBaseNode.value = normalizeApiBase(apiBaseNode.value);
   });
   apiTokenNode.addEventListener("change", async () => {
-    await chrome.storage.sync.set({ apiToken: apiTokenNode.value.trim() });
+    await chrome.storage.local.set({ apiToken: apiTokenNode.value.trim() });
+    await chrome.storage.sync.remove("apiToken");
   });
   autoCaptureHackathonsNode.addEventListener("change", async () => {
     await chrome.storage.sync.set({ autoCaptureHackathons: autoCaptureHackathonsNode.checked });
@@ -88,6 +97,30 @@ async function getCurrentPageContext() {
   try {
     return await chrome.tabs.sendMessage(tab.id, { type: "AIOS_READ_PAGE" });
   } catch (_error) {
+    const [injected] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const getMeta = (name) => document
+          .querySelector(`meta[name="${name}"], meta[property="${name}"]`)
+          ?.getAttribute("content") || "";
+        const selection = window.getSelection?.().toString().trim() || "";
+        const description = getMeta("description") || getMeta("og:description");
+        const title = document.title || getMeta("og:title") || location.hostname;
+        const heading = document.querySelector("h1")?.innerText?.trim() || "";
+        return {
+          title,
+          heading,
+          selection,
+          description,
+          url: location.href,
+          hostname: location.hostname,
+          text: selection || description || heading || title
+        };
+      }
+    });
+    if (injected?.result) {
+      return injected.result;
+    }
     return {
       title: tab.title || "Untitled page",
       heading: "",

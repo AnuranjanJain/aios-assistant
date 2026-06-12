@@ -1,5 +1,7 @@
 from datetime import datetime
 from pathlib import Path
+from time import monotonic
+from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.utils import secure_filename
@@ -29,10 +31,52 @@ from app.services.workers import list_worker_status, start_worker, stop_worker
 
 
 bp = Blueprint("main", __name__)
+TRUSTED_BROWSER_ORIGINS = {
+    "http://127.0.0.1:5000",
+    "http://localhost:5000",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+}
+LOGIN_ATTEMPTS = {}
+LOGIN_ATTEMPT_LIMIT = 5
+LOGIN_ATTEMPT_WINDOW_SECONDS = 60
+
+
+def is_trusted_browser_origin(origin):
+    return origin in TRUSTED_BROWSER_ORIGINS
+
+
+def is_extension_origin(origin):
+    return origin.startswith(("chrome-extension://", "moz-extension://"))
+
+
+def safe_next_url(value):
+    candidate = (value or "").strip()
+    parsed = urlsplit(candidate)
+    if candidate.startswith("/") and not candidate.startswith("//") and not parsed.netloc:
+        return candidate
+    return url_for("main.dashboard")
+
+
+def recent_login_attempts(client_key):
+    cutoff = monotonic() - LOGIN_ATTEMPT_WINDOW_SECONDS
+    attempts = [attempt for attempt in LOGIN_ATTEMPTS.get(client_key, []) if attempt >= cutoff]
+    LOGIN_ATTEMPTS[client_key] = attempts
+    return attempts
 
 
 @bp.before_app_request
 def require_ui_auth():
+    origin = request.headers.get("Origin", "")
+    if origin and not is_trusted_browser_origin(origin):
+        extension_preflight = request.method == "OPTIONS" and is_extension_origin(origin)
+        extension_with_token = is_extension_origin(origin) and has_valid_api_token(request, current_app.config)
+        if not extension_preflight and not extension_with_token:
+            return jsonify({"error": "origin_not_allowed"}), 403
+
     if request.method == "OPTIONS":
         return None
 
@@ -59,15 +103,19 @@ def require_ui_auth():
 
 @bp.after_app_request
 def add_local_api_headers(response):
-    origin = request.headers.get("Origin")
-    if origin and origin.startswith(("http://127.0.0.1:", "http://localhost:")):
+    origin = request.headers.get("Origin", "")
+    allow_extension = is_extension_origin(origin) and (
+        request.method == "OPTIONS" or has_valid_api_token(request, current_app.config)
+    )
+    if is_trusted_browser_origin(origin) or allow_extension:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Vary"] = "Origin"
-    else:
-        response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-AiOS-Token"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
     return response
 
 
@@ -79,20 +127,39 @@ def login():
 @bp.post("/login")
 def unlock():
     pin = request.form.get("pin", "")
-    next_url = request.form.get("next") or url_for("main.dashboard")
+    next_url = safe_next_url(request.form.get("next"))
+    client_key = request.remote_addr or "local"
 
     if not has_pin():
-        if len(pin) < 4:
-            return render_template("login.html", has_pin=False, error="Use at least 4 digits.", next_url=next_url), 400
+        if not pin.isdigit() or not 4 <= len(pin) <= 12:
+            return render_template(
+                "login.html",
+                has_pin=False,
+                error="Use 4 to 12 digits.",
+                next_url=next_url,
+            ), 400
         set_pin(pin)
         db.session.commit()
+        session.clear()
         session["is_unlocked"] = True
         return redirect(next_url)
+
+    attempts = recent_login_attempts(client_key)
+    if len(attempts) >= LOGIN_ATTEMPT_LIMIT:
+        return render_template(
+            "login.html",
+            has_pin=True,
+            error="Too many attempts. Wait one minute and try again.",
+            next_url=next_url,
+        ), 429
 
     if verify_pin(pin):
+        LOGIN_ATTEMPTS.pop(client_key, None)
+        session.clear()
         session["is_unlocked"] = True
         return redirect(next_url)
 
+    attempts.append(monotonic())
     return render_template("login.html", has_pin=True, error="Incorrect PIN.", next_url=next_url), 401
 
 

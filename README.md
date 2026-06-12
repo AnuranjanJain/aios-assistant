@@ -348,7 +348,7 @@ Security:
 - Open `/settings` to enable a local PIN.
 - When enabled, dashboard/mobile/API routes require an unlocked browser session.
 - Use the Lock button in the sidebar or mobile page to clear the session.
-- Keep API PIN/token hardening on the roadmap before exposing this outside trusted LAN.
+- Keep AiOS bound to loopback by default. Browser API calls are accepted only from the AiOS UI, the local What Do You Do frontend, or a token-authenticated extension.
 
 Supported import formats:
 
@@ -459,7 +459,7 @@ This makes the assistant more than a reminder app. It becomes a feedback loop be
 
 For collector-level background sync, set `LOCAL_API_TOKEN` in AiOS settings or `.env`, then run the `What Do You Do` collector with the same value in `WDYD_AIOS_API_TOKEN`. The collector sends it as `X-AiOS-Token`, so it can write approved local wellbeing events even when no browser dashboard is open.
 
-The CORS layer allows credentialed browser requests only from local `127.0.0.1` and `localhost` origins. Do not expose this API outside a trusted local device or LAN without HTTPS and a rotated per-client token.
+The CORS layer uses an explicit local-origin allowlist and rejects other browser origins. Extension API writes require `X-AiOS-Token`. Do not expose this API outside a trusted local device without HTTPS and a rotated per-client token.
 
 ## Live Opportunity Monitor
 
@@ -551,7 +551,7 @@ Supported export columns include:
 id,title,organizer,platform,status,deadline,url,notes,updated_at
 ```
 
-The extension supports Unstop, Hack2Skill, HackerEarth, Devfolio, and Devpost. Enable `Auto-capture hackathon pages` in the popup and configure the local API token when AiOS PIN lock is active.
+The extension supports Unstop, Hack2Skill, HackerEarth, Devfolio, and Devpost. Enable `Auto-capture hackathon pages` in the popup and configure the local API token; extension writes are rejected without it. The token stays in device-only extension storage and is not stored in browser sync.
 
 ### APIs
 

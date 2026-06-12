@@ -7,9 +7,11 @@ load_dotenv()
 
 
 class Config:
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
+    SECRET_KEY = os.getenv("SECRET_KEY", "")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///aios_assistant.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
     HOST = os.getenv("HOST", "127.0.0.1")
     PORT = int(os.getenv("PORT", "5000"))
     AI_PROVIDER = os.getenv("AI_PROVIDER", "rule_based")
