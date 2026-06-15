@@ -180,25 +180,40 @@ The PWA starts on `/mobile` and can be installed from supported mobile browsers.
 
 ### 6. Desktop App
 
-The desktop app is a local wrapper around the same Flask backend.
+The desktop app is a cross-platform native wrapper around the same Flask backend.
 
 ```text
 desktop_app.py
         |
-starts Flask on 127.0.0.1:5050
+configures OS-native data and config directories
         |
-opens native pywebview window
+starts Flask on an available 127.0.0.1 port
         |
-falls back to system browser when webview is unavailable
+opens a native pywebview window on Windows or Linux
         |
 starts reminder worker thread
+        |
+starts watch-folder import worker thread
+        |
+relaunches the frozen executable for managed worker processes
 ```
 
-Packaging starter:
+Desktop persistence:
 
 ```text
-desktop_app.spec
+Windows
+  data:   %LOCALAPPDATA%\AiOS Assistant
+  config: %APPDATA%\AiOS Assistant
+
+Linux / Arch
+  data:   $XDG_DATA_HOME/aios-assistant
+  config: $XDG_CONFIG_HOME/aios-assistant
+  cache:  $XDG_CACHE_HOME/aios-assistant
 ```
+
+`desktop_app.spec` creates one executable per target OS. Windows builds must be
+produced on Windows and Arch builds on Arch. The packaged runtime includes
+templates, static assets, connector dependencies, and hidden worker entrypoints.
 
 ## Real-Time Layer
 
@@ -467,38 +482,47 @@ The wellbeing data should stay local by default.
 
 ## Memory Model
 
-Useful future tables:
+Phase 1 persistent memory tables:
 
 ```text
-InboxItem
-Opportunity
-Reminder
-ActivityEvent
-FocusSession
-DailyPlan
-AgentDecision
-UserPreference
+MemoryEntity
+MemoryFact
+MemoryRelation
+WorkCheckpoint
 ```
 
-`ActivityEvent` can store:
+`MemoryEntity` represents the user, projects, goals, skills, job applications,
+learning paths, preferences, and recurring tasks. The local user node is
+created automatically and new entities receive typed graph relationships.
 
-- source
-- app/site/category
-- started_at
-- ended_at
-- duration_seconds
-- planned_task
-- actual_task
-- agent_summary
+`MemoryFact` stores durable notes, decisions, preferences, and searchable
+checkpoint text. Embeddings are stored alongside the SQLite record, so vector
+indexes are disposable accelerators rather than the source of truth.
 
-`AgentDecision` can store:
+`WorkCheckpoint` stores:
 
-- input type
-- model used
-- decision JSON
-- confidence
-- created reminders
-- created opportunities
+- last project summary
+- open files
+- active tasks
+- next actions
+- resume notes
+- checkpoint source and timestamp
+
+Retrieval flow:
+
+```text
+Natural-language question
+        |
+Intent matcher for yesterday / unfinished / next step
+        |
+Lexical scoring + Ollama query embedding
+        |
+ChromaDB -> FAISS -> Python cosine fallback
+        |
+SQLite entities, facts, relations, and checkpoints
+        |
+Grounded local answer with matching records
+```
 
 ## Local-First Security
 

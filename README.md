@@ -14,6 +14,10 @@ It is designed to become a personal executive assistant for:
 
 ## Demo
 
+| Native Windows dashboard | Native AI goal planner |
+| --- | --- |
+| ![AiOS Windows desktop app](docs/screenshots/aios-desktop-app.png) | ![AiOS Windows goal planner](docs/screenshots/aios-desktop-planner.png) |
+
 | Workspace dashboard | Mobile dashboard |
 | --- | --- |
 | ![AiOS workspace dashboard](docs/screenshots/aios-workspace-dashboard.png) | ![AiOS mobile dashboard](docs/screenshots/aios-mobile-dashboard.png) |
@@ -30,6 +34,7 @@ The current UI is a dark workspace-style command center inspired by compact agen
 
 - Classifies incoming email-like messages into jobs, hackathons, interviews, rejections, deadlines, and general updates.
 - Stores tracked opportunities in SQLite.
+- Persists personal memory, projects, goals, skills, learning paths, preferences, recurring tasks, and work checkpoints.
 - Generates daily summaries and simple schedule recommendations.
 - Exposes a clean Flask dashboard.
 - Includes integration placeholders for Gmail, Google Calendar, Telegram, local AI, and plugin clients.
@@ -130,6 +135,106 @@ ollama pull qwen2.5:7b
 
 If Ollama is not running or the model is not available, the app falls back to the built-in rule-based classifier so the dashboard and APIs still work.
 
+## Phase 1: Persistent Personal Memory
+
+The Memory workspace is available at:
+
+```text
+http://127.0.0.1:5000/memory
+```
+
+It stores durable local records for:
+
+- user preferences
+- projects and project status
+- goals and skills
+- learning paths
+- recurring tasks
+- job applications
+- session checkpoints, open files, active tasks, notes, and next actions
+
+Example checkpoint:
+
+```json
+{
+  "project_name": "AiOS Project",
+  "summary": "Built the persistent memory schema",
+  "open_files": ["app/services/memory_engine.py", "app/routes.py"],
+  "active_tasks": ["Implement memory layer"],
+  "next_actions": ["Add Ollama embeddings", "Test reboot persistence"]
+}
+```
+
+The local query API understands intent-aware questions such as:
+
+```text
+What was I doing yesterday?
+Show unfinished projects.
+What was the next step for AiOS Project?
+```
+
+Memory storage layers:
+
+1. SQLite is the authoritative structured store and survives reboots.
+2. Ollama `nomic-embed-text` creates local embeddings when available.
+3. ChromaDB is the preferred optional persistent vector accelerator.
+4. FAISS is the optional in-process fallback.
+5. Lexical and intent search remain available without any vector package.
+
+Install the optional vector engines:
+
+```powershell
+pip install -r requirements-memory.txt
+ollama pull nomic-embed-text
+```
+
+Choose a backend with `MEMORY_VECTOR_BACKEND=auto`, `chroma`, `faiss`, or `sqlite`.
+
+Memory APIs:
+
+```text
+GET  /api/memory
+POST /api/memory/entities
+POST /api/memory/facts
+POST /api/memory/checkpoints
+POST /api/memory/relations
+GET  /api/memory/graph
+GET  /api/memory/search?q=...
+POST /api/memory/ask
+```
+
+## Phase 2: AI Goal Planner
+
+Open the adaptive planner at:
+
+```text
+http://127.0.0.1:5000/planner
+```
+
+Give AiOS a broad goal such as `I want to learn Operating Systems`. It creates
+a daily, weekly, or monthly roadmap and persists:
+
+- ordered roadmap periods and tasks
+- Not Started, In Progress, and Completed states
+- start and completion times
+- logged work sessions and total time spent
+- resources used
+- learning or project summaries
+- the next suggested task based on current progress
+
+When Ollama is selected, AiOS asks the configured local model to generate the
+roadmap. A deterministic local roadmap generator remains available when Ollama
+is offline.
+
+Planner APIs:
+
+```text
+GET   /api/planner
+POST  /api/planner
+PATCH /api/planner/tasks/<task_id>
+POST  /api/planner/tasks/<task_id>/sessions
+```
+
 ## Smartphone Access
 
 The phone does not need to run the AI model. The laptop or PC runs Flask and Ollama, and the phone opens the dashboard over the same Wi-Fi.
@@ -161,18 +266,98 @@ The mobile dashboard is PWA-ready. In Chrome on Android, open the mobile URL, op
 
 ## Desktop App
 
-The desktop launcher starts the Flask backend on a desktop-only port and opens AiOS Assistant in a native window when `pywebview` is installed.
+AiOS ships as one Python desktop codebase for Windows and Linux. The native shell uses `pywebview`; Flask, SQLite, Ollama integration, memory, connectors, and workers remain shared with the web/PWA surfaces.
 
 ```powershell
 python desktop_app.py
 ```
 
-The desktop launcher also starts the local reminder worker, so due reminders can trigger desktop notifications while the app is open.
+The desktop runtime:
 
-If the native webview is unavailable, it falls back to opening:
+- opens AiOS in a native window
+- selects an available loopback-only port
+- starts reminder, watch-folder, and opportunity monitor services
+- publishes a loopback-only pairing endpoint for the local `What Do You Do` collector
+- uses SQLite WAL mode so Gmail scans and activity sync can write safely together
+- stops background threads when the window closes
+- supports packaged worker processes from the Workers page
+- falls back to the system browser when a native webview is unavailable
+
+Persistent desktop data is stored outside the installation directory:
 
 ```text
-http://127.0.0.1:5050
+Windows: %LOCALAPPDATA%\AiOS Assistant
+Arch:   ~/.local/share/aios-assistant
+```
+
+Configuration and OAuth credentials:
+
+```text
+Windows: %APPDATA%\AiOS Assistant
+Arch:   ~/.config/aios-assistant
+```
+
+This keeps the SQLite database, memory vectors, imports, worker state, and Gmail tokens intact when the application is upgraded.
+
+Move an existing development profile into desktop storage once:
+
+```powershell
+.\AiOS-Assistant.exe --migrate .
+```
+
+For source/Arch installations, use:
+
+```bash
+python scripts/migrate-desktop-data.py --source .
+```
+
+The migration copies only missing files. It never replaces an existing desktop database or credential file. Windows packaged migration runs inside the executable so Microsoft Store Python path virtualization cannot redirect the data.
+
+### Build for Windows
+
+Build on Windows:
+
+```powershell
+.\scripts\build-desktop.ps1
+```
+
+Output:
+
+```text
+release\AiOS-Assistant-windows-x64.zip
+```
+
+Windows 10/11 normally includes Microsoft Edge WebView2. If it is missing, install the WebView2 Runtime before launching AiOS.
+
+### Build for Arch Linux
+
+Build on Arch because PyInstaller does not cross-compile Linux executables from Windows:
+
+```bash
+sudo pacman -S --needed python python-pip gtk3 webkit2gtk python-gobject \
+  libnotify base-devel
+./scripts/build-desktop-arch.sh
+```
+
+Output:
+
+```text
+release/AiOS-Assistant-arch-x86_64.tar.gz
+```
+
+Install the extracted build for the current user:
+
+```bash
+tar -xzf release/AiOS-Assistant-arch-x86_64.tar.gz
+./install-arch.sh
+```
+
+The launcher is then available from the desktop application menu as `AiOS Assistant`.
+
+Development dependencies and frozen-build tooling:
+
+```powershell
+pip install -r requirements-desktop.txt
 ```
 
 ## Real-Time Local Mode
@@ -457,7 +642,7 @@ This makes the assistant more than a reminder app. It becomes a feedback loop be
 3. After the user unlocks AiOS in the browser, the wellbeing dashboard can call `POST /api/wellbeing/activity`.
 4. AiOS stores the event locally as an `ActivityEvent` and includes it in dashboard/mobile live state.
 
-For collector-level background sync, set `LOCAL_API_TOKEN` in AiOS settings or `.env`, then run the `What Do You Do` collector with the same value in `WDYD_AIOS_API_TOKEN`. The collector sends it as `X-AiOS-Token`, so it can write approved local wellbeing events even when no browser dashboard is open.
+For collector-level background sync, start both desktop apps. AiOS generates a private local API token and `What Do You Do` discovers the active loopback instance automatically. Manual `WDYD_AIOS_URL` and `WDYD_AIOS_API_TOKEN` values remain available as overrides.
 
 The CORS layer uses an explicit local-origin allowlist and rejects other browser origins. Extension API writes require `X-AiOS-Token`. Do not expose this API outside a trusted local device without HTTPS and a rotated per-client token.
 
@@ -498,8 +683,8 @@ python run.py
 ```
 
 6. Open `http://127.0.0.1:5000/connectors`.
-7. Run the Gmail connector once and approve the read-only Google consent screen.
-8. Open `http://127.0.0.1:5000/workers` and start the monitor worker.
+7. Open **Connectors** and choose **Connect Google**. Approve the read-only Google consent screen.
+8. Leave AiOS Desktop running. The opportunity monitor refreshes Gmail automatically every 15 minutes by default.
 9. Check the live feeds:
 
 ```text
@@ -507,7 +692,7 @@ GET http://127.0.0.1:5000/api/hackathons
 GET http://127.0.0.1:5000/api/placements
 ```
 
-After first approval, Google stores a local OAuth token at `credentials/gmail_token.json`. Delete that file to disconnect Gmail from this local app.
+After first approval, Google stores a local OAuth token in the operating-system AiOS configuration directory. Use **Disconnect** on the Connectors page to remove it.
 
 The default Gmail query scans the past year for:
 
