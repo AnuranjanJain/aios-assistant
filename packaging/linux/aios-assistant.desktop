@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AiOS Assistant
+Comment=Local-first personal AI and memory agent
+Exec=AiOS-Assistant
+Icon=aios-assistant
+Terminal=false
+Categories=Utility;Office;
+StartupNotify=true

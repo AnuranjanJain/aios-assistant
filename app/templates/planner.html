@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101510">
+  <title>AiOS Goal Planner</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page planner-page">
+    <section class="source-hero glass planner-hero">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <p class="eyebrow">Adaptive AI goal planner</p>
+      <h1>Turn intention into motion.</h1>
+      <p>Create daily, weekly, or monthly roadmaps that adapt as work is completed.</p>
+      <form class="planner-create" method="post" action="{{ url_for('main.create_planner_goal') }}">
+        <input name="goal" required placeholder="I want to learn Operating Systems">
+        <select name="cadence">
+          <option value="weekly">Weekly</option>
+          <option value="daily">Daily</option>
+          <option value="monthly">Monthly</option>
+        </select>
+        <input name="duration_units" type="number" min="1" max="24" value="4" aria-label="Number of periods">
+        <button type="submit">Generate Roadmap</button>
+      </form>
+    </section>
+
+    {% if error %}<section class="panel glass memory-error">{{ error }}</section>{% endif %}
+
+    <section class="memory-stats">
+      <article class="stat-card"><span>Roadmaps</span><strong>{{ counts.plans }}</strong><small>persistent plans</small></article>
+      <article class="stat-card"><span>Completed</span><strong>{{ counts.completed_tasks }}</strong><small>finished tasks</small></article>
+      <article class="stat-card"><span>Active</span><strong>{{ counts.active_tasks }}</strong><small>in progress</small></article>
+      <article class="stat-card"><span>Time</span><strong>{{ (counts.minutes / 60) | round(1) }}h</strong><small>logged learning</small></article>
+    </section>
+
+    <section class="planner-list">
+      {% for plan in plans %}
+        <article class="panel glass planner-plan">
+          <div class="planner-plan-head">
+            <div>
+              <p class="eyebrow">{{ plan.cadence }} roadmap</p>
+              <h2>{{ plan.title }}</h2>
+              <small>{{ plan.completed_tasks }} of {{ plan.total_tasks }} complete - {{ plan.generated_by }}</small>
+            </div>
+            <strong class="planner-progress">{{ plan.progress_percent }}%</strong>
+          </div>
+          <div class="planner-progress-track"><span style="width: {{ plan.progress_percent }}%"></span></div>
+
+          {% for period in range(1, plan.duration_units + 1) %}
+            {% set period_tasks = plan.tasks | selectattr("period_number", "equalto", period) | list %}
+            <section class="planner-period">
+              <h3>{{ plan.cadence | title }} {{ period }}</h3>
+              <div class="planner-task-grid">
+                {% for task in period_tasks %}
+                  <article class="planner-task status-{{ task.status }}">
+                    <div class="planner-task-head">
+                      <div>
+                        <span>{{ task.status | replace("_", " ") }}</span>
+                        <strong>{{ task.title }}</strong>
+                      </div>
+                      <small>{{ task.time_spent_minutes }}m / {{ task.estimated_minutes }}m</small>
+                    </div>
+                    {% if task.summary %}<p>{{ task.summary }}</p>{% endif %}
+                    {% if task.resources %}<small>Resources: {{ task.resources | join(", ") }}</small>{% endif %}
+                    {% if task.suggested_next %}<div class="planner-next">Next: {{ task.suggested_next }}</div>{% endif %}
+                    <form class="planner-task-actions" method="post" action="{{ url_for('main.update_planner_task', task_id=task.id) }}">
+                      <select name="status" aria-label="Task status">
+                        <option value="not_started" {% if task.status == "not_started" %}selected{% endif %}>Not Started</option>
+                        <option value="in_progress" {% if task.status == "in_progress" %}selected{% endif %}>In Progress</option>
+                        <option value="completed" {% if task.status == "completed" %}selected{% endif %}>Completed</option>
+                      </select>
+                      <button type="submit">Update</button>
+                    </form>
+                    <details>
+                      <summary>Log work session</summary>
+                      <form class="planner-session-form" method="post" action="{{ url_for('main.create_planner_session', task_id=task.id) }}">
+                        <input name="duration_minutes" type="number" min="1" placeholder="Minutes">
+                        <input name="resources" placeholder="Resources used">
+                        <textarea name="summary" placeholder="What did you learn or complete?"></textarea>
+                        <label><input type="checkbox" name="completed" value="1"> Mark completed</label>
+                        <button type="submit">Save Session</button>
+                      </form>
+                    </details>
+                  </article>
+                {% endfor %}
+              </div>
+            </section>
+          {% endfor %}
+        </article>
+      {% else %}
+        <section class="panel glass"><p class="empty">Describe a goal above to create your first adaptive roadmap.</p></section>
+      {% endfor %}
+    </section>
+  </main>
+</body>
+</html>

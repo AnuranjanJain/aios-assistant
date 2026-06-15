@@ -13,3 +13,6 @@ credentials/
 *.log
 *.out.log
 *.err.log
+build/
+dist/
+release/

@@ -14,7 +14,7 @@
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <p class="eyebrow">Worker control</p>
       <h1>Run the local agent loops.</h1>
-      <p>Start or stop the standalone reminder, desktop activity, and watch-folder workers.</p>
+      <p>See what the desktop agent is running continuously in the background.</p>
     </section>
 
     {% if result %}
@@ -35,15 +35,22 @@
             <span class="worker-dot {{ 'on' if worker.running else '' }}"></span>
           </div>
           <p class="source-note">{{ worker.description }}</p>
-          <p class="source-note">{{ worker.script }}{% if worker.pid %} - PID {{ worker.pid }}{% endif %}</p>
-          <div class="worker-actions">
-            <form method="post" action="{{ url_for('main.start_worker_route', worker_id=worker.id) }}">
-              <button type="submit">Start</button>
-            </form>
-            <form method="post" action="{{ url_for('main.stop_worker_route', worker_id=worker.id) }}">
-              <button type="submit" class="ghost-button">Stop</button>
-            </form>
-          </div>
+          <p class="source-note">
+            {% if worker.managed %}Managed by AiOS Desktop{% else %}{{ worker.script }}{% endif %}
+            {% if worker.pid %} - PID {{ worker.pid }}{% endif %}
+          </p>
+          {% if worker.last_run_at %}<p class="source-note">Last cycle: {{ worker.last_run_at }}</p>{% endif %}
+          {% if worker.last_error %}<p class="service-error">{{ worker.last_error }}</p>{% endif %}
+          {% if not worker.managed %}
+            <div class="worker-actions">
+              <form method="post" action="{{ url_for('main.start_worker_route', worker_id=worker.id) }}">
+                <button type="submit">Start</button>
+              </form>
+              <form method="post" action="{{ url_for('main.stop_worker_route', worker_id=worker.id) }}">
+                <button type="submit" class="ghost-button">Stop</button>
+              </form>
+            </div>
+          {% endif %}
         </article>
       {% endfor %}
     </section>

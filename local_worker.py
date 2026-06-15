@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -8,7 +9,7 @@ from app.models import Reminder, db
 from app.services.notifications import send_desktop_notification
 
 
-STATE_PATH = Path(".aios_worker_state.json")
+STATE_PATH = Path(os.getenv("AIOS_WORKER_STATE_PATH", ".aios_worker_state.json"))
 CHECK_INTERVAL_SECONDS = 30
 REMINDER_LOOKAHEAD_MINUTES = 10
 

@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.settings import get_effective_config
 
 
-STATE_PATH = Path(".aios_watch_state.json")
+STATE_PATH = Path(os.getenv("AIOS_WATCH_STATE_PATH", ".aios_watch_state.json"))
 CHECK_INTERVAL_SECONDS = 20
 
 

@@ -2,11 +2,12 @@ import json
 import os
 import subprocess
 import sys
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
 
-STATE_PATH = Path(".aios_workers.json")
+STATE_PATH = Path(os.getenv("AIOS_WORKERS_STATE_PATH", ".aios_workers.json"))
 
 
 @dataclass
@@ -61,7 +62,44 @@ def save_state(state):
 
 def list_worker_status():
     state = load_state()
-    return [worker_status(worker, state) for worker in WORKERS.values()]
+    statuses = [worker_status(worker, state) for worker in WORKERS.values()]
+    try:
+        from app.services.background_services import list_background_services
+
+        managed = {item["id"]: item for item in list_background_services()}
+        aliases = {"opportunities": "hackathons"}
+        for service_id, service in managed.items():
+            worker_id = aliases.get(service_id, service_id)
+            existing = next((item for item in statuses if item["id"] == worker_id), None)
+            if existing:
+                existing.update(
+                    {
+                        "running": service["running"],
+                        "managed": True,
+                        "last_run_at": service["last_run_at"],
+                        "last_error": service["last_error"],
+                    }
+                )
+    except ImportError:
+        pass
+    activity = next((item for item in statuses if item["id"] == "activity"), None)
+    if activity:
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:17321/health", timeout=0.4) as response:
+                health = json.loads(response.read().decode("utf-8"))
+            if health.get("ok"):
+                activity.update(
+                    {
+                        "running": True,
+                        "managed": True,
+                        "description": "Tracks privacy-filtered desktop activity through What Do You Do.",
+                        "last_run_at": health.get("latestCapturedAt"),
+                        "last_error": health.get("lastError"),
+                    }
+                )
+        except (OSError, ValueError):
+            pass
+    return statuses
 
 
 def worker_status(worker, state=None):
@@ -86,10 +124,27 @@ def start_worker(worker_id):
 
     state = load_state()
     current = worker_status(worker, state)
+    try:
+        from app.services.background_services import list_background_services
+
+        aliases = {"hackathons": "opportunities"}
+        managed_id = aliases.get(worker_id, worker_id)
+        managed = next((item for item in list_background_services() if item["id"] == managed_id), None)
+        if managed and managed["running"]:
+            return {
+                "status": "already_running",
+                "message": f"{worker.name} is managed by the desktop app.",
+                "worker": current | {"running": True, "managed": True},
+            }
+    except ImportError:
+        pass
     if current["running"]:
         return {"status": "already_running", "message": f"{worker.name} is already running.", "worker": current}
 
-    command = [sys.executable, worker.script]
+    if getattr(sys, "frozen", False):
+        command = [sys.executable, "--worker", worker.worker_id]
+    else:
+        command = [sys.executable, worker.script]
     kwargs = {
         "cwd": Path.cwd(),
         "stdout": subprocess.DEVNULL,

@@ -11,7 +11,8 @@ from app.routes import bp
 
 
 def create_app(config_class=Config):
-    app = Flask(__name__)
+    instance_path = os.getenv("AIOS_INSTANCE_PATH", "").strip()
+    app = Flask(__name__, instance_path=instance_path or None)
     app.config.from_object(config_class)
     configure_secret_key(app)
 
@@ -19,8 +20,13 @@ def create_app(config_class=Config):
     app.register_blueprint(bp)
 
     with app.app_context():
+        if str(app.config.get("SQLALCHEMY_DATABASE_URI", "")).startswith("sqlite"):
+            with db.engine.connect() as connection:
+                connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+                connection.exec_driver_sql("PRAGMA busy_timeout=30000")
         db.create_all()
         apply_lightweight_migrations()
+        ensure_memory_user(app.config.get("USER_DISPLAY_NAME", "Local User"))
 
     return app
 
@@ -69,3 +75,10 @@ def apply_lightweight_migrations():
 
     if migrations:
         db.session.commit()
+
+
+def ensure_memory_user(name):
+    from app.services.memory_engine import ensure_user_entity
+
+    ensure_user_entity(name)
+    db.session.commit()

@@ -182,4 +182,63 @@ function escapeHtml(value) {
 window.addEventListener("load", () => {
   refreshLiveDashboard();
   setInterval(refreshLiveDashboard, LIVE_INTERVAL_MS);
+  setupMemorySearch();
+  loadDesktopStatus();
 });
+
+function setupMemorySearch() {
+  const form = document.querySelector("[data-memory-search]");
+  const answer = document.querySelector("[data-memory-answer]");
+  if (!form || !answer) {
+    return;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const query = new FormData(form).get("query")?.toString().trim();
+    if (!query) {
+      return;
+    }
+
+    answer.hidden = false;
+    answer.textContent = "Searching local memory...";
+    try {
+      const response = await fetch("/api/memory/ask", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      });
+      const payload = await response.json();
+      answer.textContent = response.ok ? payload.answer : payload.error || "Memory search failed.";
+    } catch (_error) {
+      answer.textContent = "Local memory is unavailable.";
+    }
+  });
+}
+
+async function loadDesktopStatus() {
+  const node = document.querySelector("[data-desktop-status]");
+  if (!node) {
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/desktop/status", { cache: "no-store" });
+    const payload = await response.json();
+    node.innerHTML = [
+      ["Mode", payload.desktop ? "Native desktop" : "Browser development"],
+      ["Platform", payload.platform],
+      ["Data", payload.data_dir],
+      ["Configuration", payload.config_dir],
+      ["Imports", payload.imports_dir],
+      ["Ollama", payload.ollama_url]
+    ].map(([label, value]) => `
+      <article class="list-row">
+        <div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(value)}</small></div>
+      </article>
+    `).join("");
+  } catch (_error) {
+    node.innerHTML = '<p class="source-note">Desktop diagnostics unavailable.</p>';
+  }
+}

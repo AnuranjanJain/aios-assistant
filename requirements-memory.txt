@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Optional vector acceleration. SQLite remains the source of truth.
+chromadb>=1.0,<2
+faiss-cpu>=1.11,<2

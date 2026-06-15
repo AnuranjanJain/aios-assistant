@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4c1d95">
+  <title>AiOS Memory</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page memory-page">
+    <section class="source-hero glass memory-hero">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <p class="eyebrow">Persistent personal memory</p>
+      <h1>Continue where you stopped.</h1>
+      <p>Projects, goals, preferences, learning paths, tasks, and work checkpoints stay on this device.</p>
+      <form class="memory-search" data-memory-search>
+        <input name="query" placeholder="What was I doing yesterday?" autocomplete="off">
+        <button type="submit">Ask Memory</button>
+      </form>
+      <div class="memory-answer" data-memory-answer hidden></div>
+    </section>
+
+    {% if error %}
+      <section class="panel glass memory-error">{{ error }}</section>
+    {% endif %}
+
+    <section class="memory-stats">
+      <article class="stat-card"><span>Projects</span><strong>{{ counts.projects }}</strong><small>tracked locally</small></article>
+      <article class="stat-card"><span>Entities</span><strong>{{ counts.entities }}</strong><small>goals, skills, paths</small></article>
+      <article class="stat-card"><span>Memories</span><strong>{{ counts.facts }}</strong><small>facts and notes</small></article>
+      <article class="stat-card"><span>Relations</span><strong>{{ counts.relations }}</strong><small>knowledge graph edges</small></article>
+    </section>
+
+    <section class="memory-layout">
+      <div class="memory-column">
+        <section class="panel glass">
+          <div class="panel-heading">
+            <div><p class="eyebrow">Project continuity</p><h2>Active projects</h2></div>
+          </div>
+          <div class="memory-projects">
+            {% for project in projects %}
+              <article class="memory-project">
+                <div class="memory-project-head">
+                  <div>
+                    <strong>{{ project.name }}</strong>
+                    <small>{{ project.status }}{% if project.last_worked_at %} - last worked {{ project.last_worked_at[:10] }}{% endif %}</small>
+                  </div>
+                  <span>{{ project.entity_type }}</span>
+                </div>
+                <p>{{ project.summary or "No project summary yet." }}</p>
+                {% if project.latest_checkpoint %}
+                  <div class="checkpoint-grid">
+                    <div><span>Last files</span><strong>{{ project.latest_checkpoint.open_files | join(", ") or "None saved" }}</strong></div>
+                    <div><span>Active tasks</span><strong>{{ project.latest_checkpoint.active_tasks | join(", ") or "None saved" }}</strong></div>
+                    <div><span>Next actions</span><strong>{{ project.latest_checkpoint.next_actions | join(", ") or "None saved" }}</strong></div>
+                  </div>
+                {% endif %}
+              </article>
+            {% else %}
+              <p class="empty">Create your first project checkpoint below.</p>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="panel glass">
+          <div class="panel-heading">
+            <div><p class="eyebrow">Knowledge graph</p><h2>Connected context</h2></div>
+          </div>
+          <div class="graph-groups">
+            {% for type_name in ["project", "goal", "skill", "job_application", "learning_path", "preference", "recurring_task"] %}
+              {% set matches = entities | selectattr("entity_type", "equalto", type_name) | list %}
+              {% if matches %}
+                <div class="graph-group">
+                  <span>{{ type_name | replace("_", " ") }}</span>
+                  <div>{% for item in matches %}<strong>{{ item.name }}</strong>{% endfor %}</div>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+
+      <aside class="memory-column">
+        <section class="panel glass">
+          <div class="panel-heading"><div><p class="eyebrow">Save context</p><h2>New entity</h2></div></div>
+          <form class="settings-form" method="post" action="{{ url_for('main.create_memory_entity') }}">
+            <label><span>Type</span>
+              <select name="entity_type">
+                <option value="project">Project</option>
+                <option value="goal">Goal</option>
+                <option value="skill">Skill</option>
+                <option value="learning_path">Learning path</option>
+                <option value="preference">Preference</option>
+                <option value="recurring_task">Recurring task</option>
+                <option value="job_application">Job application</option>
+              </select>
+            </label>
+            <label><span>Name</span><input name="name" required placeholder="AiOS Project"></label>
+            <label><span>Status</span><input name="status" value="active"></label>
+            <label><span>Summary</span><textarea name="summary" placeholder="What this is and why it matters"></textarea></label>
+            <button type="submit">Save Entity</button>
+          </form>
+        </section>
+
+      </aside>
+    </section>
+
+    <section class="panel glass">
+      <div class="panel-heading"><div><p class="eyebrow">Stop point</p><h2>Save checkpoint</h2></div></div>
+      <form class="settings-form checkpoint-form" method="post" action="{{ url_for('main.create_memory_checkpoint') }}">
+        <label><span>Project</span><input name="project_name" required placeholder="AiOS Project"></label>
+        <label><span>What changed</span><textarea name="summary" placeholder="Implemented the first memory schema"></textarea></label>
+        <label><span>Open files</span><textarea name="open_files" placeholder="kernel.py, planner.py"></textarea></label>
+        <label><span>Active tasks</span><textarea name="active_tasks" placeholder="Implement memory layer"></textarea></label>
+        <label><span>Next actions</span><textarea name="next_actions" placeholder="Add Ollama embeddings"></textarea></label>
+        <label><span>Notes</span><textarea name="notes" placeholder="Anything needed to resume quickly"></textarea></label>
+        <button type="submit">Save Checkpoint</button>
+      </form>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

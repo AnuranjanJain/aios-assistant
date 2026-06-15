@@ -20,10 +20,39 @@ from app.services.agent_ingest import ingest_message as ingest_agent_message
 from app.services.ai_classifier import get_classifier
 from app.services.api_auth import has_valid_api_token
 from app.services.auth import clear_pin, has_pin, set_pin, verify_pin
-from app.services.connectors import list_connectors, run_connector
+from app.services.connectors import (
+    connect_gmail,
+    disconnect_gmail,
+    gmail_oauth_status,
+    list_connectors,
+    run_connector,
+)
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
 from app.services.hackathons import ingest_hackathon_signal, serialize_hackathon
+from app.services.goal_planner import (
+    create_goal_plan,
+    log_task_session,
+    planner_overview,
+    serialize_plan,
+    serialize_task,
+    update_task,
+)
+from app.services.memory_engine import (
+    answer_memory_question,
+    memory_graph,
+    memory_overview,
+    relate_entities,
+    remember,
+    save_checkpoint,
+    search_memory,
+    serialize_checkpoint,
+    serialize_entity,
+    serialize_fact,
+    serialize_relation,
+    upsert_entity,
+)
+from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
 from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config
 from app.services.wellbeing import summarize_activity
@@ -89,6 +118,9 @@ def require_ui_auth():
     if request.endpoint in {"main.login", "main.unlock"}:
         return None
 
+    if request.endpoint == "main.api_local_pairing" and not origin and request.remote_addr in {"127.0.0.1", "::1"}:
+        return None
+
     if request.path.startswith("/static/"):
         return None
 
@@ -112,7 +144,7 @@ def add_local_api_headers(response):
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Vary"] = "Origin"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-AiOS-Token"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, OPTIONS"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Frame-Options"] = "DENY"
@@ -181,6 +213,72 @@ def mobile_dashboard():
     return render_template("mobile.html", **context)
 
 
+@bp.get("/memory")
+def memory_workspace():
+    overview = memory_overview()
+    return render_template("memory.html", **overview, graph=memory_graph())
+
+
+@bp.get("/planner")
+def planner_workspace():
+    return render_template("planner.html", **planner_overview())
+
+
+@bp.post("/planner")
+def create_planner_goal():
+    try:
+        create_goal_plan(request.form, get_effective_config(current_app.config))
+        db.session.commit()
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return render_template("planner.html", **planner_overview(), error=str(exc)), 400
+    return redirect(url_for("main.planner_workspace"))
+
+
+@bp.post("/planner/tasks/<int:task_id>")
+def update_planner_task(task_id):
+    try:
+        update_task(task_id, request.form, get_effective_config(current_app.config))
+        db.session.commit()
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return render_template("planner.html", **planner_overview(), error=str(exc)), 400
+    return redirect(url_for("main.planner_workspace"))
+
+
+@bp.post("/planner/tasks/<int:task_id>/sessions")
+def create_planner_session(task_id):
+    try:
+        log_task_session(task_id, request.form, get_effective_config(current_app.config))
+        db.session.commit()
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return render_template("planner.html", **planner_overview(), error=str(exc)), 400
+    return redirect(url_for("main.planner_workspace"))
+
+
+@bp.post("/memory/entity")
+def create_memory_entity():
+    try:
+        upsert_entity(request.form)
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return render_template("memory.html", **memory_overview(), graph=memory_graph(), error=str(exc)), 400
+    return redirect(url_for("main.memory_workspace"))
+
+
+@bp.post("/memory/checkpoint")
+def create_memory_checkpoint():
+    try:
+        save_checkpoint(request.form, get_effective_config(current_app.config))
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return render_template("memory.html", **memory_overview(), graph=memory_graph(), error=str(exc)), 400
+    return redirect(url_for("main.memory_workspace"))
+
+
 @bp.get("/sources")
 def sources():
     return render_template("sources.html", result=None)
@@ -188,11 +286,13 @@ def sources():
 
 @bp.get("/connectors")
 def connectors():
+    values = get_effective_config(current_app.config)
     runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(12).all()
     result = runs[0] if request.args.get("last_run") and runs else None
     return render_template(
         "connectors.html",
-        connectors=list_connectors(get_effective_config(current_app.config)),
+        connectors=list_connectors(values),
+        google=gmail_oauth_status(values, include_profile=True),
         runs=runs,
         result=result,
     )
@@ -209,6 +309,21 @@ def run_connector_route(connector_id):
     )
     db.session.commit()
     return redirect(url_for("main.connectors", last_run=connector_id))
+
+
+@bp.post("/connectors/google/connect")
+def connect_google_route():
+    try:
+        connect_gmail(get_effective_config(current_app.config))
+    except Exception as exc:
+        return redirect(url_for("main.connectors", oauth_error=str(exc)))
+    return redirect(url_for("main.connectors", google="connected"))
+
+
+@bp.post("/connectors/google/disconnect")
+def disconnect_google_route():
+    disconnect_gmail(get_effective_config(current_app.config))
+    return redirect(url_for("main.connectors", google="disconnected"))
 
 
 @bp.get("/connectors/<connector_id>/run")
@@ -266,7 +381,7 @@ def import_source():
     if suffix not in SUPPORTED_IMPORTS:
         return render_template("sources.html", result={"imported": 0, "filename": f"Unsupported file type: {suffix}"}), 400
 
-    import_dir = Path("imports")
+    import_dir = Path(get_effective_config(current_app.config)["WATCH_IMPORT_DIR"]).parent / "manual"
     import_dir.mkdir(exist_ok=True)
     import_path = import_dir / filename
     upload.save(import_path)
@@ -375,6 +490,139 @@ def api_plan():
     opportunities = Opportunity.query.all()
     reminders = Reminder.query.all()
     return jsonify(build_daily_plan(opportunities, reminders))
+
+
+@bp.get("/api/memory")
+def api_memory_overview():
+    return jsonify(memory_overview())
+
+
+@bp.post("/api/memory/entities")
+def api_create_memory_entity():
+    try:
+        entity = upsert_entity(request.get_json(silent=True) or {})
+        db.session.commit()
+        return jsonify(serialize_entity(entity, True)), 201
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.post("/api/memory/facts")
+def api_create_memory_fact():
+    try:
+        fact = remember(request.get_json(silent=True) or {}, get_effective_config(current_app.config))
+        db.session.commit()
+        return jsonify(serialize_fact(fact)), 201
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.post("/api/memory/checkpoints")
+def api_create_memory_checkpoint():
+    try:
+        checkpoint = save_checkpoint(
+            request.get_json(silent=True) or {},
+            get_effective_config(current_app.config),
+        )
+        db.session.commit()
+        return jsonify(
+            {
+                "project": serialize_entity(checkpoint.project, True),
+                "checkpoint": serialize_checkpoint(checkpoint),
+            }
+        ), 201
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.post("/api/memory/relations")
+def api_create_memory_relation():
+    try:
+        relation = relate_entities(request.get_json(silent=True) or {})
+        db.session.commit()
+        return jsonify(serialize_relation(relation)), 201
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.get("/api/memory/graph")
+def api_memory_graph():
+    return jsonify(memory_graph())
+
+
+@bp.get("/api/memory/search")
+def api_memory_search():
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "q is required"}), 400
+    return jsonify(
+        {
+            "query": query,
+            "results": search_memory(query, get_effective_config(current_app.config)),
+        }
+    )
+
+
+@bp.post("/api/memory/ask")
+def api_memory_ask():
+    data = request.get_json(silent=True) or {}
+    query = str(data.get("query") or "").strip()
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+    return jsonify(answer_memory_question(query, get_effective_config(current_app.config)))
+
+
+@bp.get("/api/planner")
+def api_planner_overview():
+    return jsonify(planner_overview())
+
+
+@bp.post("/api/planner")
+def api_create_plan():
+    try:
+        plan = create_goal_plan(
+            request.get_json(silent=True) or {},
+            get_effective_config(current_app.config),
+        )
+        db.session.commit()
+        return jsonify(serialize_plan(plan, include_tasks=True)), 201
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.patch("/api/planner/tasks/<int:task_id>")
+def api_update_plan_task(task_id):
+    try:
+        task = update_task(
+            task_id,
+            request.get_json(silent=True) or {},
+            get_effective_config(current_app.config),
+        )
+        db.session.commit()
+        return jsonify(serialize_task(task))
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.post("/api/planner/tasks/<int:task_id>/sessions")
+def api_create_plan_session(task_id):
+    try:
+        session = log_task_session(
+            task_id,
+            request.get_json(silent=True) or {},
+            get_effective_config(current_app.config),
+        )
+        db.session.commit()
+        return jsonify({"session_id": session.id, "task": serialize_task(session.task)}), 201
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
 
 
 @bp.post("/api/ingest-email")
@@ -618,7 +866,11 @@ def api_wellbeing_activity():
         agent_summary=summary,
     )
     db.session.add(event)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "activity_store_busy", "message": "AiOS is busy; retry this activity sync."}), 503
 
     return jsonify(
         {
@@ -670,6 +922,23 @@ def api_live():
     )
 
 
+@bp.get("/api/desktop/status")
+def api_desktop_status():
+    paths = get_runtime_paths()
+    return jsonify(
+        {
+            "desktop": bool(current_app.config.get("AIOS_DESKTOP")),
+            "platform": __import__("sys").platform,
+            "data_dir": str(paths.data_dir),
+            "config_dir": str(paths.config_dir),
+            "imports_dir": str(paths.imports_dir),
+            "runtime_descriptor": str(paths.data_dir / "runtime.json"),
+            "database": current_app.config.get("SQLALCHEMY_DATABASE_URI", ""),
+            "ollama_url": get_effective_config(current_app.config)["OLLAMA_URL"],
+        }
+    )
+
+
 @bp.get("/api/opportunities")
 def api_opportunities():
     opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
@@ -679,6 +948,39 @@ def api_opportunities():
 @bp.get("/api/connectors")
 def api_connectors():
     return jsonify(list_connectors(get_effective_config(current_app.config)))
+
+
+@bp.get("/api/local/pairing")
+def api_local_pairing():
+    if request.headers.get("Origin") or request.remote_addr not in {"127.0.0.1", "::1"}:
+        return jsonify({"error": "loopback_only"}), 403
+    token = get_effective_config(current_app.config)["LOCAL_API_TOKEN"]
+    return jsonify(
+        {
+            "ok": bool(token),
+            "service": "aios-assistant",
+            "base_url": request.host_url.rstrip("/"),
+            "api_token": token,
+        }
+    )
+
+
+@bp.get("/api/oauth/google/status")
+def api_google_status():
+    return jsonify(gmail_oauth_status(get_effective_config(current_app.config), include_profile=True))
+
+
+@bp.post("/api/oauth/google/connect")
+def api_google_connect():
+    try:
+        return jsonify(connect_gmail(get_effective_config(current_app.config)))
+    except Exception as exc:
+        return jsonify({"connected": False, "message": str(exc)}), 400
+
+
+@bp.post("/api/oauth/google/disconnect")
+def api_google_disconnect():
+    return jsonify(disconnect_gmail(get_effective_config(current_app.config)))
 
 
 @bp.post("/api/connectors/<connector_id>/run")
