@@ -15,13 +15,15 @@
       <h1>Turn intention into motion.</h1>
       <p>Create daily, weekly, or monthly roadmaps that adapt as work is completed.</p>
       <form class="planner-create" method="post" action="{{ url_for('main.create_planner_goal') }}">
-        <input name="goal" required placeholder="I want to learn Operating Systems">
-        <select name="cadence">
-          <option value="weekly">Weekly</option>
-          <option value="daily">Daily</option>
-          <option value="monthly">Monthly</option>
-        </select>
-        <input name="duration_units" type="number" min="1" max="24" value="4" aria-label="Number of periods">
+        <label><span>Goal</span><input name="goal" required placeholder="I want to learn Operating Systems"></label>
+        <label><span>Planning cadence</span>
+          <select name="cadence">
+            <option value="weekly">Weekly</option>
+            <option value="daily">Daily</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </label>
+        <label><span>Number of periods</span><input name="duration_units" type="number" min="1" max="24" value="4"></label>
         <button type="submit">Generate Roadmap</button>
       </form>
     </section>
@@ -94,5 +96,6 @@
       {% endfor %}
     </section>
   </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

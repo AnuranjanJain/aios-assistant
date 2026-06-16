@@ -26,7 +26,7 @@
           </div>
         </div>
         <form class="source-form" method="post" action="{{ url_for('main.import_source') }}" enctype="multipart/form-data">
-          <input type="file" name="source_file" accept=".eml,.mbox,.json,.csv" required>
+          <label><span>Choose export file</span><input type="file" name="source_file" accept=".eml,.mbox,.json,.csv" required></label>
           <button type="submit">Import Real Data</button>
         </form>
         <p class="source-note">Supported: .eml, .mbox, .json, .csv. Limit: first 100 records per import.</p>

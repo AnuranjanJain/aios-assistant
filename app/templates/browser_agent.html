@@ -91,7 +91,7 @@
         {% for job in opportunities %}
           <article class="browser-job">
             <div class="browser-job-head">
-              <div><strong>{{ job.title }}</strong><span>{{ job.company }} · {{ job.source }}</span></div>
+              <div><strong>{{ job.title }}</strong><span>{{ job.company }} - {{ job.source }}</span></div>
               <b>{{ job.match_score }}%</b>
             </div>
             <p>{{ job.score_reason }}</p>
@@ -116,7 +116,7 @@
       {% for plan in plans %}
         <article class="automation-run">
           <div class="automation-run-head">
-            <div><strong>{{ plan.request }}</strong><small>{{ plan.created_at }} · {{ plan.actions | length }} action(s)</small></div>
+            <div><strong>{{ plan.request }}</strong><small>{{ plan.created_at }} - {{ plan.actions | length }} action(s)</small></div>
             <span class="run-status status-{{ plan.status }}">{{ plan.status | replace("_", " ") }}</span>
           </div>
           {% for action in plan.actions %}
@@ -136,5 +136,6 @@
       <h3>Local database</h3><code>{{ capabilities.database }}</code>
     </section>
   </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

@@ -20,7 +20,21 @@
 }
 
 html {
+  overflow-x: hidden;
   scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes pageIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 body {
@@ -65,11 +79,47 @@ button {
   cursor: pointer;
   font-weight: 800;
   padding: 0 16px;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+a,
+.panel,
+.stat-card,
+.list-row,
+.lead-card,
+.task-card,
+.automation-run,
+.browser-job,
+.career-row,
+.career-card {
+  transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+button:hover,
+.link-action:hover,
+.back-link:hover {
+  transform: translateY(-1px);
+}
+
+button[aria-busy="true"],
+form.is-submitting button[type="submit"] {
+  cursor: progress;
+  opacity: 0.76;
 }
 
 .shell {
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   gap: 22px;
   min-height: 100vh;
   padding: 22px;
@@ -89,18 +139,18 @@ button {
   flex-direction: column;
   height: calc(100vh - 44px);
   border: 1px solid var(--line);
-  border-radius: 32px;
+  border-radius: 24px;
   background: rgba(8, 8, 8, 0.78);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
   backdrop-filter: blur(24px);
-  padding: 14px;
+  padding: 16px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0;
+  justify-content: flex-start;
+  gap: 12px;
   margin-bottom: 24px;
 }
 
@@ -119,7 +169,7 @@ button {
 .brand > span:last-child,
 .workspace-sidebar .agent-card strong,
 .workspace-sidebar .agent-card small {
-  display: none;
+  display: block;
 }
 
 .brand strong,
@@ -138,35 +188,45 @@ button {
 
 .menu {
   display: grid;
-  gap: 10px;
+  gap: 7px;
+  min-width: 0;
 }
 
 .menu a {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   border: 1px solid transparent;
-  border-radius: 50%;
-  width: 48px;
-  height: 48px;
+  border-radius: 12px;
+  width: 100%;
+  min-height: 38px;
   overflow: hidden;
-  color: transparent;
+  color: var(--muted);
   font-weight: 750;
-  padding: 0;
+  padding: 7px 10px;
   position: relative;
 }
 
 .nav-initial {
-  color: #edf5e7;
+  display: grid;
+  flex: 0 0 26px;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: #dce8d5;
+  background: rgba(255, 255, 255, 0.07);
   font-size: 13px;
   font-weight: 950;
 }
 
 .nav-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
+  min-width: 0;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  font-size: 13px;
 }
 
 .menu a:hover,
@@ -176,12 +236,13 @@ button {
 }
 
 .menu a.active {
-  color: transparent;
-  background: #ffffff;
+  color: #050505;
+  background: var(--green);
 }
 
 .menu a.active .nav-initial {
   color: #050505;
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .agent-card {
@@ -190,12 +251,12 @@ button {
   gap: 12px;
   margin-top: auto;
   border: 1px solid var(--line);
-  justify-content: center;
-  border-radius: 50%;
-  width: 48px;
-  height: 48px;
+  justify-content: flex-start;
+  border-radius: 16px;
+  width: 100%;
+  min-height: 56px;
   background: rgba(255, 255, 255, 0.08);
-  padding: 0;
+  padding: 12px;
 }
 
 .agent-card strong,
@@ -206,9 +267,18 @@ button {
 .pulse {
   width: 13px;
   height: 13px;
+  flex: 0 0 13px;
   border-radius: 999px;
   background: var(--green);
   box-shadow: 0 0 0 8px rgba(114, 242, 180, 0.14);
+}
+
+.workspace-lock-button {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
 }
 
 .dashboard {
@@ -456,6 +526,16 @@ h2 {
   background: rgba(15, 16, 16, 0.88);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
   backdrop-filter: blur(18px);
+}
+
+.panel:hover,
+.stat-card:hover,
+.automation-run:hover,
+.browser-job:hover,
+.career-row:hover,
+.career-card:hover {
+  border-color: rgba(183, 255, 74, 0.22);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.24);
 }
 
 .lead-section,
@@ -844,19 +924,19 @@ textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 15px;
-  outline: 0;
   background: rgba(255, 255, 255, 0.13);
   color: var(--text);
   padding: 13px 14px;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
 select {
   border: 1px solid var(--line);
   border-radius: 15px;
-  outline: 0;
   background: rgba(255, 255, 255, 0.13);
   color: var(--text);
   padding: 0 14px;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
 input::placeholder,
@@ -870,8 +950,24 @@ textarea {
 }
 
 .empty {
-  margin-bottom: 0;
+  margin: 0;
+  border: 1px dashed rgba(183, 255, 74, 0.25);
+  border-radius: 14px;
+  background: rgba(183, 255, 74, 0.055);
+  color: var(--muted);
   font-size: 13px;
+  line-height: 1.55;
+  padding: 14px;
+}
+
+.empty::before {
+  content: "Next step";
+  display: block;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 900;
+  margin-bottom: 5px;
+  text-transform: uppercase;
 }
 
 @keyframes freshPulse {
@@ -904,10 +1000,22 @@ textarea {
   .menu {
     display: flex;
     flex: 1;
+    min-width: 0;
   }
 
   .menu a {
+    flex: 0 0 auto;
+    min-width: 132px;
     text-align: center;
+  }
+
+  .agent-card {
+    flex: 0 0 180px;
+  }
+
+  .workspace-lock-button {
+    flex: 0 0 168px;
+    margin-top: 0;
   }
 
   .workspace-grid {
@@ -944,10 +1052,6 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .menu {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .workspace-topbar {
     grid-template-columns: 1fr;
   }
@@ -977,6 +1081,14 @@ textarea {
 
   h1 {
     font-size: 34px;
+  }
+
+  .menu a {
+    min-width: 118px;
+  }
+
+  .nav-label {
+    font-size: 12px;
   }
 
   .activity-chart {
@@ -1107,10 +1219,11 @@ textarea {
   display: grid;
   gap: 20px;
   width: 100%;
-  max-width: 1100px;
+  max-width: min(1440px, calc(100vw - 36px));
   min-width: 0;
   margin: 0 auto;
   padding: 22px;
+  animation: pageIn 220ms ease both;
 }
 
 .auth-page {
@@ -1142,8 +1255,18 @@ textarea {
 }
 
 .source-hero {
+  position: relative;
+  overflow: hidden;
   border-radius: 28px;
   padding: 30px;
+}
+
+.source-hero::after {
+  position: absolute;
+  inset: auto 24px 0 24px;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(183, 255, 74, 0.35), transparent);
 }
 
 .source-hero h1 {
@@ -1198,6 +1321,8 @@ textarea {
 
 .back-link {
   display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 18px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1206,6 +1331,12 @@ textarea {
   font-size: 13px;
   font-weight: 850;
   padding: 9px 12px;
+}
+
+.back-link::before {
+  content: "<";
+  color: var(--green);
+  font-weight: 950;
 }
 
 .source-grid {
@@ -1219,6 +1350,17 @@ textarea {
 .settings-form {
   display: grid;
   gap: 12px;
+}
+
+.source-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.source-form label span {
+  color: #eadfff;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .settings-form label {
@@ -1265,6 +1407,21 @@ textarea {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.desktop-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  border: 1px solid rgba(183, 255, 74, 0.28);
+  border-radius: 14px;
+  background: rgba(12, 15, 14, 0.92);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.38);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 12px 14px;
 }
 
 .service-error {

@@ -74,7 +74,7 @@
           <div class="automation-run-head">
             <div>
               <strong>{{ plan.request }}</strong>
-              <small>{{ plan.created_at }} · {{ plan.actions | length }} action(s)</small>
+              <small>{{ plan.created_at }} - {{ plan.actions | length }} action(s)</small>
             </div>
             <span class="run-status status-{{ plan.status }}">{{ plan.status }}</span>
           </div>
@@ -103,5 +103,6 @@
       <code>{{ capabilities.audit_database }}</code>
     </section>
   </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

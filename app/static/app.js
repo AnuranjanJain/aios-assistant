@@ -182,9 +182,59 @@ function escapeHtml(value) {
 window.addEventListener("load", () => {
   refreshLiveDashboard();
   setInterval(refreshLiveDashboard, LIVE_INTERVAL_MS);
+  setupFormBusyStates();
   setupMemorySearch();
   loadDesktopStatus();
 });
+
+function setupFormBusyStates() {
+  document.querySelectorAll("form").forEach((form) => {
+    if (form.dataset.busyReady === "1") {
+      return;
+    }
+    form.dataset.busyReady = "1";
+    form.addEventListener("submit", () => {
+      const button = form.querySelector('button[type="submit"], button:not([type])');
+      if (!button || button.disabled) {
+        return;
+      }
+      const original = button.textContent.trim();
+      form.classList.add("is-submitting");
+      form.setAttribute("aria-busy", "true");
+      button.setAttribute("aria-busy", "true");
+      button.dataset.originalText = original;
+      button.textContent = busyText(original);
+      showDesktopToast(busyText(original));
+    });
+  });
+}
+
+function busyText(label) {
+  const lowered = label.toLowerCase();
+  if (lowered.includes("resume")) return "Optimizing resume...";
+  if (lowered.includes("analyze")) return "Analyzing...";
+  if (lowered.includes("search") || lowered.includes("research")) return "Searching...";
+  if (lowered.includes("import")) return "Importing...";
+  if (lowered.includes("scan")) return "Scanning...";
+  if (lowered.includes("save")) return "Saving...";
+  if (lowered.includes("run") || lowered.includes("approve")) return "Running...";
+  if (lowered.includes("generate")) return "Generating...";
+  return "Working...";
+}
+
+function showDesktopToast(message) {
+  let toast = document.querySelector("[data-desktop-toast]");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.className = "desktop-toast";
+    toast.dataset.desktopToast = "1";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.hidden = false;
+}
 
 function setupMemorySearch() {
   const form = document.querySelector("[data-memory-search]");

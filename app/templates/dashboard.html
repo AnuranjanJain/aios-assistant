@@ -33,7 +33,7 @@
         <a href="{{ url_for('main.sources') }}"><span class="nav-initial">S</span><span class="nav-label">Sources</span></a>
         <a href="{{ url_for('main.connectors') }}"><span class="nav-initial">C</span><span class="nav-label">Connectors</span></a>
         <a href="{{ url_for('main.workers') }}"><span class="nav-initial">M</span><span class="nav-label">Workers</span></a>
-        <a href="{{ url_for('main.settings') }}"><span class="nav-initial">⚙</span><span class="nav-label">Settings</span></a>
+        <a href="{{ url_for('main.settings') }}"><span class="nav-initial">S</span><span class="nav-label">Settings</span></a>
       </nav>
 
       <div class="agent-card">
@@ -44,7 +44,7 @@
         </div>
       </div>
       <form method="post" action="{{ url_for('main.logout') }}">
-        <button type="submit" class="ghost-button">Lock</button>
+        <button type="submit" class="ghost-button workspace-lock-button">Lock workspace</button>
       </form>
     </aside>
 

@@ -124,7 +124,7 @@
         <div class="career-list">
           {% for project in portfolio.projects %}
             <article class="career-row">
-              <div><strong>{{ project.name }}</strong><small>{{ project.status }} · score {{ project.portfolio_score }}</small></div>
+              <div><strong>{{ project.name }}</strong><small>{{ project.status }} - score {{ project.portfolio_score }}</small></div>
               <p>{{ project.strengths[0] }}</p>
               <small>{{ project.missing_components[0] }}</small>
             </article>
@@ -137,7 +137,7 @@
         <div class="career-list">
           {% for item in recommendations %}
             <article class="career-row">
-              <div><strong>{{ item.title }}</strong><small>{{ item.category }} · priority {{ item.priority }}</small></div>
+              <div><strong>{{ item.title }}</strong><small>{{ item.category }} - priority {{ item.priority }}</small></div>
               <p>{{ item.rationale }}</p>
             </article>
           {% endfor %}
@@ -165,7 +165,7 @@
         <div class="career-list">
           {% for app in applications %}
             <article class="career-row">
-              <div><strong>{{ app.role }}</strong><small>{{ app.company }} · {{ app.status }}</small></div>
+              <div><strong>{{ app.role }}</strong><small>{{ app.company }} - {{ app.status }}</small></div>
               <p>{{ app.feedback or app.offer_details or app.source_url or "No notes yet." }}</p>
             </article>
           {% else %}<p class="empty">No applications saved yet.</p>{% endfor %}
@@ -181,5 +181,6 @@
       <code>vector_index={{ capabilities.vector_index }}</code>
     </section>
   </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
