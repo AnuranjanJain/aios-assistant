@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101510">
+  <title>AiOS Browser Agent</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page browser-agent-page">
+    <section class="source-hero glass browser-agent-hero">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <div class="browser-agent-hero-grid">
+        <div>
+          <p class="eyebrow">Local browser automation</p>
+          <h1>Research broadly. Submit deliberately.</h1>
+          <p>Search and compare opportunities with a local audit trail. Applications stop before the final external action.</p>
+        </div>
+        <div class="automation-status">
+          <span class="ready">Local database</span>
+          <span class="{{ 'ready' if capabilities.playwright_installed else 'missing' }}">Playwright {{ 'ready' if capabilities.playwright_installed else 'needed' }}</span>
+          <span class="missing">Submission locked</span>
+        </div>
+      </div>
+
+      <form class="browser-agent-command" method="post" action="{{ url_for('main.create_browser_plan') }}">
+        <label class="browser-agent-prompt">
+          <span>Browser request</span>
+          <textarea name="request" required placeholder="Find remote Python internships"></textarea>
+        </label>
+        <div class="browser-agent-fields">
+          <label><span>Source</span>
+            <select name="source">
+              <option value="indeed">Indeed</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="internshala">Internshala</option>
+              <option value="wellfound">Wellfound</option>
+              <option value="naukri">Naukri</option>
+            </select>
+          </label>
+          <label><span>Search query</span><input name="query" placeholder="Python intern, FastAPI"></label>
+          <label><span>Location</span><input name="location" placeholder="Remote or Bengaluru"></label>
+          <label><span>Maximum results</span><input name="max_results" type="number" min="1" max="100" value="25"></label>
+        </div>
+        <details class="browser-application-inputs">
+          <summary>Application preparation</summary>
+          <div class="browser-agent-fields">
+            <label><span>Exact job URL</span><input name="url" placeholder="https://..."></label>
+            <label><span>Resume version</span><input name="resume_version" placeholder="Backend Resume v3"></label>
+          </div>
+          <label><span>Cover letter draft</span><textarea name="cover_letter" placeholder="Draft reviewed locally before any submission"></textarea></label>
+        </details>
+        <button type="submit">Build Browser Plan</button>
+      </form>
+    </section>
+
+    {% if error %}<section class="panel glass memory-error">{{ error }}</section>{% endif %}
+
+    {% if pending_plan %}
+      <section class="panel glass browser-plan-preview">
+        <div>
+          <p class="eyebrow">Plan preview</p>
+          <h2>{{ pending_plan.intent | replace("_", " ") | title }}</h2>
+          <p>{{ pending_plan.request }}</p>
+        </div>
+        <span class="risk risk-{{ pending_plan.risk_level }}">{{ pending_plan.risk_level }} risk</span>
+        <ol>{% for line in pending_plan.preview %}<li>{{ line }}</li>{% endfor %}</ol>
+        <form class="browser-profile-form" method="post" action="{{ url_for('main.execute_browser_plan', plan_id=pending_plan.id) }}">
+          <label><span>Skills</span><input name="skills" placeholder="Python, FastAPI, SQL, React"></label>
+          <label><span>Project technologies</span><input name="projects" placeholder="Python, Docker, PostgreSQL"></label>
+          <label><span>Resume keywords</span><input name="resume_keywords" placeholder="REST API, AWS, Git"></label>
+          <label><span>Experience years</span><input name="experience_years" type="number" min="0" step="0.5" value="0"></label>
+          <button type="submit">{{ "Prepare Without Submitting" if pending_plan.risk_level in ["high", "critical"] else "Run Research" }}</button>
+        </form>
+      </section>
+    {% endif %}
+
+    <section class="memory-stats">
+      <article class="stat-card"><span>Research plans</span><strong>{{ counts.plans }}</strong><small>audited workflows</small></article>
+      <article class="stat-card"><span>Opportunities</span><strong>{{ counts.opportunities }}</strong><small>locally saved roles</small></article>
+      <article class="stat-card"><span>Strong matches</span><strong>{{ counts.high_match }}</strong><small>70 percent or above</small></article>
+      <article class="stat-card"><span>Approval queue</span><strong>{{ counts.awaiting }}</strong><small>external actions blocked</small></article>
+    </section>
+
+    <section class="panel glass browser-opportunities">
+      <div class="section-heading">
+        <div><p class="eyebrow">Job intelligence</p><h2>Scored opportunities</h2></div>
+      </div>
+      <div class="browser-job-grid">
+        {% for job in opportunities %}
+          <article class="browser-job">
+            <div class="browser-job-head">
+              <div><strong>{{ job.title }}</strong><span>{{ job.company }} · {{ job.source }}</span></div>
+              <b>{{ job.match_score }}%</b>
+            </div>
+            <p>{{ job.score_reason }}</p>
+            <div class="browser-skill-list">{% for skill in job.skills %}<span>{{ skill }}</span>{% endfor %}</div>
+            <form method="post" action="{{ url_for('main.update_browser_opportunity', opportunity_id=job.id) }}">
+              <select name="status">
+                {% for status in ["saved", "applied", "interview", "assessment", "rejected", "offer"] %}
+                  <option value="{{ status }}" {% if job.status == status %}selected{% endif %}>{{ status | title }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit">Update</button>
+            </form>
+          </article>
+        {% else %}
+          <p class="empty">Run a research plan to score and save opportunities locally.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel glass automation-history">
+      <div class="section-heading"><div><p class="eyebrow">Browser audit</p><h2>Recent plans</h2></div></div>
+      {% for plan in plans %}
+        <article class="automation-run">
+          <div class="automation-run-head">
+            <div><strong>{{ plan.request }}</strong><small>{{ plan.created_at }} · {{ plan.actions | length }} action(s)</small></div>
+            <span class="run-status status-{{ plan.status }}">{{ plan.status | replace("_", " ") }}</span>
+          </div>
+          {% for action in plan.actions %}
+            <div class="automation-action">
+              <span>{{ action.operation | replace("_", " ") }}</span>
+              <small>{{ action.result.summary or action.error or "Waiting" }}</small>
+            </div>
+          {% endfor %}
+        </article>
+      {% else %}<p class="empty">No browser plans have been created yet.</p>{% endfor %}
+    </section>
+
+    <section class="panel glass automation-roots">
+      <p class="eyebrow">Security boundary</p>
+      <h2>Approved domains</h2>
+      {% for domain in capabilities.allowed_domains %}<code>{{ domain }}</code>{% endfor %}
+      <h3>Local database</h3><code>{{ capabilities.database }}</code>
+    </section>
+  </main>
+</body>
+</html>

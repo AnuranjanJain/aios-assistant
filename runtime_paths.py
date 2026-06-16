@@ -62,6 +62,7 @@ def configure_desktop_environment():
     paths = get_runtime_paths().ensure()
     defaults = {
         "AIOS_DESKTOP": "1",
+        "AIOS_DATA_DIR": str(paths.data_dir),
         "DATABASE_URL": f"sqlite:///{(paths.data_dir / 'aios_assistant.db').as_posix()}",
         "AIOS_INSTANCE_PATH": str(paths.instance_dir),
         "MEMORY_VECTOR_PATH": str(paths.data_dir / "memory_vectors"),

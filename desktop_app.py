@@ -16,7 +16,7 @@ from runtime_paths import configure_desktop_environment
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 5050
-ALLOWED_START_PATHS = {"/", "/connectors", "/memory", "/planner", "/settings", "/workers"}
+ALLOWED_START_PATHS = {"/", "/automation", "/browser-agent", "/career", "/connectors", "/memory", "/planner", "/settings", "/workers"}
 
 
 def run_worker_mode(worker_id):

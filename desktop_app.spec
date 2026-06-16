@@ -9,6 +9,16 @@ hiddenimports = (
     + collect_submodules("googleapiclient")
     + collect_submodules("google_auth_oauthlib")
     + [
+        "docx",
+        "pptx",
+        "openpyxl",
+        "PIL.Image",
+        "pytesseract",
+        "pyautogui",
+        "playwright",
+        "playwright.sync_api",
+        "career_agent",
+        "career_agent.api",
         "desktop_activity_worker",
         "hackathon_monitor_worker",
         "local_worker",
@@ -28,7 +38,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter"],
+    excludes=["tkinter", "pandas", "scipy", "matplotlib", "pytest"],
     noarchive=False,
 )
 

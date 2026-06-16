@@ -18,6 +18,18 @@ It is designed to become a personal executive assistant for:
 | --- | --- |
 | ![AiOS Windows desktop app](docs/screenshots/aios-desktop-app.png) | ![AiOS Windows goal planner](docs/screenshots/aios-desktop-planner.png) |
 
+| Local desktop automation agent |
+| --- |
+| ![AiOS desktop automation agent](docs/screenshots/aios-desktop-automation.png) |
+
+| Local browser automation agent |
+| --- |
+| ![AiOS browser automation agent](docs/screenshots/aios-browser-agent.png) |
+
+| Career Copilot |
+| --- |
+| ![AiOS career copilot](docs/screenshots/aios-career-copilot.png) |
+
 | Workspace dashboard | Mobile dashboard |
 | --- | --- |
 | ![AiOS workspace dashboard](docs/screenshots/aios-workspace-dashboard.png) | ![AiOS mobile dashboard](docs/screenshots/aios-mobile-dashboard.png) |
@@ -32,12 +44,26 @@ The current UI is a dark workspace-style command center inspired by compact agen
 
 ## MVP Features
 
+- Plans and executes local desktop automations with explicit preview and approval.
+- Researches jobs through a guarded browser-agent pipeline and scores them locally.
+- Analyzes GitHub/local repositories and turns project evidence into a career graph.
+- Optimizes resumes, scores job descriptions, tracks applications, and generates career roadmaps.
+- Tracks applications while stopping before any external submission.
+- Organizes files, finds duplicates, quarantines/restores items, and handles archives.
+- Creates DOCX, PPTX, and XLSX files and uses local LibreOffice for PDF export.
+- Analyzes screenshots with local Tesseract OCR when installed.
 - Classifies incoming email-like messages into jobs, hackathons, interviews, rejections, deadlines, and general updates.
 - Stores tracked opportunities in SQLite.
 - Persists personal memory, projects, goals, skills, learning paths, preferences, recurring tasks, and work checkpoints.
 - Generates daily summaries and simple schedule recommendations.
 - Exposes a clean Flask dashboard.
 - Includes integration placeholders for Gmail, Google Calendar, Telegram, local AI, and plugin clients.
+
+Detailed architecture and security behavior: [Desktop Automation Agent](docs/AUTOMATION_AGENT.md).
+
+Browser planning, Playwright tools, scoring, and approval model: [Browser Automation Agent](docs/BROWSER_AUTOMATION_AGENT.md).
+
+Career system design, graph, resume scoring, job matching, and roadmap behavior: [Career Copilot](docs/CAREER_COPILOT.md).
 
 ## Vision
 

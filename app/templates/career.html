@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101510">
+  <title>AiOS Career Copilot</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page career-page">
+    <section class="source-hero glass career-hero">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <div class="career-hero-grid">
+        <div>
+          <p class="eyebrow">Career Brain</p>
+          <h1>Turn project proof into hiring signal.</h1>
+          <p>Analyze GitHub, optimize resumes, score job descriptions, and track applications with a local-first career graph.</p>
+        </div>
+        <div class="automation-status">
+          <span class="ready">SQLite memory</span>
+          <span class="ready">Local scoring</span>
+          <span class="{{ 'ready' if capabilities.github_api == 'available' else 'missing' }}">GitHub API {{ capabilities.github_api }}</span>
+        </div>
+      </div>
+    </section>
+
+    {% if error %}<section class="panel glass memory-error">{{ error }}</section>{% endif %}
+
+    <section class="memory-stats">
+      <article class="stat-card"><span>Portfolio score</span><strong>{{ portfolio.aggregate.portfolio_score }}</strong><small>career readiness</small></article>
+      <article class="stat-card"><span>Repositories</span><strong>{{ counts.repositories }}</strong><small>analyzed evidence</small></article>
+      <article class="stat-card"><span>Projects</span><strong>{{ counts.projects }}</strong><small>tracked portfolio items</small></article>
+      <article class="stat-card"><span>Strong matches</span><strong>{{ counts.strong_matches }}</strong><small>70 percent or above</small></article>
+    </section>
+
+    <section class="career-grid">
+      <article class="panel glass career-card">
+        <p class="eyebrow">GitHub Analyzer</p>
+        <h2>Analyze repository</h2>
+        <form class="career-form" method="post" action="{{ url_for('main.analyze_career_repository') }}">
+          <label><span>Local path or GitHub URL</span><input name="source" required placeholder="C:\Users\anura\Documents\Ai Agent"></label>
+          <label><span>Project label</span><input name="project_name" placeholder="AiOS"></label>
+          <button type="submit">Analyze</button>
+        </form>
+      </article>
+
+      <article class="panel glass career-card">
+        <p class="eyebrow">Resume Optimizer</p>
+        <h2>Target a JD</h2>
+        <form class="career-form" method="post" action="{{ url_for('main.optimize_career_resume') }}">
+          <label><span>Resume text</span><textarea name="resume_text" required placeholder="Paste resume text"></textarea></label>
+          <label><span>Job description</span><textarea name="job_description" placeholder="Paste target JD"></textarea></label>
+          <button type="submit">Optimize Resume</button>
+        </form>
+      </article>
+
+      <article class="panel glass career-card">
+        <p class="eyebrow">Job Match Engine</p>
+        <h2>Score opportunity</h2>
+        <form class="career-form" method="post" action="{{ url_for('main.match_career_job') }}">
+          <div class="career-fields">
+            <label><span>Role</span><input name="title" placeholder="AI Engineer Intern"></label>
+            <label><span>Company</span><input name="company" placeholder="Company"></label>
+          </div>
+          <label><span>Job description</span><textarea name="job_description" required placeholder="Paste JD"></textarea></label>
+          <button type="submit">Match Job</button>
+        </form>
+      </article>
+
+      <article class="panel glass career-card">
+        <p class="eyebrow">Application DB</p>
+        <h2>Track application</h2>
+        <form class="career-form" method="post" action="{{ url_for('main.save_career_application') }}">
+          <div class="career-fields">
+            <label><span>Company</span><input name="company" required></label>
+            <label><span>Role</span><input name="role" required></label>
+          </div>
+          <div class="career-fields">
+            <label><span>Status</span>
+              <select name="status">
+                {% for status in ["saved", "applied", "interview", "assessment", "rejected", "offer"] %}
+                  <option value="{{ status }}">{{ status | title }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label><span>Interview date</span><input name="interview_date" type="date"></label>
+          </div>
+          <label><span>Source URL</span><input name="source_url" placeholder="https://..."></label>
+          <label><span>Feedback or offer details</span><textarea name="feedback" placeholder="Notes from recruiter or assessment"></textarea></label>
+          <button type="submit">Save Application</button>
+        </form>
+      </article>
+    </section>
+
+    {% if match_result %}
+      <section class="panel glass career-result">
+        <p class="eyebrow">Latest match</p>
+        <h2>{{ match_result.overall_score }}% match{% if match_result.title %} for {{ match_result.title }}{% endif %}</h2>
+        <p>{{ match_result.explanation }}</p>
+        <div class="career-score-row">
+          <span>Skills {{ match_result.skill_score }}%</span>
+          <span>Tech {{ match_result.technology_score }}%</span>
+          <span>Projects {{ match_result.project_score }}%</span>
+          <span>Experience {{ match_result.experience_score }}%</span>
+        </div>
+      </section>
+    {% endif %}
+
+    {% if resume_result %}
+      <section class="panel glass career-result">
+        <p class="eyebrow">Latest resume draft</p>
+        <h2>ATS score {{ resume_result.ats_score }}%</h2>
+        <div class="career-split">
+          <div><h3>Changes</h3>{% for change in resume_result.changes %}<p>{{ change }}</p>{% endfor %}</div>
+          <pre>{{ resume_result.optimized_text }}</pre>
+        </div>
+      </section>
+    {% endif %}
+
+    <section class="career-grid career-wide">
+      <article class="panel glass career-card">
+        <div class="section-heading"><div><p class="eyebrow">Portfolio Intelligence</p><h2>Project evidence</h2></div></div>
+        <div class="career-list">
+          {% for project in portfolio.projects %}
+            <article class="career-row">
+              <div><strong>{{ project.name }}</strong><small>{{ project.status }} · score {{ project.portfolio_score }}</small></div>
+              <p>{{ project.strengths[0] }}</p>
+              <small>{{ project.missing_components[0] }}</small>
+            </article>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="panel glass career-card">
+        <div class="section-heading"><div><p class="eyebrow">Career Advisor</p><h2>Recommendations</h2></div></div>
+        <div class="career-list">
+          {% for item in recommendations %}
+            <article class="career-row">
+              <div><strong>{{ item.title }}</strong><small>{{ item.category }} · priority {{ item.priority }}</small></div>
+              <p>{{ item.rationale }}</p>
+            </article>
+          {% endfor %}
+        </div>
+      </article>
+    </section>
+
+    <section class="career-grid career-wide">
+      <article class="panel glass career-card">
+        <p class="eyebrow">Roadmap Generator</p>
+        <h2>{{ roadmap.target_role }}</h2>
+        <div class="career-roadmap">
+          {% for label, steps in roadmap.plans.items() %}
+            <div>
+              <strong>{{ label | replace("_", " ") | title }}</strong>
+              {% for step in steps %}<p>{{ step }}</p>{% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="panel glass career-card">
+        <p class="eyebrow">Application Tracker</p>
+        <h2>{{ counts.applications }} saved</h2>
+        <div class="career-list">
+          {% for app in applications %}
+            <article class="career-row">
+              <div><strong>{{ app.role }}</strong><small>{{ app.company }} · {{ app.status }}</small></div>
+              <p>{{ app.feedback or app.offer_details or app.source_url or "No notes yet." }}</p>
+            </article>
+          {% else %}<p class="empty">No applications saved yet.</p>{% endfor %}
+        </div>
+      </article>
+    </section>
+
+    <section class="panel glass automation-roots">
+      <p class="eyebrow">Local boundary</p>
+      <h2>Career data stays on this device</h2>
+      <code>{{ capabilities.database }}</code>
+      <code>credentials_stored={{ capabilities.credentials_stored }}</code>
+      <code>vector_index={{ capabilities.vector_index }}</code>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101510">
+  <title>AiOS Desktop Automation</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="source-page automation-page">
+    <section class="source-hero glass automation-hero">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <div class="automation-hero-grid">
+        <div>
+          <p class="eyebrow">Local desktop automation</p>
+          <h1>Plan it. Inspect it. Run it.</h1>
+          <p>AiOS turns a natural-language request into a local action plan. Nothing runs until you approve the exact paths and operations.</p>
+        </div>
+        <div class="automation-status">
+          <span class="{{ 'ready' if capabilities.local_only else '' }}">On-device</span>
+          <span class="{{ 'ready' if capabilities.libreoffice else 'missing' }}">LibreOffice {{ 'ready' if capabilities.libreoffice else 'needed' }}</span>
+          <span class="{{ 'ready' if capabilities.screenshot_ocr else 'missing' }}">OCR {{ 'ready' if capabilities.screenshot_ocr else 'needed' }}</span>
+        </div>
+      </div>
+      <form class="automation-command" method="post" action="{{ url_for('main.create_automation_plan') }}">
+        <label class="automation-prompt">
+          <span>Command</span>
+          <textarea name="request" required placeholder="Organize my Downloads folder"></textarea>
+        </label>
+        <div class="automation-fields">
+          <label><span>Source path</span><input name="source" placeholder="C:\Users\...\Downloads"></label>
+          <label><span>Destination</span><input name="destination" placeholder="Optional output path"></label>
+          <label><span>Folder names</span><input name="names" placeholder="OS, DBMS, Networks"></label>
+          <label><span>Document title</span><input name="title" placeholder="Optional presentation title"></label>
+        </div>
+        <label><span>Notes or content</span><textarea name="notes" placeholder="Optional notes for a presentation or document"></textarea></label>
+        <button type="submit">Build Safe Preview</button>
+      </form>
+    </section>
+
+    {% if error %}<section class="panel glass memory-error">{{ error }}</section>{% endif %}
+
+    {% if pending_plan %}
+      <section class="panel glass automation-preview">
+        <div>
+          <p class="eyebrow">Approval required</p>
+          <h2>{{ pending_plan.intent | replace("_", " ") | title }}</h2>
+          <p>{{ pending_plan.request }}</p>
+        </div>
+        <span class="risk risk-{{ pending_plan.risk_level }}">{{ pending_plan.risk_level }} risk</span>
+        <ol>
+          {% for line in pending_plan.preview %}<li>{{ line }}</li>{% endfor %}
+        </ol>
+        <form method="post" action="{{ url_for('main.execute_automation_plan', plan_id=pending_plan.id) }}">
+          <button type="submit">Approve and Run Locally</button>
+        </form>
+      </section>
+    {% endif %}
+
+    <section class="memory-stats">
+      <article class="stat-card"><span>Plans</span><strong>{{ counts.plans }}</strong><small>recent requests</small></article>
+      <article class="stat-card"><span>Actions</span><strong>{{ counts.actions }}</strong><small>audited steps</small></article>
+      <article class="stat-card"><span>Completed</span><strong>{{ counts.completed }}</strong><small>verified runs</small></article>
+      <article class="stat-card"><span>Needs review</span><strong>{{ counts.failed }}</strong><small>failed or partial</small></article>
+    </section>
+
+    <section class="panel glass automation-history">
+      <div class="section-heading">
+        <div><p class="eyebrow">Audit history</p><h2>Recent automation</h2></div>
+      </div>
+      {% for plan in plans %}
+        <article class="automation-run">
+          <div class="automation-run-head">
+            <div>
+              <strong>{{ plan.request }}</strong>
+              <small>{{ plan.created_at }} · {{ plan.actions | length }} action(s)</small>
+            </div>
+            <span class="run-status status-{{ plan.status }}">{{ plan.status }}</span>
+          </div>
+          {% for action in plan.actions %}
+            <div class="automation-action">
+              <span>{{ action.operation | replace("_", " ") }}</span>
+              <small>{{ action.result.summary or action.error or "Waiting for approval" }}</small>
+              {% if action.operation == "quarantine" and action.status == "completed" %}
+                <form method="post" action="{{ url_for('main.restore_automation_action', action_id=action.id) }}">
+                  <button class="secondary-action" type="submit">Restore</button>
+                </form>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </article>
+      {% else %}
+        <p class="empty">Your first approved automation will appear here with a complete local audit trail.</p>
+      {% endfor %}
+    </section>
+
+    <section class="panel glass automation-roots">
+      <p class="eyebrow">Security boundary</p>
+      <h2>Approved roots</h2>
+      {% for root in capabilities.allowed_roots %}<code>{{ root }}</code>{% endfor %}
+      <h3>Local audit database</h3>
+      <code>{{ capabilities.audit_database }}</code>
+    </section>
+  </main>
+</body>
+</html>

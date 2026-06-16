@@ -18,6 +18,9 @@ from app.models import (
 )
 from app.services.agent_ingest import ingest_message as ingest_agent_message
 from app.services.ai_classifier import get_classifier
+from app.services.automation import automation_overview, get_automation_engine
+from app.services.browser_automation import browser_agent_overview, get_browser_agent
+from app.services.career import career_overview, get_career_engine
 from app.services.api_auth import has_valid_api_token
 from app.services.auth import clear_pin, has_pin, set_pin, verify_pin
 from app.services.connectors import (
@@ -222,6 +225,244 @@ def memory_workspace():
 @bp.get("/planner")
 def planner_workspace():
     return render_template("planner.html", **planner_overview())
+
+
+@bp.get("/automation")
+def automation_workspace():
+    return render_template(
+        "automation.html",
+        **automation_overview(),
+        pending_plan=session.get("automation_pending_plan"),
+    )
+
+
+@bp.get("/browser-agent")
+def browser_agent_workspace():
+    return render_template(
+        "browser_agent.html",
+        **browser_agent_overview(),
+        pending_plan=session.get("browser_pending_plan"),
+    )
+
+
+@bp.get("/career")
+def career_workspace():
+    return render_template("career.html", **career_overview())
+
+
+@bp.post("/career/github/analyze")
+def analyze_career_repository():
+    try:
+        get_career_engine().analyze_repository(
+            request.form.get("source", ""),
+            request.form.get("project_name", ""),
+        )
+    except ValueError as exc:
+        return render_template("career.html", **career_overview(), error=str(exc)), 400
+    return redirect(url_for("main.career_workspace"))
+
+
+@bp.post("/career/resume/optimize")
+def optimize_career_resume():
+    try:
+        result = get_career_engine().optimize_resume(
+            request.form.get("resume_text", ""),
+            request.form.get("job_description", ""),
+        )
+    except ValueError as exc:
+        return render_template("career.html", **career_overview(), error=str(exc)), 400
+    return render_template("career.html", **career_overview(), resume_result=result)
+
+
+@bp.post("/career/jobs/match")
+def match_career_job():
+    try:
+        result = get_career_engine().match_job(
+            request.form.get("job_description", ""),
+            request.form.get("title", ""),
+            request.form.get("company", ""),
+        )
+    except ValueError as exc:
+        return render_template("career.html", **career_overview(), error=str(exc)), 400
+    return render_template("career.html", **career_overview(), match_result=result)
+
+
+@bp.post("/career/applications")
+def save_career_application():
+    get_career_engine().save_application(
+        {
+            "company": request.form.get("company", "").strip(),
+            "role": request.form.get("role", "").strip(),
+            "status": request.form.get("status", "saved").strip(),
+            "source_url": request.form.get("source_url", "").strip(),
+            "interview_date": request.form.get("interview_date", "").strip(),
+            "offer_details": request.form.get("offer_details", "").strip(),
+            "feedback": request.form.get("feedback", "").strip(),
+        }
+    )
+    return redirect(url_for("main.career_workspace"))
+
+
+@bp.get("/api/career")
+def api_career_overview():
+    return jsonify(career_overview())
+
+
+@bp.post("/browser-agent/plan")
+def create_browser_plan():
+    try:
+        plan = get_browser_agent().create_plan(
+            request.form.get("request", ""),
+            {
+                "source": request.form.get("source", "").strip() or None,
+                "query": request.form.get("query", "").strip() or None,
+                "location": request.form.get("location", "").strip(),
+                "url": request.form.get("url", "").strip() or None,
+                "max_results": request.form.get("max_results", "25"),
+                "resume_version": request.form.get("resume_version", "").strip(),
+                "cover_letter": request.form.get("cover_letter", "").strip(),
+            },
+        )
+        session["browser_tokens"] = {
+            **session.get("browser_tokens", {}),
+            plan["id"]: plan.pop("approval_token"),
+        }
+        session["browser_pending_plan"] = plan
+    except (TypeError, ValueError) as exc:
+        return render_template(
+            "browser_agent.html",
+            **browser_agent_overview(),
+            pending_plan=None,
+            error=str(exc),
+        ), 400
+    return redirect(url_for("main.browser_agent_workspace"))
+
+
+@bp.post("/browser-agent/plans/<plan_id>/execute")
+def execute_browser_plan(plan_id):
+    tokens = session.get("browser_tokens", {})
+    profile = {
+        "skills": [
+            item.strip()
+            for item in request.form.get("skills", "").split(",")
+            if item.strip()
+        ],
+        "projects": [
+            item.strip()
+            for item in request.form.get("projects", "").split(",")
+            if item.strip()
+        ],
+        "resume_keywords": [
+            item.strip()
+            for item in request.form.get("resume_keywords", "").split(",")
+            if item.strip()
+        ],
+        "experience_years": request.form.get("experience_years", "0"),
+    }
+    try:
+        get_browser_agent().execute_plan(plan_id, tokens.get(plan_id, ""), profile)
+        session["browser_pending_plan"] = None
+        tokens.pop(plan_id, None)
+        session["browser_tokens"] = tokens
+    except (KeyError, PermissionError, ValueError) as exc:
+        return render_template(
+            "browser_agent.html",
+            **browser_agent_overview(),
+            pending_plan=session.get("browser_pending_plan"),
+            error=str(exc),
+        ), 400
+    return redirect(url_for("main.browser_agent_workspace"))
+
+
+@bp.post("/browser-agent/opportunities/<opportunity_id>/status")
+def update_browser_opportunity(opportunity_id):
+    allowed = {"saved", "applied", "interview", "assessment", "rejected", "offer"}
+    status = request.form.get("status", "saved").lower()
+    if status not in allowed:
+        return redirect(url_for("main.browser_agent_workspace"))
+    get_browser_agent().store.update_application(
+        opportunity_id,
+        status,
+        request.form.get("resume_version", ""),
+        request.form.get("cover_letter", ""),
+    )
+    return redirect(url_for("main.browser_agent_workspace"))
+
+
+@bp.get("/api/browser-agent")
+def api_browser_agent_overview():
+    return jsonify(browser_agent_overview())
+
+
+@bp.post("/automation/plan")
+def create_automation_plan():
+    try:
+        plan = get_automation_engine().create_plan(
+            request.form.get("request", ""),
+            {
+                "source": request.form.get("source", "").strip() or None,
+                "destination": request.form.get("destination", "").strip() or None,
+                "parent": request.form.get("parent", "").strip() or None,
+                "names": [
+                    item.strip()
+                    for item in request.form.get("names", "").split(",")
+                    if item.strip()
+                ],
+                "title": request.form.get("title", "").strip() or None,
+                "notes": request.form.get("notes", "").strip() or None,
+            },
+        )
+        session["automation_tokens"] = {
+            **session.get("automation_tokens", {}),
+            plan["id"]: plan.pop("approval_token"),
+        }
+        session["automation_pending_plan"] = plan
+    except ValueError as exc:
+        return render_template(
+            "automation.html",
+            **automation_overview(),
+            pending_plan=None,
+            error=str(exc),
+        ), 400
+    return redirect(url_for("main.automation_workspace"))
+
+
+@bp.post("/automation/plans/<plan_id>/execute")
+def execute_automation_plan(plan_id):
+    tokens = session.get("automation_tokens", {})
+    try:
+        result = get_automation_engine().execute_plan(plan_id, tokens.get(plan_id, ""))
+        session["automation_pending_plan"] = None
+        tokens.pop(plan_id, None)
+        session["automation_tokens"] = tokens
+        session["automation_result"] = result["status"]
+    except (KeyError, PermissionError, ValueError) as exc:
+        return render_template(
+            "automation.html",
+            **automation_overview(),
+            pending_plan=session.get("automation_pending_plan"),
+            error=str(exc),
+        ), 400
+    return redirect(url_for("main.automation_workspace"))
+
+
+@bp.post("/automation/actions/<action_id>/restore")
+def restore_automation_action(action_id):
+    try:
+        get_automation_engine().restore_action(action_id)
+    except (KeyError, ValueError) as exc:
+        return render_template(
+            "automation.html",
+            **automation_overview(),
+            pending_plan=None,
+            error=str(exc),
+        ), 400
+    return redirect(url_for("main.automation_workspace"))
+
+
+@bp.get("/api/automation")
+def api_automation_overview():
+    return jsonify(automation_overview())
 
 
 @bp.post("/planner")
