@@ -1,3 +1,4 @@
+﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -7,8 +8,12 @@
   <title>AiOS Goal Planner</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-<body>
-  <main class="source-page planner-page">
+<body class="workspace-body">
+  <div class="shell workspace-shell">
+    {{ sidebar() }}
+  <main class="dashboard source-dashboard">
+      {{ topbar() }}
+      <section class="source-page planner-page">
     <section class="source-hero glass planner-hero">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <p class="eyebrow">Adaptive AI goal planner</p>
@@ -95,7 +100,9 @@
         <section class="panel glass"><p class="empty">Describe a goal above to create your first adaptive roadmap.</p></section>
       {% endfor %}
     </section>
-  </main>
+  </section>
+    </main>
+  </div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

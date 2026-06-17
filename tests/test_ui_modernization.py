@@ -47,10 +47,15 @@ class UiModernizationTestCase(unittest.TestCase):
             "/browser-agent",
             "/career",
             "/connectors",
+            "/gmail",
+            "/hackathons",
+            "/jobs",
             "/memory",
             "/planner",
+            "/profile",
             "/settings",
             "/sources",
+            "/wellbeing",
             "/workers",
         ]
 
@@ -66,6 +71,13 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertIn('class="nav-label">Overview</span>', html)
         self.assertIn('class="nav-label">Browser Agent</span>', html)
         self.assertIn('class="nav-label">Career Copilot</span>', html)
+        self.assertIn('href="/profile"', html)
+        self.assertIn('href="/gmail"', html)
+        self.assertIn('href="/hackathons"', html)
+        self.assertIn('href="/jobs"', html)
+        self.assertIn('href="/wellbeing"', html)
+        self.assertIn('class="icon"', html)
+        self.assertNotIn("nav-initial", html)
         self.assertNotIn(">Lock</button>", html)
 
     def test_forms_have_accessible_labels_and_loading_script(self):
@@ -88,11 +100,14 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertIn("grid-template-columns: 248px minmax(0, 1fr)", css)
         self.assertIn(".nav-label", css)
         self.assertIn("text-overflow: ellipsis", css)
+        self.assertIn("overflow-y: auto", css)
         self.assertIn("@media (max-width: 1100px)", css)
         self.assertIn("flex: 0 0 auto", css)
         self.assertIn(":focus-visible", css)
         self.assertIn(".empty::before", css)
         self.assertIn(".desktop-toast", css)
+        self.assertIn(".confidence-stat", css)
+        self.assertIn("pageOut", css)
 
 
 if __name__ == "__main__":

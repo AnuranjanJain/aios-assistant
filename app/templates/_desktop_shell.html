@@ -1,0 +1,59 @@
+﻿{% from "_icons.html" import icon %}
+
+{% macro sidebar() -%}
+  <aside class="sidebar workspace-sidebar">
+    <a class="brand" href="{{ url_for('main.dashboard') }}" aria-label="AiOS Assistant home">
+      <span class="brand-mark">A</span>
+      <span>
+        <strong>WORKSPACE</strong>
+        <small>AiOS local agent</small>
+      </span>
+    </a>
+
+    <nav class="menu" aria-label="Dashboard navigation">
+      <a class="{{ 'active' if request.path == '/' and request.args.get('tab', 'overview') == 'overview' else '' }}" href="{{ url_for('main.dashboard') }}?tab=overview">{{ icon("overview") }}<span class="nav-label">Overview</span></a>
+      <a class="{{ 'active' if request.args.get('tab') == 'opportunities' else '' }}" href="{{ url_for('main.dashboard') }}?tab=opportunities">{{ icon("briefcase") }}<span class="nav-label">Opportunities</span></a>
+      <a class="{{ 'active' if request.args.get('tab') == 'reminders' else '' }}" href="{{ url_for('main.dashboard') }}?tab=reminders">{{ icon("bell") }}<span class="nav-label">Reminders</span></a>
+      <a class="{{ 'active' if request.args.get('tab') == 'inbox' else '' }}" href="{{ url_for('main.dashboard') }}?tab=inbox">{{ icon("mail") }}<span class="nav-label">Inbox AI</span></a>
+      <a class="{{ 'active' if request.path == '/wellbeing' else '' }}" href="{{ url_for('main.wellbeing_workspace') }}">{{ icon("heart") }}<span class="nav-label">Wellbeing</span></a>
+      <a class="{{ 'active' if request.path == '/memory' else '' }}" href="{{ url_for('main.memory_workspace') }}">{{ icon("database") }}<span class="nav-label">Memory</span></a>
+      <a class="{{ 'active' if request.path == '/planner' else '' }}" href="{{ url_for('main.planner_workspace') }}">{{ icon("calendar") }}<span class="nav-label">Planner</span></a>
+      <a class="{{ 'active' if request.path == '/automation' else '' }}" href="{{ url_for('main.automation_workspace') }}">{{ icon("terminal") }}<span class="nav-label">Automation</span></a>
+      <a class="{{ 'active' if request.path == '/browser-agent' else '' }}" href="{{ url_for('main.browser_agent_workspace') }}">{{ icon("globe") }}<span class="nav-label">Browser Agent</span></a>
+      <a class="{{ 'active' if request.path == '/career' else '' }}" href="{{ url_for('main.career_workspace') }}">{{ icon("career") }}<span class="nav-label">Career Copilot</span></a>
+      <a class="{{ 'active' if request.path == '/sources' else '' }}" href="{{ url_for('main.sources') }}">{{ icon("plug") }}<span class="nav-label">Sources</span></a>
+      <a class="{{ 'active' if request.path == '/connectors' else '' }}" href="{{ url_for('main.connectors') }}">{{ icon("link") }}<span class="nav-label">Connectors</span></a>
+      <a class="{{ 'active' if request.path == '/workers' else '' }}" href="{{ url_for('main.workers') }}">{{ icon("cpu") }}<span class="nav-label">Workers</span></a>
+      <a class="{{ 'active' if request.path == '/settings' else '' }}" href="{{ url_for('main.settings') }}">{{ icon("sliders") }}<span class="nav-label">Settings</span></a>
+    </nav>
+
+    <div class="agent-card">
+      <span class="pulse"></span>
+      <div>
+        <strong>Live local agent</strong>
+        <small data-live-updated>Waiting for sync...</small>
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('main.logout') }}">
+      <button type="submit" class="ghost-button workspace-lock-button">Lock workspace</button>
+    </form>
+  </aside>
+{%- endmacro %}
+
+{% macro topbar() -%}
+  <header class="workspace-topbar">
+    <div class="schedule-pill">
+      <span>Your Schedule</span>
+      <strong data-live-updated>Live local sync</strong>
+    </div>
+    <div class="top-rail" aria-label="Live pipeline navigation">
+      <a class="{{ 'active' if request.path == '/gmail' else '' }}" href="{{ url_for('main.gmail_workspace') }}">{{ icon("mail") }}<span>Gmail</span></a>
+      <a class="{{ 'active' if request.path == '/hackathons' else '' }}" href="{{ url_for('main.hackathons_workspace') }}">{{ icon("briefcase") }}<span>Hackathons</span></a>
+      <a class="{{ 'active' if request.path == '/jobs' else '' }}" href="{{ url_for('main.jobs_workspace') }}">{{ icon("career") }}<span>Jobs</span></a>
+      <a class="{{ 'active' if request.path == '/wellbeing' else '' }}" href="{{ url_for('main.wellbeing_workspace') }}">{{ icon("heart") }}<span>Wellbeing</span></a>
+    </div>
+    <a class="profile-stack" href="{{ url_for('main.profile') }}" aria-label="Open profile">
+      <span>{{ desktop_profile.initials[:1] }}</span>
+    </a>
+  </header>
+{%- endmacro %}

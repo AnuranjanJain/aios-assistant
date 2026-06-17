@@ -1,3 +1,4 @@
+﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -10,66 +11,22 @@
 </head>
 <body class="workspace-body">
   <div class="shell workspace-shell">
-    <aside class="sidebar workspace-sidebar">
-      <a class="brand" href="{{ url_for('main.dashboard') }}" aria-label="AiOS Assistant home">
-        <span class="brand-mark">A</span>
-        <span>
-          <strong>WORKSPACE</strong>
-          <small>AiOS local agent</small>
-        </span>
-      </a>
-
-      <nav class="menu" aria-label="Dashboard navigation">
-        <a class="active" href="#overview"><span class="nav-initial">O</span><span class="nav-label">Overview</span></a>
-        <a href="#opportunities"><span class="nav-initial">P</span><span class="nav-label">Opportunities</span></a>
-        <a href="#reminders"><span class="nav-initial">R</span><span class="nav-label">Reminders</span></a>
-        <a href="#inbox"><span class="nav-initial">I</span><span class="nav-label">Inbox AI</span></a>
-        <a href="#wellbeing"><span class="nav-initial">W</span><span class="nav-label">Wellbeing</span></a>
-        <a href="{{ url_for('main.memory_workspace') }}"><span class="nav-initial">M</span><span class="nav-label">Memory</span></a>
-        <a href="{{ url_for('main.planner_workspace') }}"><span class="nav-initial">P</span><span class="nav-label">Planner</span></a>
-        <a href="{{ url_for('main.automation_workspace') }}"><span class="nav-initial">A</span><span class="nav-label">Automation</span></a>
-        <a href="{{ url_for('main.browser_agent_workspace') }}"><span class="nav-initial">B</span><span class="nav-label">Browser Agent</span></a>
-        <a href="{{ url_for('main.career_workspace') }}"><span class="nav-initial">C</span><span class="nav-label">Career Copilot</span></a>
-        <a href="{{ url_for('main.sources') }}"><span class="nav-initial">S</span><span class="nav-label">Sources</span></a>
-        <a href="{{ url_for('main.connectors') }}"><span class="nav-initial">C</span><span class="nav-label">Connectors</span></a>
-        <a href="{{ url_for('main.workers') }}"><span class="nav-initial">M</span><span class="nav-label">Workers</span></a>
-        <a href="{{ url_for('main.settings') }}"><span class="nav-initial">S</span><span class="nav-label">Settings</span></a>
-      </nav>
-
-      <div class="agent-card">
-        <span class="pulse"></span>
-        <div>
-          <strong>Live local agent</strong>
-          <small data-live-updated>Waiting for sync...</small>
-        </div>
-      </div>
-      <form method="post" action="{{ url_for('main.logout') }}">
-        <button type="submit" class="ghost-button workspace-lock-button">Lock workspace</button>
-      </form>
-    </aside>
+    {{ sidebar() }}
 
     <main class="dashboard">
-      <header class="workspace-topbar">
-        <div class="schedule-pill">
-          <span>Your Schedule</span>
-          <strong data-live-updated>Live local sync</strong>
-        </div>
-        <div class="top-rail">
-          <span>Gmail</span>
-          <span>Hackathons</span>
-          <span>Jobs</span>
-          <span>Wellbeing</span>
-        </div>
-        <div class="profile-stack" aria-label="Local profile">
-          <span>A</span>
-          <span>AJ</span>
-        </div>
-      </header>
+      {{ topbar() }}
 
-      <header class="hero workspace-hero">
+      <nav class="dashboard-tabs" aria-label="Dashboard sections">
+        <button type="button" data-dashboard-tab="overview">Overview</button>
+        <button type="button" data-dashboard-tab="opportunities">Opportunities</button>
+        <button type="button" data-dashboard-tab="reminders">Reminders</button>
+        <button type="button" data-dashboard-tab="inbox">Inbox AI</button>
+      </nav>
+
+      <header class="hero workspace-hero" data-dashboard-tab-panel="overview">
         <div>
           <p class="eyebrow">Personal AI productivity system</p>
-          <h1>Good evening, Anuranjan.</h1>
+          <h1>Good evening, {{ profile.display_name }}.</h1>
           <p class="hero-copy" data-live-plan-summary>{{ plan.summary }}</p>
         </div>
         <div class="hero-actions">
@@ -78,7 +35,7 @@
         </div>
       </header>
 
-      <section id="overview" class="stats-grid" aria-label="Dashboard stats">
+      <section id="overview" class="stats-grid" aria-label="Dashboard stats" data-dashboard-tab-panel="overview">
         <article class="stat-card">
           <span>Tracked</span>
           <strong data-live-stat="opportunities">{{ stats.opportunities }}</strong>
@@ -91,7 +48,7 @@
         </article>
         <article class="stat-card">
           <span>AI Confidence</span>
-          <strong><span data-live-stat="avg_confidence">{{ stats.avg_confidence }}</span>%</strong>
+          <strong class="confidence-stat"><span data-live-stat="avg_confidence">{{ stats.avg_confidence }}</span>%</strong>
           <small>recent inbox average</small>
         </article>
         <article class="stat-card">
@@ -101,7 +58,7 @@
         </article>
       </section>
 
-      <section class="workspace-grid">
+      <section class="workspace-grid" data-dashboard-tab-panel="overview">
         <div class="workspace-main">
           <section class="lead-section">
             <div class="panel-heading">
@@ -162,10 +119,10 @@
 
         <aside class="agent-summary-panel">
           <div class="call-preview">
-            <div class="call-avatar">AJ</div>
+            <div class="call-avatar">{{ profile.initials }}</div>
             <div>
-              <strong>Anuranjan</strong>
-              <small>Local AI companion</small>
+              <strong>{{ profile.display_name }}</strong>
+              <small>{{ profile.role }}</small>
             </div>
           </div>
           <div class="summary-sheet">
@@ -189,7 +146,7 @@
         </aside>
       </section>
 
-      <section class="main-grid">
+      <section class="main-grid" data-dashboard-tab-panel="overview">
         <article class="panel plan-panel">
           <div class="panel-heading">
             <div>
@@ -270,7 +227,7 @@
       </section>
 
       <section class="data-grid">
-        <article id="opportunities" class="panel">
+        <article id="opportunities" class="panel" data-dashboard-tab-panel="opportunities">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Pipeline</p>
@@ -292,7 +249,7 @@
           </div>
         </article>
 
-        <article id="reminders" class="panel">
+        <article id="reminders" class="panel" data-dashboard-tab-panel="reminders">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Actions</p>
@@ -325,7 +282,7 @@
           </div>
         </article>
 
-        <article id="inbox" class="panel">
+        <article id="inbox" class="panel" data-dashboard-tab-panel="inbox">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Classifier</p>
@@ -347,7 +304,7 @@
           </div>
         </article>
 
-        <article class="panel">
+        <article class="panel" data-dashboard-tab-panel="overview">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">What do you do</p>
@@ -369,7 +326,7 @@
           </div>
         </article>
 
-        <article class="panel">
+        <article class="panel" data-dashboard-tab-panel="overview">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Connectors</p>

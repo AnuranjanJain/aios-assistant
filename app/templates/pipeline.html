@@ -1,0 +1,99 @@
+﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
+{% from "_icons.html" import icon %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101510">
+  <title>AiOS {{ page_title }}</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="workspace-body">
+  <div class="shell workspace-shell">
+    {{ sidebar() }}
+  <main class="dashboard source-dashboard">
+      {{ topbar() }}
+      <section class="source-page pipeline-page">
+    <section class="source-hero glass">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <p class="eyebrow">{{ eyebrow }}</p>
+      <h1>{{ heading }}</h1>
+      <p>{{ description }}</p>
+      <a class="primary-action link-action" href="{{ primary_action_url }}">{{ primary_action_label }}</a>
+    </section>
+
+    <section class="pipeline-dashboard-grid">
+      <article class="panel glass">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Items</p>
+            <h2>{{ items | length if items else activities | length }} tracked</h2>
+          </div>
+          {{ icon("briefcase" if page_kind in ["hackathons", "jobs"] else "mail" if page_kind == "gmail" else "heart") }}
+        </div>
+        <div class="list">
+          {% if page_kind == "gmail" %}
+            {% for item in items %}
+              <article class="list-row">
+                <span class="confidence compact">{{ "%.0f"|format(item.confidence * 100) }}%</span>
+                <div>
+                  <strong>{{ item.subject }}</strong>
+                  <small>{{ item.category }} - {{ item.sender or "Gmail" }} - {{ item.created_at.strftime("%d %b, %I:%M %p") }}</small>
+                </div>
+              </article>
+            {% else %}<p class="empty">Gmail items will appear after a scan.</p>{% endfor %}
+          {% elif page_kind == "wellbeing" %}
+            {% for item in activities %}
+              <article class="list-row">
+                <span class="activity-badge">{{ item.duration_minutes }}m</span>
+                <div>
+                  <strong>{{ item.app_name or item.category }}</strong>
+                  <small>{{ item.agent_summary or item.actual_task or "Activity captured locally." }}</small>
+                </div>
+              </article>
+            {% else %}<p class="empty">Wellbeing activity appears after the worker or app sends signals.</p>{% endfor %}
+          {% else %}
+            {% for item in items %}
+              <article class="list-row">
+                <span class="status-dot"></span>
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.kind }} - {{ item.status }} - {{ item.organization or "Unknown" }}{% if item.deadline %} - due {{ item.deadline.strftime("%d %b %Y") }}{% endif %}</small>
+                </div>
+              </article>
+            {% else %}<p class="empty">No {{ page_title | lower }} tracked yet.</p>{% endfor %}
+          {% endif %}
+        </div>
+      </article>
+
+      <article class="panel glass">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Connector history</p>
+            <h2>Recent runs</h2>
+          </div>
+          {{ icon("link") }}
+        </div>
+        <div class="list">
+          {% for run in runs %}
+            <article class="list-row connector-run-row">
+              <span class="activity-badge">{{ run.records_imported }}</span>
+              <div class="connector-run-copy">
+                <strong>{{ run.connector_id }} - {{ run.status }}</strong>
+                <small>{{ run.message or "No message." }} - {{ run.created_at.strftime("%d %b, %I:%M %p") }}</small>
+              </div>
+            </article>
+          {% else %}
+            <p class="empty">Run history appears after this pipeline syncs.</p>
+          {% endfor %}
+        </div>
+      </article>
+    </section>
+  </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

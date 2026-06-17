@@ -1,0 +1,82 @@
+﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
+{% from "_icons.html" import icon %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101510">
+  <title>AiOS Profile</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="workspace-body">
+  <div class="shell workspace-shell">
+    {{ sidebar() }}
+  <main class="dashboard source-dashboard">
+      {{ topbar() }}
+      <section class="source-page profile-page">
+    <section class="source-hero glass">
+      <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+      <p class="eyebrow">Profile</p>
+      <h1>Your local identity.</h1>
+      <p>Keep only the useful basics the desktop assistant needs for the dashboard and local context.</p>
+    </section>
+
+    {% if saved %}
+      <section class="panel glass">
+        <p class="eyebrow">Saved</p>
+        <h2>Profile updated</h2>
+        <p class="source-note">The desktop dashboard will use this identity on the next refresh.</p>
+      </section>
+    {% endif %}
+
+    <section class="profile-grid">
+      <article class="panel glass profile-preview">
+        <div class="profile-photo-large">
+          <img src="{{ profile.photo_url }}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
+          <span hidden>{{ profile.initials }}</span>
+        </div>
+        <div>
+          <p class="eyebrow">Local user</p>
+          <h2>{{ profile.display_name }}</h2>
+          <p class="source-note">{{ profile.role }}</p>
+          <p class="source-note">{{ profile.focus }}</p>
+        </div>
+      </article>
+
+      <article class="panel glass">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Edit</p>
+            <h2>Useful profile details</h2>
+          </div>
+          {{ icon("user") }}
+        </div>
+        <form class="settings-form" method="post" action="{{ url_for('main.save_profile') }}" enctype="multipart/form-data">
+          <label>
+            <span>Name</span>
+            <input name="display_name" value="{{ profile.display_name }}" required maxlength="80">
+          </label>
+          <label>
+            <span>Role or identity</span>
+            <input name="role" value="{{ profile.role }}" maxlength="100" placeholder="Student, developer, founder">
+          </label>
+          <label>
+            <span>Current focus</span>
+            <input name="focus" value="{{ profile.focus }}" maxlength="160" placeholder="Preparing hackathons and placements">
+          </label>
+          <label>
+            <span>Profile photo</span>
+            <input type="file" name="profile_photo" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+          </label>
+          <button type="submit">Save Profile</button>
+        </form>
+      </article>
+    </section>
+  </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

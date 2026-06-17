@@ -182,10 +182,85 @@ function escapeHtml(value) {
 window.addEventListener("load", () => {
   refreshLiveDashboard();
   setInterval(refreshLiveDashboard, LIVE_INTERVAL_MS);
+  setupDashboardTabs();
+  setupSmoothNavigation();
   setupFormBusyStates();
   setupMemorySearch();
   loadDesktopStatus();
 });
+
+function setupDashboardTabs() {
+  const tabs = Array.from(document.querySelectorAll("[data-dashboard-tab]"));
+  const panels = Array.from(document.querySelectorAll("[data-dashboard-tab-panel]"));
+  if (!tabs.length || !panels.length) {
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const allowed = new Set(tabs.map((tab) => tab.dataset.dashboardTab));
+  const initial = allowed.has(params.get("tab")) ? params.get("tab") : "overview";
+
+  const activate = (name, pushState = false) => {
+    tabs.forEach((tab) => {
+      const active = tab.dataset.dashboardTab === name;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+    });
+    panels.forEach((panel) => {
+      panel.hidden = panel.dataset.dashboardTabPanel !== name;
+    });
+    if (pushState) {
+      const next = new URL(window.location.href);
+      next.searchParams.set("tab", name);
+      window.history.pushState({ dashboardTab: name }, "", next);
+    }
+  };
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => activate(tab.dataset.dashboardTab, true));
+  });
+  window.addEventListener("popstate", () => {
+    const nextParams = new URLSearchParams(window.location.search);
+    activate(allowed.has(nextParams.get("tab")) ? nextParams.get("tab") : "overview");
+  });
+  activate(initial);
+}
+
+function setupSmoothNavigation() {
+  document.querySelectorAll('a[href]').forEach((link) => {
+    if (link.dataset.smoothReady === "1") {
+      return;
+    }
+    link.dataset.smoothReady = "1";
+    link.addEventListener("click", (event) => {
+      const href = link.getAttribute("href") || "";
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        link.target ||
+        href.startsWith("#") ||
+        href.startsWith("mailto:") ||
+        href.startsWith("tel:")
+      ) {
+        return;
+      }
+
+      const url = new URL(href, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname === window.location.pathname && url.hash) {
+        return;
+      }
+
+      event.preventDefault();
+      document.body.classList.add("is-leaving");
+      window.setTimeout(() => {
+        window.location.href = url.href;
+      }, 130);
+    });
+  });
+}
 
 function setupFormBusyStates() {
   document.querySelectorAll("form").forEach((form) => {

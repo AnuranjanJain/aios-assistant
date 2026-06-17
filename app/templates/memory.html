@@ -1,3 +1,4 @@
+﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,8 +9,12 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-<body>
-  <main class="source-page memory-page">
+<body class="workspace-body">
+  <div class="shell workspace-shell">
+    {{ sidebar() }}
+  <main class="dashboard source-dashboard">
+      {{ topbar() }}
+      <section class="source-page memory-page">
     <section class="source-hero glass memory-hero">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <p class="eyebrow">Persistent personal memory</p>
@@ -119,7 +124,9 @@
         <button type="submit">Save Checkpoint</button>
       </form>
     </section>
-  </main>
+  </section>
+    </main>
+  </div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@ from pathlib import Path
 from time import monotonic
 from urllib.parse import urlsplit
 
-from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, send_file, session, url_for
 from werkzeug.utils import secure_filename
 
 from app.models import (
@@ -57,7 +57,7 @@ from app.services.memory_engine import (
 )
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
-from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config
+from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config, get_setting, set_setting
 from app.services.wellbeing import summarize_activity
 from app.services.workers import list_worker_status, start_worker, stop_worker
 
@@ -75,6 +75,11 @@ TRUSTED_BROWSER_ORIGINS = {
 LOGIN_ATTEMPTS = {}
 LOGIN_ATTEMPT_LIMIT = 5
 LOGIN_ATTEMPT_WINDOW_SECONDS = 60
+
+
+@bp.app_context_processor
+def inject_desktop_shell_context():
+    return {"desktop_profile": get_user_profile()}
 
 
 def is_trusted_browser_origin(origin):
@@ -214,6 +219,95 @@ def dashboard():
 def mobile_dashboard():
     context = build_dashboard_context()
     return render_template("mobile.html", **context)
+
+
+@bp.get("/gmail")
+def gmail_workspace():
+    inbox_items = InboxItem.query.order_by(InboxItem.created_at.desc()).limit(80).all()
+    runs = ConnectorRun.query.filter_by(connector_id="gmail").order_by(ConnectorRun.created_at.desc()).limit(12).all()
+    return render_template(
+        "pipeline.html",
+        page_title="Gmail",
+        page_kind="gmail",
+        eyebrow="Gmail intelligence",
+        heading="Messages turned into action.",
+        description="Read-only Gmail signals, classified locally into hackathons, jobs, reminders, and follow-ups.",
+        primary_action_url=url_for("main.connectors"),
+        primary_action_label="Manage Gmail",
+        items=inbox_items,
+        runs=runs,
+        activities=[],
+    )
+
+
+@bp.get("/hackathons")
+def hackathons_workspace():
+    items = Opportunity.query.filter_by(kind="hackathon").order_by(Opportunity.updated_at.desc()).all()
+    runs = (
+        ConnectorRun.query.filter(ConnectorRun.connector_id.in_(["gmail", "hackathon_platforms"]))
+        .order_by(ConnectorRun.created_at.desc())
+        .limit(12)
+        .all()
+    )
+    return render_template(
+        "pipeline.html",
+        page_title="Hackathons",
+        page_kind="hackathons",
+        eyebrow="Hackathon corner",
+        heading="Applied, open, live, and past events.",
+        description="Track platforms, deadlines, result updates, and whether a hackathon is still only an opening or already applied.",
+        primary_action_url=url_for("main.connectors"),
+        primary_action_label="Scan Hackathons",
+        items=items,
+        runs=runs,
+        activities=[],
+    )
+
+
+@bp.get("/jobs")
+def jobs_workspace():
+    items = [
+        item
+        for item in Opportunity.query.filter_by(kind="job").order_by(Opportunity.updated_at.desc()).all()
+        if not is_neopat_opportunity(item)
+    ]
+    runs = (
+        ConnectorRun.query.filter(ConnectorRun.connector_id.in_(["gmail", "job_portals"]))
+        .order_by(ConnectorRun.created_at.desc())
+        .limit(12)
+        .all()
+    )
+    return render_template(
+        "pipeline.html",
+        page_title="Jobs",
+        page_kind="jobs",
+        eyebrow="Placement tracker",
+        heading="Applications and company replies.",
+        description="See applied roles, interview signals, assessments, rejections, offers, and unresolved openings.",
+        primary_action_url=url_for("main.connectors"),
+        primary_action_label="Scan Jobs",
+        items=items,
+        runs=runs,
+        activities=[],
+    )
+
+
+@bp.get("/wellbeing")
+def wellbeing_workspace():
+    activities = ActivityEvent.query.order_by(ActivityEvent.created_at.desc()).limit(80).all()
+    return render_template(
+        "pipeline.html",
+        page_title="Wellbeing",
+        page_kind="wellbeing",
+        eyebrow="Digital wellbeing",
+        heading="Desktop activity and focus signals.",
+        description="Activity captured from What Do You Do and the local desktop worker appears here for review.",
+        primary_action_url=url_for("main.workers"),
+        primary_action_label="Manage Worker",
+        items=[],
+        runs=[],
+        activities=activities,
+    )
 
 
 @bp.get("/memory")
@@ -578,6 +672,42 @@ def settings():
     return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=False, pin_enabled=has_pin())
 
 
+@bp.get("/profile")
+def profile():
+    return render_template("profile.html", profile=get_user_profile(), saved=False)
+
+
+@bp.post("/profile")
+def save_profile():
+    display_name = request.form.get("display_name", "").strip() or current_app.config.get("USER_DISPLAY_NAME", "Local User")
+    role = request.form.get("role", "").strip()
+    focus = request.form.get("focus", "").strip()
+    set_setting("PROFILE_DISPLAY_NAME", display_name[:80])
+    set_setting("PROFILE_ROLE", role[:100])
+    set_setting("PROFILE_FOCUS", focus[:160])
+
+    upload = request.files.get("profile_photo")
+    if upload and upload.filename:
+        suffix = Path(secure_filename(upload.filename)).suffix.lower()
+        if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
+            profile_dir = get_runtime_paths().data_dir / "profile"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            photo_path = profile_dir / f"avatar{suffix}"
+            upload.save(photo_path)
+            set_setting("PROFILE_PHOTO_PATH", str(photo_path))
+
+    db.session.commit()
+    return render_template("profile.html", profile=get_user_profile(), saved=True)
+
+
+@bp.get("/profile/photo")
+def profile_photo():
+    photo_path = Path(get_setting("PROFILE_PHOTO_PATH", ""))
+    if not photo_path.exists() or not photo_path.is_file():
+        return redirect(url_for("static", filename="icons/aios-icon.svg"))
+    return send_file(photo_path)
+
+
 @bp.get("/workers")
 def workers():
     return render_template("workers.html", workers=list_worker_status(), result=None)
@@ -658,6 +788,7 @@ def build_dashboard_context():
         "connector_runs": connector_runs,
         "plan": plan,
         "stats": stats,
+        "profile": get_user_profile(),
     }
 
 
@@ -1261,6 +1392,20 @@ def build_classifier():
         values["OLLAMA_URL"],
         values["OLLAMA_MODEL"],
     )
+
+
+def get_user_profile():
+    display_name = get_setting("PROFILE_DISPLAY_NAME", current_app.config.get("USER_DISPLAY_NAME", "Local User")).strip()
+    role = get_setting("PROFILE_ROLE", "Local AI companion").strip() or "Local AI companion"
+    focus = get_setting("PROFILE_FOCUS", "Build, track, and protect the local workflow.").strip()
+    initials = "".join(part[:1] for part in display_name.split()[:2]).upper() or "A"
+    return {
+        "display_name": display_name,
+        "role": role,
+        "focus": focus,
+        "initials": initials[:2],
+        "photo_url": url_for("main.profile_photo"),
+    }
 
 
 def serialize_opportunity(item):
