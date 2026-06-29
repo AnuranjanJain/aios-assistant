@@ -154,6 +154,7 @@ def main():
     from app.models import db
     from app.services.background_services import register_service, unregister_service
     from app.services.settings import get_setting, set_setting
+    from desktop_activity_worker import CHECK_SECONDS as ACTIVITY_INTERVAL_SECONDS, scan_once as scan_activity_once
     from hackathon_monitor_worker import scan_once as scan_opportunities
     from local_worker import CHECK_INTERVAL_SECONDS, check_reminders, load_state, save_state
     from watch_import_worker import (
@@ -202,8 +203,15 @@ def main():
         save_callback=lambda _state: None,
         interval=scan_interval_minutes * 60,
     )
+    activity_worker = PollingWorker(
+        service_id="activity",
+        callback=lambda state: scan_activity_once(app, state),
+        state={},
+        save_callback=lambda _state: None,
+        interval=ACTIVITY_INTERVAL_SECONDS,
+    )
 
-    components = (opportunity_worker, watch_worker, reminder_worker, server)
+    components = (activity_worker, opportunity_worker, watch_worker, reminder_worker, server)
     runtime_path = paths.data_dir / "runtime.json"
     runtime_descriptor = RuntimeDescriptor(
         runtime_path,
@@ -226,6 +234,12 @@ def main():
         "Refreshes Gmail, hackathon, NeoPat, and placement updates.",
         opportunity_worker,
     )
+    register_service(
+        "activity",
+        "Desktop activity tracker",
+        "Logs active desktop windows into wellbeing signals.",
+        activity_worker,
+    )
 
     def shutdown():
         for component in components:
@@ -233,7 +247,7 @@ def main():
                 component.shutdown()
             except Exception:
                 pass
-        for service_id in ("reminders", "watch_imports", "opportunities"):
+        for service_id in ("reminders", "watch_imports", "opportunities", "activity"):
             unregister_service(service_id)
 
     atexit.register(shutdown)
@@ -242,6 +256,7 @@ def main():
     reminder_worker.start()
     watch_worker.start()
     opportunity_worker.start()
+    activity_worker.start()
 
     if not wait_for_server(port):
         shutdown()

@@ -58,6 +58,10 @@ from app.services.memory_engine import (
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
 from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config, get_setting, set_setting
+from app.services.startup import (
+    save_startup_settings,
+    startup_overview,
+)
 from app.services.wellbeing import summarize_activity
 from app.services.workers import list_worker_status, start_worker, stop_worker
 
@@ -669,7 +673,15 @@ def connector_run_get_redirect(connector_id):
 @bp.get("/settings")
 def settings():
     values = get_effective_config(current_app.config)
-    return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=False, pin_enabled=has_pin())
+    return render_template(
+        "settings.html",
+        keys=SETTING_KEYS,
+        values=values,
+        saved=False,
+        pin_enabled=has_pin(),
+        startup=startup_overview(),
+        startup_result=None,
+    )
 
 
 @bp.get("/profile")
@@ -727,18 +739,32 @@ def stop_worker_route(worker_id):
 
 @bp.post("/settings")
 def save_settings():
+    settings_action = request.form.get("settings_action", "")
     pin_action = request.form.get("pin_action", "")
     new_pin = request.form.get("new_pin", "")
+    startup_result = None
 
     if pin_action == "set_pin" and new_pin:
         set_pin(new_pin)
     elif pin_action == "clear_pin":
         clear_pin()
 
-    apply_settings(request.form)
+    if settings_action == "save_startup":
+        startup_result = save_startup_settings(request.form)
+    else:
+        apply_settings(request.form)
+
     db.session.commit()
     values = get_effective_config(current_app.config)
-    return render_template("settings.html", keys=SETTING_KEYS, values=values, saved=True, pin_enabled=has_pin())
+    return render_template(
+        "settings.html",
+        keys=SETTING_KEYS,
+        values=values,
+        saved=True,
+        pin_enabled=has_pin(),
+        startup=startup_overview(),
+        startup_result=startup_result,
+    )
 
 
 @bp.post("/sources/import")

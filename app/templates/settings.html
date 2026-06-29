@@ -26,9 +26,72 @@
       <section class="panel glass">
         <p class="eyebrow">Saved</p>
         <h2>Settings updated</h2>
-        <p class="source-note">Connectors and classifiers will use these values on the next run.</p>
+        <p class="source-note">
+          {% if startup_result %}
+            {{ startup_result.message }}
+          {% else %}
+            Connectors and classifiers will use these values on the next run.
+          {% endif %}
+        </p>
       </section>
     {% endif %}
+
+    <section class="panel glass">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Startup</p>
+          <h2>Launch AiOS with your desktop</h2>
+        </div>
+        <span class="status-pill {{ 'on' if startup.installed else '' }}">
+          {{ "Installed" if startup.installed else "Off" }}
+        </span>
+      </div>
+      <form class="settings-form startup-form" method="post" action="{{ url_for('main.save_settings') }}">
+        <label class="toggle-row">
+          <input
+            name="startup_enabled"
+            type="checkbox"
+            value="1"
+            {% if startup.enabled %}checked{% endif %}
+            {% if not startup.supported %}disabled{% endif %}
+          >
+          <span>
+            Start AiOS automatically on {{ startup.platform }}
+            <small>Opens the installed desktop app after login and starts its local background services.</small>
+          </span>
+        </label>
+
+        <div class="startup-services">
+          <div>
+            <p class="eyebrow">Desktop services started by the app</p>
+            <div class="startup-chip-row">
+              {% for service in startup.core_services %}
+                <span class="startup-chip">{{ service }}</span>
+              {% endfor %}
+            </div>
+          </div>
+
+          <p class="source-note">
+            {% if startup.app_installed %}
+              Installed app: {{ startup.install_path }}
+            {% else %}
+              Install the desktop app first so startup can use the packaged executable instead of the dev Python runner.
+            {% endif %}
+          </p>
+        </div>
+
+        <div class="worker-actions">
+          <button type="submit" name="settings_action" value="save_startup" {% if not startup.supported %}disabled{% endif %}>Save Startup</button>
+        </div>
+      </form>
+      <p class="source-note">
+        {% if startup.supported %}
+          Launcher: {{ startup.path }}
+        {% else %}
+          Startup launcher support is currently available for Windows and Linux desktop sessions.
+        {% endif %}
+      </p>
+    </section>
 
     <section class="panel glass">
       <div class="panel-heading">

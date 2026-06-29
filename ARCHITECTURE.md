@@ -191,11 +191,13 @@ starts Flask on an available 127.0.0.1 port
         |
 opens a native pywebview window on Windows or Linux
         |
-starts reminder worker thread
+starts reminder service thread
         |
-starts watch-folder import worker thread
+starts watch-folder import service thread
         |
-relaunches the frozen executable for managed worker processes
+starts opportunity monitor service thread
+        |
+starts desktop activity tracker thread
 ```
 
 Desktop persistence:
@@ -215,6 +217,22 @@ Linux / Arch
 produced on Windows and Arch builds on Arch. The packaged runtime includes
 templates, static assets, connector dependencies, and hidden worker entrypoints.
 
+Windows installation is per-user:
+
+```text
+scripts/install-desktop.ps1
+        |
+copies AiOS-Assistant.exe to %LOCALAPPDATA%\Programs\AiOS Assistant
+        |
+creates Start Menu and Desktop shortcuts
+        |
+optionally creates a Startup launcher in the user's Startup folder
+```
+
+Arch/Linux installation uses `packaging/linux/install-arch.sh`, installs the
+binary under `$HOME/.local/bin`, registers a desktop entry, and can opt into
+login startup with `--enable-startup`.
+
 ## Real-Time Layer
 
 Current live behavior:
@@ -222,7 +240,7 @@ Current live behavior:
 - browser UI polls `GET /api/live` every 15 seconds
 - dashboard/mobile stats update without a full page refresh
 - `local_worker.py` checks reminders every 30 seconds
-- `desktop_app.py` starts the reminder worker automatically
+- `desktop_app.py` starts reminders, import watching, opportunity scanning, and activity tracking automatically
 - desktop notifications use `plyer` when available and terminal output as a fallback
 - reminders are marked read after notification so the same reminder is not repeatedly sent
 
@@ -328,7 +346,9 @@ The desktop wrapper starts this worker automatically. Browser mode can run it se
         |
 workers.py
         |
-start/stop standalone Python worker processes
+shows desktop-managed services when desktop_app.py is running
+        |
+can start/stop standalone Python worker processes in browser/dev mode
         |
 .aios_workers.json PID state
 ```
@@ -338,6 +358,7 @@ Managed workers:
 - reminder worker
 - desktop activity worker
 - watch import worker
+- opportunity monitor
 
 ### Settings Flow
 
@@ -349,6 +370,8 @@ Setting table
 get_effective_config()
         |
 connectors + classifier + watch worker
+        |
+startup.py creates/removes OS login launcher
 ```
 
 ### Local Auth Flow

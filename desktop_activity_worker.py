@@ -1,4 +1,6 @@
 import ctypes
+import subprocess
+import sys
 import time
 from datetime import datetime
 
@@ -12,12 +14,30 @@ MIN_LOG_SECONDS = 60
 
 
 def get_active_window_title():
+    if sys.platform != "win32":
+        return get_linux_active_window_title()
+
     user32 = ctypes.windll.user32
     hwnd = user32.GetForegroundWindow()
     length = user32.GetWindowTextLengthW(hwnd)
     buffer = ctypes.create_unicode_buffer(length + 1)
     user32.GetWindowTextW(hwnd, buffer, length + 1)
     return buffer.value.strip() or "Unknown window"
+
+
+def get_linux_active_window_title():
+    try:
+        result = subprocess.run(
+            ["xdotool", "getactivewindow", "getwindowname"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+    return result.stdout.strip() or "Unknown window"
 
 
 def categorize_window(title):
@@ -60,6 +80,28 @@ def log_activity(app, title, started_at, ended_at):
             )
         )
         db.session.commit()
+
+
+def scan_once(app, state):
+    current_title = state.get("current_title") or get_active_window_title()
+    if not current_title:
+        return
+
+    started_at = state.get("started_at") or datetime.utcnow().isoformat()
+    next_title = get_active_window_title()
+    if not next_title or next_title == current_title:
+        state["current_title"] = current_title
+        state["started_at"] = started_at
+        return
+
+    ended_at = datetime.utcnow()
+    try:
+        started_at_dt = datetime.fromisoformat(started_at)
+    except ValueError:
+        started_at_dt = ended_at
+    log_activity(app, current_title, started_at_dt, ended_at)
+    state["current_title"] = next_title
+    state["started_at"] = ended_at.isoformat()
 
 
 def main():

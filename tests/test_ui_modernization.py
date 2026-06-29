@@ -95,6 +95,14 @@ class UiModernizationTestCase(unittest.TestCase):
             for label in expected_labels:
                 self.assertIn(label, html, path)
 
+    def test_settings_exposes_startup_services(self):
+        html = self.get_text("/settings")
+        self.assertIn("Launch AiOS with your desktop", html)
+        self.assertIn("Start AiOS automatically", html)
+        self.assertIn("Desktop services started by the app", html)
+        self.assertIn("Desktop activity tracker", html)
+        self.assertIn("Save Startup", html)
+
     def test_stylesheet_contains_responsive_sidebar_and_accessibility_guards(self):
         css = Path("app/static/styles.css").read_text(encoding="utf-8")
         self.assertIn("grid-template-columns: 248px minmax(0, 1fr)", css)

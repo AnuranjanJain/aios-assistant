@@ -26,7 +26,7 @@ AiOS is the personal assistant layer for **What Do You Do** and the wider AiOS i
 - Plans goals into daily, weekly, or monthly roadmaps.
 - Connects with Gmail OAuth and local import folders.
 - Keeps AI local-first with Ollama support and rule-based fallback.
-- Ships as a Windows desktop app plus a Flask development surface.
+- Ships as an installable Windows desktop app plus Arch/Linux packaging.
 
 ## Local-First Workflow
 
@@ -78,12 +78,21 @@ Run the packaged desktop build:
 .\release\AiOS-Assistant.exe
 ```
 
-Build the desktop app:
+Build and install the desktop app:
 
 ```powershell
-pip install -r requirements-desktop.txt
-python -m PyInstaller --clean --noconfirm desktop_app.spec
-copy dist\AiOS-Assistant.exe release\AiOS-Assistant.exe
+.\scripts\build-desktop.ps1
+.\scripts\install-desktop.ps1 -EnableStartup
+```
+
+The installer copies `AiOS-Assistant.exe` to `%LOCALAPPDATA%\Programs\AiOS Assistant`, adds Start Menu/Desktop shortcuts, and can enable login startup. When the desktop app starts, it owns the background loops for reminders, imports, opportunities, and activity tracking.
+
+Arch/Linux:
+
+```bash
+./scripts/build-desktop-arch.sh
+tar -xzf release/AiOS-Assistant-arch-x86_64.tar.gz -C /tmp/aios
+/tmp/aios/install-arch.sh --enable-startup
 ```
 
 ## Optional Local AI
@@ -138,8 +147,8 @@ tests/                   Regression and integration tests
 | `/career` | Career Copilot |
 | `/profile` | Name, role, current focus, profile photo |
 | `/connectors` | Gmail and import connectors |
-| `/workers` | Background local services |
-| `/settings` | Local config and PIN lock |
+| `/workers` | Desktop background service status |
+| `/settings` | Local config, PIN lock, desktop startup |
 
 ## Safety Notes
 
@@ -160,6 +169,7 @@ python -m PyInstaller --clean --noconfirm desktop_app.spec
 ## Deep Dives
 
 - [Architecture](ARCHITECTURE.md)
+- [Desktop Installation](docs/DESKTOP_INSTALLATION.md)
 - [Desktop Automation Agent](docs/AUTOMATION_AGENT.md)
 - [Browser Automation Agent](docs/BROWSER_AUTOMATION_AGENT.md)
 - [Career Copilot](docs/CAREER_COPILOT.md)
