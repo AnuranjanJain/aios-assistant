@@ -186,6 +186,7 @@ window.addEventListener("load", () => {
   setupSmoothNavigation();
   setupFormBusyStates();
   setupMemorySearch();
+  setupDesktopExitButton();
   loadDesktopStatus();
 });
 
@@ -338,6 +339,33 @@ function setupMemorySearch() {
       answer.textContent = response.ok ? payload.answer : payload.error || "Memory search failed.";
     } catch (_error) {
       answer.textContent = "Local memory is unavailable.";
+    }
+  });
+}
+
+function setupDesktopExitButton() {
+  const button = document.querySelector("[data-desktop-exit]");
+  if (!button) {
+    return;
+  }
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "Exiting...";
+    try {
+      const response = await fetch("/api/desktop/exit", {
+        method: "POST",
+        cache: "no-store"
+      });
+      if (!response.ok) {
+        button.disabled = false;
+        button.textContent = "Exit AiOS";
+        showDesktopToast("Exit is only available in the native desktop app.");
+      }
+    } catch (_error) {
+      button.disabled = false;
+      button.textContent = "Exit AiOS";
+      showDesktopToast("Unable to exit the desktop app.");
     }
   });
 }

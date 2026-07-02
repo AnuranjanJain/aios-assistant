@@ -8,6 +8,7 @@ from app.services.settings import get_setting, set_setting
 
 
 STARTUP_ENABLED_KEY = "STARTUP_ENABLED"
+STARTUP_BACKGROUND_KEY = "STARTUP_BACKGROUND"
 STARTUP_ENTRY_NAME = "AiOS Assistant Startup"
 CORE_DESKTOP_SERVICES = (
     "Reminder service",
@@ -43,7 +44,18 @@ def app_command():
 
 
 def startup_enabled_setting():
-    return get_setting(STARTUP_ENABLED_KEY, "0") == "1"
+    return _safe_bool_setting(STARTUP_ENABLED_KEY)
+
+
+def startup_background_setting():
+    return _safe_bool_setting(STARTUP_BACKGROUND_KEY)
+
+
+def _safe_bool_setting(key):
+    try:
+        return get_setting(key, "0") == "1"
+    except RuntimeError:
+        return False
 
 
 def startup_entry_path():
@@ -80,9 +92,12 @@ def _windows_start_line(command):
 
 def build_windows_launcher():
     command = app_command()
+    if startup_background_setting():
+        command = command + ["--hidden"]
     lines = [
         "@echo off",
         "set AIOS_START_PATH=/",
+        f"set AIOS_START_HIDDEN={'1' if startup_background_setting() else '0'}",
         _windows_start_line(command),
     ]
     return "\r\n".join(lines) + "\r\n"
@@ -90,7 +105,11 @@ def build_windows_launcher():
 
 def build_linux_launcher():
     command = app_command()
-    commands = [f"AIOS_START_PATH=/ {shlex.join(command)} >/dev/null 2>&1 &"]
+    if startup_background_setting():
+        command = command + ["--hidden"]
+    commands = [
+        f"AIOS_START_PATH=/ AIOS_START_HIDDEN={'1' if startup_background_setting() else '0'} {shlex.join(command)} >/dev/null 2>&1 &"
+    ]
     shell_command = " ".join(commands)
     return "\n".join(
         [
@@ -132,8 +151,10 @@ def remove_startup_entry():
 
 def save_startup_settings(form):
     enabled = form.get("startup_enabled") == "1"
+    background = form.get("startup_background") == "1"
 
     set_setting(STARTUP_ENABLED_KEY, "1" if enabled else "0")
+    set_setting(STARTUP_BACKGROUND_KEY, "1" if background else "0")
 
     if enabled:
         return install_startup_entry()
@@ -146,6 +167,7 @@ def startup_overview():
     return {
         "supported": startup_supported(),
         "enabled": startup_enabled_setting(),
+        "background": startup_background_setting(),
         "installed": startup_entry_installed(),
         "path": str(path) if path else "",
         "app_command": " ".join(app_command()),

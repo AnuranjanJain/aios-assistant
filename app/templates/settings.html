@@ -60,6 +60,19 @@
             <small>Opens the installed desktop app after login and starts its local background services.</small>
           </span>
         </label>
+        <label class="toggle-row">
+          <input
+            name="startup_background"
+            type="checkbox"
+            value="1"
+            {% if startup.background %}checked{% endif %}
+            {% if not startup.supported %}disabled{% endif %}
+          >
+          <span>
+            Open in background tray mode
+            <small>Starts AiOS hidden in the system tray until you open it from the tray icon.</small>
+          </span>
+        </label>
 
         <div class="startup-services">
           <div>
@@ -82,6 +95,7 @@
 
         <div class="worker-actions">
           <button type="submit" name="settings_action" value="save_startup" {% if not startup.supported %}disabled{% endif %}>Save Startup</button>
+          <button type="button" class="ghost-button" data-desktop-exit>Exit AiOS</button>
         </div>
       </form>
       <p class="source-note">

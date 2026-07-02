@@ -1337,6 +1337,15 @@ def api_desktop_status():
     )
 
 
+@bp.post("/api/desktop/exit")
+def api_desktop_exit():
+    callback = current_app.config.get("AIOS_EXIT_CALLBACK")
+    if not callable(callback):
+        return jsonify({"ok": False, "error": "Desktop exit is unavailable in browser mode."}), 400
+    callback()
+    return jsonify({"ok": True})
+
+
 @bp.get("/api/opportunities")
 def api_opportunities():
     opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()

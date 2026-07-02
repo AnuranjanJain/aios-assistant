@@ -85,7 +85,7 @@ Build and install the desktop app:
 .\scripts\install-desktop.ps1 -EnableStartup
 ```
 
-The installer copies `AiOS-Assistant.exe` to `%LOCALAPPDATA%\Programs\AiOS Assistant`, adds Start Menu/Desktop shortcuts, and can enable login startup. When the desktop app starts, it owns the background loops for reminders, imports, opportunities, and activity tracking.
+The installer copies `AiOS-Assistant.exe` to `%LOCALAPPDATA%\Programs\AiOS Assistant`, adds Start Menu/Desktop shortcuts, and can enable login startup. The startup launcher opens AiOS in background tray mode; closing the desktop window hides it to the tray until you use **Exit AiOS** from Settings or the tray menu. When the desktop app starts, it owns the background loops for reminders, imports, opportunities, and activity tracking.
 
 Arch/Linux:
 

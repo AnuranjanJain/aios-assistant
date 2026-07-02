@@ -226,8 +226,12 @@ copies AiOS-Assistant.exe to %LOCALAPPDATA%\Programs\AiOS Assistant
         |
 creates Start Menu and Desktop shortcuts
         |
-optionally creates a Startup launcher in the user's Startup folder
+optionally creates a background Startup launcher in the user's Startup folder
 ```
+
+The native desktop shell keeps a tray icon alive. Close/minimize hides the
+window while services keep running; explicit exit is available from Settings
+and the tray menu.
 
 Arch/Linux installation uses `packaging/linux/install-arch.sh`, installs the
 binary under `$HOME/.local/bin`, registers a desktop entry, and can opt into

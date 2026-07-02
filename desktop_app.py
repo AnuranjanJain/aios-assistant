@@ -35,6 +35,76 @@ ALLOWED_START_PATHS = {
 }
 
 
+class TrayController:
+    def __init__(self, title):
+        self.title = title
+        self.window = None
+        self.icon = None
+        self.exiting = False
+
+    def attach_window(self, window):
+        self.window = window
+        try:
+            window.events.closing += self.on_window_closing
+        except Exception:
+            pass
+
+    def start(self):
+        try:
+            import pystray
+            from PIL import Image, ImageDraw
+        except Exception:
+            return False
+
+        image = Image.new("RGBA", (64, 64), (76, 29, 149, 255))
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((10, 10, 54, 54), fill=(255, 216, 77, 255))
+        draw.ellipse((22, 22, 42, 42), fill=(76, 29, 149, 255))
+        menu = pystray.Menu(
+            pystray.MenuItem("Open AiOS", lambda _icon, _item: self.show()),
+            pystray.MenuItem("Exit AiOS", lambda _icon, _item: self.exit()),
+        )
+        self.icon = pystray.Icon("aios-assistant", image, self.title, menu)
+        threading.Thread(target=self.icon.run, daemon=True).start()
+        return True
+
+    def show(self):
+        if not self.window:
+            return
+        try:
+            self.window.show()
+            self.window.restore()
+        except Exception:
+            pass
+
+    def hide(self):
+        if not self.window:
+            return
+        try:
+            self.window.hide()
+        except Exception:
+            pass
+
+    def exit(self):
+        self.exiting = True
+        try:
+            if self.icon:
+                self.icon.stop()
+        except Exception:
+            pass
+        try:
+            if self.window:
+                self.window.destroy()
+        except Exception:
+            os._exit(0)
+
+    def on_window_closing(self, *args, **kwargs):
+        if self.exiting:
+            return True
+        self.hide()
+        return False
+
+
 def run_worker_mode(worker_id):
     configure_desktop_environment()
     worker_entrypoints = {
@@ -179,6 +249,7 @@ def main():
     start_path = os.getenv("AIOS_START_PATH", "/").strip()
     if start_path not in ALLOWED_START_PATHS:
         start_path = "/"
+    start_hidden = os.getenv("AIOS_START_HIDDEN", "") == "1" or "--hidden" in sys.argv or "--tray" in sys.argv
     base_url = f"http://{HOST}:{port}"
     url = f"{base_url}{start_path}"
     server = ServerThread(app, port)
@@ -276,6 +347,7 @@ def main():
     try:
         import webview
 
+        tray = TrayController("AiOS Assistant")
         window = webview.create_window(
             "AiOS Assistant",
             url,
@@ -285,7 +357,19 @@ def main():
             text_select=True,
             confirm_close=False,
         )
-        webview.start(debug=False, private_mode=False)
+        tray.attach_window(window)
+
+        def request_exit():
+            threading.Timer(0.1, tray.exit).start()
+
+        app.config["AIOS_EXIT_CALLBACK"] = request_exit
+
+        def on_started():
+            tray.start()
+            if start_hidden:
+                tray.hide()
+
+        webview.start(on_started, debug=False, private_mode=False)
         shutdown()
         return window
     except ImportError:

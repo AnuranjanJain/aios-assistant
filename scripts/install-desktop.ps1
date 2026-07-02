@@ -65,7 +65,8 @@ if ($EnableStartup) {
     @(
         "@echo off",
         "set AIOS_START_PATH=/",
-        "start """" /min ""$installExe"""
+        "set AIOS_START_HIDDEN=1",
+        "start """" ""$installExe"" --hidden"
     ) | Set-Content -Path $startupLauncher -Encoding ASCII
 }
 

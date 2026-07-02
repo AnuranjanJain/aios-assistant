@@ -25,7 +25,10 @@ This creates:
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\AiOS Assistant Startup.cmd
 ```
 
-The startup launcher starts the installed executable once. The executable then owns the background services:
+The startup launcher starts the installed executable once in background tray
+mode. Closing the native window hides AiOS to the tray; use **Exit AiOS** in
+Settings or the tray menu to fully quit. The executable owns the background
+services:
 
 - reminder service
 - import watcher

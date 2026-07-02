@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.services import startup
 
@@ -39,6 +40,12 @@ class StartupServicesTestCase(unittest.TestCase):
 
         startup.remove_startup_entry()
         self.assertFalse(path.exists())
+
+    def test_background_startup_launcher_uses_hidden_mode(self):
+        with patch.object(startup, "startup_background_setting", return_value=True):
+            launcher = startup.build_windows_launcher()
+        self.assertIn("AIOS_START_HIDDEN=1", launcher)
+        self.assertIn("--hidden", launcher)
 
 
 if __name__ == "__main__":

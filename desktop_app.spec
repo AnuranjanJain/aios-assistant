@@ -6,6 +6,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = (
     collect_submodules("webview")
+    + collect_submodules("pystray")
     + collect_submodules("googleapiclient")
     + collect_submodules("google_auth_oauthlib")
     + [

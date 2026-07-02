@@ -99,6 +99,8 @@ class UiModernizationTestCase(unittest.TestCase):
         html = self.get_text("/settings")
         self.assertIn("Launch AiOS with your desktop", html)
         self.assertIn("Start AiOS automatically", html)
+        self.assertIn("Open in background tray mode", html)
+        self.assertIn("Exit AiOS", html)
         self.assertIn("Desktop services started by the app", html)
         self.assertIn("Desktop activity tracker", html)
         self.assertIn("Save Startup", html)
