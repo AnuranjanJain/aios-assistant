@@ -105,6 +105,11 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertIn("Desktop activity tracker", html)
         self.assertIn("Save Startup", html)
 
+    def test_desktop_show_route_reports_browser_mode(self):
+        response = self.client.post("/api/desktop/show", json={"path": "/"})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.get_json()["ok"])
+
     def test_stylesheet_contains_responsive_sidebar_and_accessibility_guards(self):
         css = Path("app/static/styles.css").read_text(encoding="utf-8")
         self.assertIn("grid-template-columns: 248px minmax(0, 1fr)", css)

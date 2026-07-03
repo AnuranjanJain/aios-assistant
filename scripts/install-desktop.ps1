@@ -10,9 +10,9 @@ $repo = Split-Path -Parent $PSScriptRoot
 
 if (-not $SourceExe) {
     $candidates = @(
+        (Join-Path $repo "dist\AiOS-Assistant.exe"),
         (Join-Path $repo "release\windows\AiOS-Assistant.exe"),
-        (Join-Path $repo "release\AiOS-Assistant.exe"),
-        (Join-Path $repo "dist\AiOS-Assistant.exe")
+        (Join-Path $repo "release\AiOS-Assistant.exe")
     )
     $SourceExe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 }
@@ -29,6 +29,9 @@ $startMenuShortcut = Join-Path $startMenuDir "AiOS Assistant.lnk"
 $startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
 $startupShortcut = Join-Path $startupDir "AiOS Assistant.lnk"
 $startupLauncher = Join-Path $startupDir "AiOS Assistant Startup.cmd"
+
+Get-Process AiOS-Assistant -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null

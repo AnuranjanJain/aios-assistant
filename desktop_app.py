@@ -6,6 +6,8 @@ import socket
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from datetime import datetime, timezone
 
@@ -16,6 +18,8 @@ from runtime_paths import configure_desktop_environment
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 5050
+INSTANCE_MUTEX_NAME = "Local\\AiOSAssistantDesktop"
+_INSTANCE_MUTEX_HANDLE = None
 ALLOWED_START_PATHS = {
     "/",
     "/automation",
@@ -33,6 +37,71 @@ ALLOWED_START_PATHS = {
     "/wellbeing",
     "/workers",
 }
+
+
+def request_existing_instance(paths, start_path="/"):
+    runtime_path = paths.data_dir / "runtime.json"
+    if not runtime_path.exists():
+        return False
+    try:
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    base_url = runtime.get("base_url")
+    if not base_url:
+        return False
+
+    target = f"{base_url}/api/desktop/show"
+    data = json.dumps({"path": start_path}).encode("utf-8")
+    request = urllib.request.Request(
+        target,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=1.5):
+            return True
+    except (OSError, urllib.error.URLError):
+        try:
+            webbrowser.open(f"{base_url}{start_path}")
+            return True
+        except Exception:
+            return False
+
+
+def acquire_single_instance(paths, start_path="/"):
+    if os.name != "nt":
+        return True
+
+    import ctypes
+    from ctypes import wintypes
+
+    global _INSTANCE_MUTEX_HANDLE
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    mutex = kernel32.CreateMutexW(None, False, INSTANCE_MUTEX_NAME)
+    if not mutex:
+        return True
+    if ctypes.get_last_error() == 183:
+        request_existing_instance(paths, start_path)
+        kernel32.CloseHandle(mutex)
+        return False
+
+    _INSTANCE_MUTEX_HANDLE = mutex
+
+    def release_mutex():
+        global _INSTANCE_MUTEX_HANDLE
+        if _INSTANCE_MUTEX_HANDLE:
+            kernel32.CloseHandle(_INSTANCE_MUTEX_HANDLE)
+            _INSTANCE_MUTEX_HANDLE = None
+
+    atexit.register(release_mutex)
+    return True
 
 
 class TrayController:
@@ -101,7 +170,7 @@ class TrayController:
     def on_window_closing(self, *args, **kwargs):
         if self.exiting:
             return True
-        self.hide()
+        threading.Timer(0.05, self.hide).start()
         return False
 
 
@@ -132,15 +201,14 @@ def run_migration_mode(source_root):
     )
 
 
-def find_available_port(preferred=DEFAULT_PORT):
-    for port in range(preferred, preferred + 20):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            try:
-                probe.bind((HOST, port))
-                return port
-            except OSError:
-                continue
-    raise RuntimeError("AiOS could not find a free local desktop port.")
+def reserve_desktop_port(port=DEFAULT_PORT):
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind((HOST, port))
+    except OSError:
+        probe.close()
+        return None
+    return probe
 
 
 class ServerThread(threading.Thread):
@@ -219,6 +287,15 @@ def wait_for_server(port, timeout=10):
 
 def main():
     paths = configure_desktop_environment()
+    start_path = os.getenv("AIOS_START_PATH", "/").strip()
+    if start_path not in ALLOWED_START_PATHS:
+        start_path = "/"
+    if not acquire_single_instance(paths, start_path):
+        return
+    reserved_port = reserve_desktop_port()
+    if reserved_port is None:
+        request_existing_instance(paths, start_path)
+        return
 
     from app import create_app
     from app.models import db
@@ -245,13 +322,11 @@ def main():
             api_token = secrets.token_urlsafe(32)
             set_setting("LOCAL_API_TOKEN", api_token)
             db.session.commit()
-    port = find_available_port()
-    start_path = os.getenv("AIOS_START_PATH", "/").strip()
-    if start_path not in ALLOWED_START_PATHS:
-        start_path = "/"
+    port = DEFAULT_PORT
     start_hidden = os.getenv("AIOS_START_HIDDEN", "") == "1" or "--hidden" in sys.argv or "--tray" in sys.argv
     base_url = f"http://{HOST}:{port}"
     url = f"{base_url}{start_path}"
+    reserved_port.close()
     server = ServerThread(app, port)
     reminder_worker = PollingWorker(
         service_id="reminders",
@@ -362,7 +437,21 @@ def main():
         def request_exit():
             threading.Timer(0.1, tray.exit).start()
 
+        def request_show(path="/"):
+            if path not in ALLOWED_START_PATHS:
+                path = "/"
+
+            def show_window():
+                try:
+                    window.load_url(f"{base_url}{path}")
+                except Exception:
+                    pass
+                tray.show()
+
+            threading.Timer(0.1, show_window).start()
+
         app.config["AIOS_EXIT_CALLBACK"] = request_exit
+        app.config["AIOS_SHOW_CALLBACK"] = request_show
 
         def on_started():
             tray.start()

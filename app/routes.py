@@ -1346,6 +1346,16 @@ def api_desktop_exit():
     return jsonify({"ok": True})
 
 
+@bp.post("/api/desktop/show")
+def api_desktop_show():
+    callback = current_app.config.get("AIOS_SHOW_CALLBACK")
+    if not callable(callback):
+        return jsonify({"ok": False, "error": "Desktop show is unavailable in browser mode."}), 400
+    payload = request.get_json(silent=True) or {}
+    callback(payload.get("path") or "/")
+    return jsonify({"ok": True})
+
+
 @bp.get("/api/opportunities")
 def api_opportunities():
     opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
