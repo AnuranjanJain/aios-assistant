@@ -36,6 +36,45 @@
       </section>
     {% endif %}
 
+    {% if email_result %}
+      <section class="panel glass {{ 'memory-error' if not email_result.ok else '' }}">
+        <p class="eyebrow">{{ "Email updated" if email_result.ok else "Email needs attention" }}</p>
+        <h2>{{ email_result.message or "Email intelligence action finished" }}</h2>
+      </section>
+    {% endif %}
+
+    {% if ai_result %}
+      <section class="panel glass {{ 'memory-error' if not ai_result.ok else '' }}">
+        <p class="eyebrow">{{ "Ollama ready" if ai_result.ok else "Ollama check failed" }}</p>
+        <h2>{{ ai_result.message }}</h2>
+      </section>
+    {% endif %}
+
+    <section class="panel glass">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Real-life readiness</p>
+          <h2>{{ readiness.ready }}/{{ readiness.total }} systems ready</h2>
+        </div>
+        <span class="status-pill {{ 'on' if readiness.all_ready else '' }}">
+          {{ "Ready" if readiness.all_ready else "Setup needed" }}
+        </span>
+      </div>
+      <div class="pipeline-list">
+        {% for item in readiness["items"] %}
+          <article class="pipeline-item">
+            <div>
+              <strong>{{ item.label }}</strong>
+              <p>{{ item.detail }}</p>
+            </div>
+            <span class="status-pill {{ 'on' if item.ok else '' }}">
+              {{ "Ready" if item.ok else "Setup" }}
+            </span>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+
     <section class="panel glass">
       <div class="panel-heading">
         <div>
@@ -120,17 +159,72 @@
             <span>{{ label }}</span>
             <input
               name="{{ key }}"
-              type="{{ 'password' if key == 'LOCAL_API_TOKEN' else 'text' }}"
+              type="{{ 'password' if key in ['LOCAL_API_TOKEN', 'GITHUB_TOKEN'] else 'text' }}"
               value="{{ values.get(key, '') }}"
               placeholder="{{ key }}"
             >
           </label>
         {% endfor %}
-        <button type="submit">Save Settings</button>
+        <div class="worker-actions">
+          <button type="submit">Save Settings</button>
+          <button type="submit" name="settings_action" value="test_ollama" class="ghost-button">Test Ollama</button>
+        </div>
       </form>
       <p class="source-note">
         `LOCAL_API_TOKEN` lets trusted local clients send `X-AiOS-Token` for background API sync without using the browser PIN session.
       </p>
+      <p class="source-note">
+        For a 4GB RTX 3050, start with small Ollama models such as `qwen2.5:3b`, `llama3.2:3b`, `gemma2:2b`, or `mistral:7b-instruct-q4_K_M` if memory allows. Keep `AI_PROVIDER=ollama`, `OLLAMA_URL=http://localhost:11434`, and use the rule-based fallback when Ollama is not running.
+      </p>
+    </section>
+
+    <section class="panel glass">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Email intelligence</p>
+          <h2>Connected Google accounts</h2>
+        </div>
+        <span class="status-pill {{ 'on' if email_accounts else '' }}">{{ email_accounts|length }} accounts</span>
+      </div>
+      <p class="source-note">
+        Gmail OAuth tokens are encrypted locally. Email understanding and planning run through local Ollama or the rule-based fallback.
+      </p>
+      <form class="settings-form email-connect-form" method="post" action="{{ url_for('main.save_settings') }}">
+        <label><span>Account label</span><input name="label" placeholder="College Gmail, Work Gmail, Personal"></label>
+        <div class="worker-actions">
+          <button type="submit" name="settings_action" value="connect_google_email">Connect Google Account</button>
+          <button type="submit" name="settings_action" value="sync_all_email" class="ghost-button">Sync All Now</button>
+        </div>
+      </form>
+      <div class="pipeline-list">
+        {% for account in email_accounts %}
+          <article class="pipeline-item">
+            <div>
+              <strong>{{ account.label }}</strong>
+              <p>{{ account.email }} - {{ "Sync on" if account.sync_enabled else "Sync paused" }}</p>
+              {% if account.last_sync_at %}<p class="source-note">Last sync: {{ account.last_sync_at }}</p>{% endif %}
+              {% if account.last_error %}<p class="service-error">{{ account.last_error }}</p>{% endif %}
+              <form class="settings-form email-account-form" method="post" action="{{ url_for('main.save_settings') }}">
+                <input type="hidden" name="account_id" value="{{ account.id }}">
+                <label><span>Rename</span><input name="label" value="{{ account.label }}"></label>
+                <div class="worker-actions">
+                  <button type="submit" name="settings_action" value="rename_email_account">Rename</button>
+                  <button type="submit" name="settings_action" value="sync_email_account" class="ghost-button">Sync</button>
+                  {% if account.sync_enabled %}
+                    <button type="submit" name="settings_action" value="pause_email_account" class="ghost-button">Pause</button>
+                  {% else %}
+                    <button type="submit" name="settings_action" value="resume_email_account" class="ghost-button">Resume</button>
+                  {% endif %}
+                  <button type="submit" name="settings_action" value="remove_email_account" class="ghost-button">Remove</button>
+                </div>
+              </form>
+            </div>
+            <span class="status-pill {{ 'on' if account.sync_enabled else '' }}">{{ account.provider }}</span>
+          </article>
+        {% else %}
+          <p class="empty">No Google accounts connected yet. Add one here to start local Gmail intelligence.</p>
+        {% endfor %}
+      </div>
     </section>
 
     <section class="panel glass" data-desktop-diagnostics>

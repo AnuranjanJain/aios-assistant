@@ -1,0 +1,225 @@
+{% from "_desktop_shell.html" import sidebar, topbar with context %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101510">
+  <title>AiOS Command Planner</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="workspace-body">
+  <div class="shell workspace-shell">
+    {{ sidebar() }}
+    <main class="dashboard source-dashboard">
+      {{ topbar() }}
+      <section class="source-page planner-page">
+        <section class="source-hero glass planner-hero">
+          <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
+          <p class="eyebrow">Command planner</p>
+          <h1>One row for every real-life event.</h1>
+          <p>Email asks, hackathons, repos, learning videos, and goals become rows you can plan, answer, and update.</p>
+        </section>
+
+        {% if result %}
+          <section class="panel glass {{ 'memory-error' if not result.ok else '' }}">
+            <p class="eyebrow">{{ "Saved" if result.ok else "Needs attention" }}</p>
+            <h2>{{ result.message or "Planning event updated" }}</h2>
+          </section>
+        {% endif %}
+
+        <section class="memory-stats">
+          <article class="stat-card"><span>Today</span><strong>{{ counts.today }}</strong><small>scheduled or due</small></article>
+          <article class="stat-card"><span>This week</span><strong>{{ counts.week }}</strong><small>near-term focus</small></article>
+          <article class="stat-card"><span>This month</span><strong>{{ counts.month }}</strong><small>monthly plan</small></article>
+          <article class="stat-card"><span>Open</span><strong>{{ counts.open }}</strong><small>{{ counts.hackathons }} hackathons, {{ counts.emails }} email asks</small></article>
+        </section>
+
+        <section class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Daily briefing</p>
+              <h2>{{ briefing.headline }}</h2>
+            </div>
+            <span class="status-pill {{ 'on' if briefing.needs_answer_count else '' }}">{{ briefing.needs_answer_count }} asks</span>
+          </div>
+          <div class="career-roadmap">
+            <div><strong>Focus</strong><p>{{ briefing.focus | join(", ") if briefing.focus else "No focused block yet." }}</p></div>
+            <div><strong>Due soon</strong><p>{{ briefing.due_soon | join(", ") if briefing.due_soon else "No deadlines this week." }}</p></div>
+            <div><strong>Ask next</strong><p>{{ briefing.ask_next | join(" | ") if briefing.ask_next else "No questions waiting." }}</p></div>
+          </div>
+        </section>
+
+        <section class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Quick add</p>
+              <h2>Add repo, GenAI video, monthly goal, or manual event</h2>
+            </div>
+          </div>
+          <form class="settings-form planning-event-create" method="post" action="{{ url_for('main.create_planning_event_route') }}">
+            <label><span>Type</span>
+              <select name="event_type">
+                <option value="manual">Manual</option>
+                <option value="hackathon">Hackathon</option>
+                <option value="repo">GitHub repo work</option>
+                <option value="learning_video">Learning video</option>
+                <option value="goal">Goal</option>
+              </select>
+            </label>
+            <label><span>Event title</span><input name="title" required placeholder="Finish GenAI RAG video notes"></label>
+            <label><span>Project / goal</span><input name="project" placeholder="GenAI, FlightIQ, LegalEase"></label>
+            <label><span>Deadline</span><input name="deadline" type="datetime-local"></label>
+            <label><span>Planned start</span><input name="planned_start" type="datetime-local"></label>
+            <label><span>Minutes</span><input name="planned_minutes" type="number" min="5" max="480" value="45"></label>
+            <label><span>Repo / link</span><input name="repo_url" placeholder="https://github.com/..."></label>
+            <label><span>Idea / notes</span><textarea name="idea" placeholder="What is the idea, useful notes, or context?"></textarea></label>
+            <label><span>Work left / blockers</span><textarea name="work_left" placeholder="What remains, what is blocked, what should I ask next?"></textarea></label>
+            <button type="submit">Add Event</button>
+          </form>
+        </section>
+
+        <section class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Answer next</p>
+              <h2>Questions AiOS should ask you now</h2>
+            </div>
+          </div>
+          <div class="pipeline-list">
+            {% for item in question_queue %}
+              <article class="pipeline-item">
+                <div>
+                  <strong>{{ item.question }}</strong>
+                  <p>{{ item.title }}{% if item.project %} - {{ item.project }}{% endif %}</p>
+                  {% if item.deadline %}<p class="source-note">Deadline: {{ item.deadline }}</p>{% endif %}
+                  {% if item.last_progress_note %}<p class="source-note">Latest note: {{ item.last_progress_note }}</p>{% endif %}
+                </div>
+                <span class="status-pill {{ 'on' if item.status in ['in_progress', 'blocked'] else '' }}">{{ item.event_type }}</span>
+              </article>
+            {% else %}
+              <p class="empty">No questions waiting. Add a row or connect data sources to create follow-ups.</p>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Today / week / month</p>
+              <h2>Auto-built from Gmail, hackathons, goals, and repos</h2>
+            </div>
+          </div>
+          <div class="career-roadmap">
+            <div>
+              <strong>Today</strong>
+              <p>
+                {% for event in plan_blocks.today %}
+                  {{ event.start }} - {{ event.title }} ({{ event.duration_minutes }}m){% if not loop.last %}, {% endif %}
+                {% else %}
+                  Nothing scheduled for today yet.
+                {% endfor %}
+              </p>
+            </div>
+            <div>
+              <strong>This week</strong>
+              <p>
+                {% for event in plan_blocks.week[:8] %}
+                  {{ event.start }} - {{ event.title }}{% if not loop.last %}, {% endif %}
+                {% else %}
+                  No deadline-driven rows this week.
+                {% endfor %}
+              </p>
+            </div>
+            <div>
+              <strong>This month</strong>
+              <p>
+                {% for event in plan_blocks.month[:8] %}
+                  {{ event.title }}{% if event.deadline %} due {{ event.deadline }}{% endif %}{% if not loop.last %}, {% endif %}
+                {% else %}
+                  Add deadlines to build a month plan.
+                {% endfor %}
+              </p>
+            </div>
+          </div>
+          <div class="planning-table-wrap">
+            <table class="planning-table">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Source</th>
+                  <th>Project</th>
+                  <th>Deadline</th>
+                  <th>Plan</th>
+                  <th>Work done</th>
+                  <th>Work left / notes</th>
+                  <th>Repo / latest</th>
+                  <th>Next question</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for event in events %}
+                  <tr>
+                    <td><strong>{{ event.title }}</strong><small>{{ event.idea }}</small></td>
+                    <td>{{ event.event_type }}<small>{{ event.source }}</small></td>
+                    <td>{{ event.project }}</td>
+                    <td>{{ event.deadline or "No deadline" }}</td>
+                    <td>{{ event.planned_start or "Auto" }}<small>{{ event.planned_minutes }} min</small></td>
+                    <td>{{ event.work_done }}</td>
+                    <td>{{ event.work_left }}{% if event.last_progress_note %}<small>Latest note: {{ event.last_progress_note }}</small>{% endif %}</td>
+                    <td>
+                      {% if event.repo_url %}<a href="{{ event.repo_url }}">{{ event.repo_url }}</a>{% endif %}
+                      <small>{{ event.repo_latest_activity }}</small>
+                    </td>
+                    <td>{{ event.next_question }}</td>
+                    <td>
+                      <form method="post" action="{{ url_for('main.update_planning_event_route', event_id=event.id) }}" class="planning-update-form">
+                        <select name="status">
+                          {% for status in ["planned", "in_progress", "blocked", "completed", "paused"] %}
+                            <option value="{{ status }}" {% if event.status == status %}selected{% endif %}>{{ status|replace("_", " ") }}</option>
+                          {% endfor %}
+                        </select>
+                        <small>Planned start</small>
+                        <input name="planned_start" type="datetime-local" value="{{ event.planned_start[:16] if event.planned_start else '' }}" aria-label="Planned start">
+                        <small>Planned minutes</small>
+                        <input name="planned_minutes" type="number" min="5" max="480" value="{{ event.planned_minutes }}" aria-label="Planned minutes">
+                        <textarea name="work_done" placeholder="What got done? Repo commits, video completed, notes made...">{{ event.work_done }}</textarea>
+                        <textarea name="work_left" placeholder="What remains? Blockers, next video, next commit...">{{ event.work_left }}</textarea>
+                        <textarea name="progress_note" placeholder="Answer the next question or save a fresh progress note"></textarea>
+                        <button type="submit">Update</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="10"><p class="empty">No events yet. Add one above or connect Gmail / create goals / scan hackathons.</p></td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel glass">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Monthly outline</p>
+              <h2>Upcoming focus weeks</h2>
+            </div>
+          </div>
+          <div class="career-roadmap">
+            {% for week in monthly %}
+              <div>
+                <strong>{{ week.week_start }}</strong>
+                <p>{{ week.focus | join(", ") }}</p>
+              </div>
+            {% else %}
+              <p class="empty">Monthly focus appears after events exist.</p>
+            {% endfor %}
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

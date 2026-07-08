@@ -18,6 +18,7 @@
       <a class="{{ 'active' if request.path == '/wellbeing' else '' }}" href="{{ url_for('main.wellbeing_workspace') }}">{{ icon("heart") }}<span class="nav-label">Wellbeing</span></a>
       <a class="{{ 'active' if request.path == '/memory' else '' }}" href="{{ url_for('main.memory_workspace') }}">{{ icon("database") }}<span class="nav-label">Memory</span></a>
       <a class="{{ 'active' if request.path == '/planner' else '' }}" href="{{ url_for('main.planner_workspace') }}">{{ icon("calendar") }}<span class="nav-label">Planner</span></a>
+      <a class="{{ 'active' if request.path == '/planning-events' else '' }}" href="{{ url_for('main.planning_events_workspace') }}">{{ icon("calendar") }}<span class="nav-label">Command Planner</span></a>
       <a class="{{ 'active' if request.path == '/automation' else '' }}" href="{{ url_for('main.automation_workspace') }}">{{ icon("terminal") }}<span class="nav-label">Automation</span></a>
       <a class="{{ 'active' if request.path == '/browser-agent' else '' }}" href="{{ url_for('main.browser_agent_workspace') }}">{{ icon("globe") }}<span class="nav-label">Browser Agent</span></a>
       <a class="{{ 'active' if request.path == '/career' else '' }}" href="{{ url_for('main.career_workspace') }}">{{ icon("career") }}<span class="nav-label">Career Copilot</span></a>
@@ -49,6 +50,7 @@
     <div class="top-rail" aria-label="Live pipeline navigation">
       <a class="{{ 'active' if request.path == '/gmail' else '' }}" href="{{ url_for('main.gmail_workspace') }}">{{ icon("mail") }}<span>Gmail</span></a>
       <a class="{{ 'active' if request.path == '/hackathons' else '' }}" href="{{ url_for('main.hackathons_workspace') }}">{{ icon("briefcase") }}<span>Hackathons</span></a>
+      <a class="{{ 'active' if request.path == '/planning-events' else '' }}" href="{{ url_for('main.planning_events_workspace') }}">{{ icon("calendar") }}<span>Plan</span></a>
       <a class="{{ 'active' if request.path == '/jobs' else '' }}" href="{{ url_for('main.jobs_workspace') }}">{{ icon("career") }}<span>Jobs</span></a>
       <a class="{{ 'active' if request.path == '/wellbeing' else '' }}" href="{{ url_for('main.wellbeing_workspace') }}">{{ icon("heart") }}<span>Wellbeing</span></a>
     </div>

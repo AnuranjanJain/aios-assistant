@@ -2,6 +2,9 @@ from datetime import datetime
 from pathlib import Path
 from time import monotonic
 from urllib.parse import urlsplit
+import json
+import urllib.error
+import urllib.request
 
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, send_file, session, url_for
 from werkzeug.utils import secure_filename
@@ -32,6 +35,18 @@ from app.services.connectors import (
 )
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
+from app.services.email_intelligence import (
+    connect_google_account,
+    generate_daily_plan as generate_email_daily_plan,
+    generate_weekly_plan as generate_email_weekly_plan,
+    intelligence_summary,
+    list_accounts as list_email_accounts,
+    remove_account as remove_email_account,
+    run_email_intelligence_cycle,
+    semantic_search as email_semantic_search,
+    sync_account as sync_email_account,
+    update_account as update_email_account,
+)
 from app.services.hackathons import ingest_hackathon_signal, serialize_hackathon
 from app.services.goal_planner import (
     create_goal_plan,
@@ -57,6 +72,12 @@ from app.services.memory_engine import (
 )
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
+from app.services.planning_events import (
+    create_manual_event,
+    planning_board,
+    update_event_progress,
+)
+from app.services.readiness import readiness_summary
 from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config, get_setting, set_setting
 from app.services.startup import (
     save_startup_settings,
@@ -323,6 +344,23 @@ def memory_workspace():
 @bp.get("/planner")
 def planner_workspace():
     return render_template("planner.html", **planner_overview())
+
+
+@bp.get("/planning-events")
+def planning_events_workspace():
+    return render_template("planning_events.html", **planning_board(), result=None)
+
+
+@bp.post("/planning-events")
+def create_planning_event_route():
+    result = create_manual_event(request.form)
+    return render_template("planning_events.html", **planning_board(), result=result)
+
+
+@bp.post("/planning-events/<int:event_id>")
+def update_planning_event_route(event_id):
+    result = update_event_progress(event_id, request.form)
+    return render_template("planning_events.html", **planning_board(), result=result)
 
 
 @bp.get("/automation")
@@ -681,6 +719,10 @@ def settings():
         pin_enabled=has_pin(),
         startup=startup_overview(),
         startup_result=None,
+        ai_result=None,
+        email_result=None,
+        email_accounts=list_email_accounts(),
+        readiness=readiness_summary(values),
     )
 
 
@@ -743,6 +785,8 @@ def save_settings():
     pin_action = request.form.get("pin_action", "")
     new_pin = request.form.get("new_pin", "")
     startup_result = None
+    email_result = None
+    ai_result = None
 
     if pin_action == "set_pin" and new_pin:
         set_pin(new_pin)
@@ -751,6 +795,35 @@ def save_settings():
 
     if settings_action == "save_startup":
         startup_result = save_startup_settings(request.form)
+    elif settings_action == "test_ollama":
+        apply_settings(request.form)
+        db.session.commit()
+        ai_result = test_ollama_status(get_effective_config(current_app.config))
+    elif settings_action == "connect_google_email":
+        email_result = connect_google_account(
+            get_effective_config(current_app.config),
+            label=request.form.get("label", ""),
+        )
+    elif settings_action == "sync_all_email":
+        email_result = {"ok": True, **run_email_intelligence_cycle(get_effective_config(current_app.config))}
+    elif settings_action in {
+        "sync_email_account",
+        "pause_email_account",
+        "resume_email_account",
+        "rename_email_account",
+        "remove_email_account",
+    }:
+        account_id = int(request.form.get("account_id", "0") or 0)
+        if settings_action == "sync_email_account":
+            email_result = sync_email_account(account_id)
+        elif settings_action == "pause_email_account":
+            email_result = update_email_account(account_id, sync_enabled=False)
+        elif settings_action == "resume_email_account":
+            email_result = update_email_account(account_id, sync_enabled=True)
+        elif settings_action == "rename_email_account":
+            email_result = update_email_account(account_id, label=request.form.get("label", ""))
+        elif settings_action == "remove_email_account":
+            email_result = remove_email_account(account_id)
     else:
         apply_settings(request.form)
 
@@ -764,7 +837,35 @@ def save_settings():
         pin_enabled=has_pin(),
         startup=startup_overview(),
         startup_result=startup_result,
+        ai_result=ai_result,
+        email_result=email_result,
+        email_accounts=list_email_accounts(),
+        readiness=readiness_summary(values),
     )
+
+
+def test_ollama_status(values):
+    base_url = (values.get("OLLAMA_URL") or "http://localhost:11434").rstrip("/")
+    model = values.get("OLLAMA_MODEL") or "qwen2.5:3b"
+    try:
+        parsed = urlsplit(base_url)
+        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            return {"ok": False, "message": "Ollama URL must stay on loopback."}
+        request = urllib.request.Request(
+            f"{base_url}/api/tags",
+            headers={"User-Agent": "aios-local-settings"},
+        )
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        models = [item.get("name", "") for item in payload.get("models", [])]
+        if model in models:
+            return {"ok": True, "message": f"Ollama is running and {model} is installed."}
+        return {
+            "ok": True,
+            "message": f"Ollama is running. Install {model} with: ollama pull {model}",
+        }
+    except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError) as exc:
+        return {"ok": False, "message": f"Ollama is not reachable: {exc}"}
 
 
 @bp.post("/sources/import")
@@ -1315,6 +1416,8 @@ def api_live():
             "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:6]],
             "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
             "latest_connector": serialize_connector_run(latest_connector) if latest_connector else None,
+            "intelligence": intelligence_summary(),
+            "readiness": readiness_summary(get_effective_config(current_app.config)),
             "updated_at": datetime.utcnow().isoformat(),
         }
     )
@@ -1365,6 +1468,87 @@ def api_opportunities():
 @bp.get("/api/connectors")
 def api_connectors():
     return jsonify(list_connectors(get_effective_config(current_app.config)))
+
+
+@bp.get("/api/intelligence/accounts")
+def api_intelligence_accounts():
+    return jsonify({"ok": True, "accounts": list_email_accounts()})
+
+
+@bp.post("/api/intelligence/accounts/google/connect")
+def api_intelligence_google_connect():
+    label = (request.get_json(silent=True) or {}).get("label", "")
+    result = connect_google_account(get_effective_config(current_app.config), label=label)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@bp.patch("/api/intelligence/accounts/<int:account_id>")
+def api_intelligence_update_account(account_id):
+    payload = request.get_json(silent=True) or {}
+    result = update_email_account(
+        account_id,
+        label=payload.get("label") if "label" in payload else None,
+        sync_enabled=payload.get("sync_enabled") if "sync_enabled" in payload else None,
+    )
+    return jsonify(result), 200 if result.get("ok") else 404
+
+
+@bp.delete("/api/intelligence/accounts/<int:account_id>")
+def api_intelligence_remove_account(account_id):
+    result = remove_email_account(account_id)
+    return jsonify(result), 200 if result.get("ok") else 404
+
+
+@bp.post("/api/intelligence/accounts/<int:account_id>/sync")
+def api_intelligence_sync_account(account_id):
+    result = sync_email_account(account_id)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@bp.post("/api/intelligence/sync")
+def api_intelligence_sync():
+    result = run_email_intelligence_cycle(get_effective_config(current_app.config))
+    return jsonify({"ok": True, **result})
+
+
+@bp.get("/api/intelligence/today")
+def api_intelligence_today():
+    return jsonify({"ok": True, **intelligence_summary()})
+
+
+@bp.post("/api/intelligence/daily-plan")
+def api_intelligence_daily_plan():
+    return jsonify({"ok": True, "plan": generate_email_daily_plan()})
+
+
+@bp.post("/api/intelligence/weekly-plan")
+def api_intelligence_weekly_plan():
+    return jsonify({"ok": True, "plan": generate_email_weekly_plan()})
+
+
+@bp.get("/api/intelligence/search")
+def api_intelligence_search():
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"ok": False, "error": "Query is required."}), 400
+    return jsonify({"ok": True, "query": query, "results": email_semantic_search(query)})
+
+
+@bp.get("/api/planning-events")
+def api_planning_events():
+    return jsonify({"ok": True, **planning_board()})
+
+
+@bp.post("/api/planning-events")
+def api_create_planning_event():
+    result = create_manual_event(request.get_json(silent=True) or {})
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@bp.patch("/api/planning-events/<int:event_id>")
+def api_update_planning_event(event_id):
+    result = update_event_progress(event_id, request.get_json(silent=True) or {})
+    return jsonify(result), 200 if result.get("ok") else 404
 
 
 @bp.get("/api/local/pairing")

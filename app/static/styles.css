@@ -1631,11 +1631,26 @@ textarea {
   font-size: 13px;
 }
 
-.pipeline-list div {
+.pipeline-list > div,
+.pipeline-item > div {
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.1);
   padding: 14px;
+}
+
+.email-connect-form,
+.email-account-form {
+  margin: 14px 0;
+}
+
+.email-account-form {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 12px;
+}
+
+.email-account-form label {
+  max-width: 380px;
 }
 
 .worker-dot {
@@ -2640,14 +2655,97 @@ button:disabled {
   color: var(--muted);
 }
 
+.planning-event-create {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.planning-event-create label:nth-last-of-type(-n + 2) {
+  grid-column: span 3;
+}
+
+.planning-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.planning-table {
+  width: 100%;
+  min-width: 1180px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.planning-table th,
+.planning-table td {
+  vertical-align: top;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  padding: 12px;
+}
+
+.planning-table th {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.planning-table td strong,
+.planning-table td small,
+.planning-table td a {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.planning-table td small {
+  color: var(--muted);
+  margin-top: 5px;
+}
+
+.planning-update-form {
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.planning-update-form input {
+  min-width: 0;
+}
+
+.planning-update-form select,
+.planning-update-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.075);
+  padding: 9px;
+}
+
+.planning-update-form textarea {
+  min-height: 62px;
+  resize: vertical;
+}
+
+.planning-update-form button {
+  color: #071006;
+  background: var(--green);
+}
+
 @media (max-width: 760px) {
   .career-hero-grid,
   .career-grid,
   .career-fields,
   .career-score-row,
   .career-split,
-  .career-roadmap {
+  .career-roadmap,
+  .planning-event-create {
     grid-template-columns: 1fr;
+  }
+
+  .planning-event-create label:nth-last-of-type(-n + 2) {
+    grid-column: auto;
   }
 
   .career-hero h1 {
