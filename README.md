@@ -22,6 +22,8 @@ AiOS is the personal assistant layer for **What Do You Do** and the wider AiOS i
 
 - Remembers projects, goals, learning paths, notes, and next actions.
 - Tracks hackathons, job updates, Gmail signals, reminders, and wellbeing events.
+- Owns Email Intelligence: multi-account Gmail OAuth, encrypted local tokens, local email sync, AI understanding, semantic search, and daily/weekly planning.
+- Turns hackathons, repos, email tasks, learning videos, and goals into one planning board with work done, work left, deadlines, and next questions.
 - Runs local desktop automation previews before touching files.
 - Plans goals into daily, weekly, or monthly roadmaps.
 - Connects with Gmail OAuth and local import folders.
@@ -39,6 +41,68 @@ flowchart LR
     D --> E
     E --> F["Plans, reminders, pipelines, reports"]
 ```
+
+## Email Intelligence
+
+AiOS is the integration and planning brain for WDYD v2. It owns Google OAuth, Gmail sync, token encryption, local email storage, Ollama analysis, daily/weekly plans, follow-up suggestions, and semantic search.
+
+Local APIs exposed to WDYD and other loopback clients:
+
+```text
+GET  /api/intelligence/accounts
+POST /api/intelligence/accounts/google/connect
+PATCH/DELETE /api/intelligence/accounts/<id>
+POST /api/intelligence/accounts/<id>/sync
+POST /api/intelligence/sync
+GET  /api/intelligence/today
+POST /api/intelligence/daily-plan
+POST /api/intelligence/weekly-plan
+GET  /api/intelligence/search?q=internship
+GET  /api/planning-events
+POST /api/planning-events
+PATCH /api/planning-events/<id>
+```
+
+Email content is never sent to cloud AI providers by this module. Analysis uses Ollama when available and a deterministic local fallback otherwise.
+
+The command planner is the bridge for real-life planning. It creates one row per event, keeps progress notes local, preserves your manual updates across refreshes, refreshes linked repo activity when possible, and exposes today/week/month agenda summaries plus timed plan blocks for WDYD.
+
+When email analysis extracts a deadline such as `today`, `tomorrow`, `by Friday`, or a numeric date, the generated email task carries that due date into the command planner row.
+
+For private GitHub repos or fewer rate-limit headaches, set `GITHUB_TOKEN` in Settings. AiOS uses it locally only when fetching latest linked repo activity.
+
+### Ollama On A 4GB RTX 3050
+
+Use smaller or quantized local models first:
+
+```powershell
+ollama pull qwen2.5:3b
+ollama pull llama3.2:3b
+ollama pull gemma2:2b
+```
+
+Recommended settings:
+
+```text
+AI_PROVIDER=ollama
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:3b
+OLLAMA_EMBED_MODEL=nomic-embed-text
+```
+
+The rule-based fallback still extracts urgent emails, deadlines, and action items when Ollama is offline.
+
+Use **Settings -> Test Ollama** to check the local Ollama server and whether the selected model is installed. AiOS refuses non-loopback Ollama URLs so email/planner content stays local.
+
+Manage Gmail from **Settings -> Connected Google accounts**:
+
+- connect another Google account
+- rename an account
+- pause or resume sync
+- sync one account or all accounts
+- remove an account and its local token
+
+Set `EMAIL_SYNC_INTERVAL_MINUTES` in Settings to control continuous background sync. The worker enforces a 2-minute minimum to avoid hammering Gmail.
 
 ## Desktop Shell
 
@@ -100,7 +164,7 @@ tar -xzf release/AiOS-Assistant-arch-x86_64.tar.gz -C /tmp/aios
 AiOS works without a model by using deterministic local rules. For local LLM planning/classification:
 
 ```powershell
-ollama pull qwen2.5:7b
+ollama pull qwen2.5:3b
 ollama pull nomic-embed-text
 ```
 
@@ -108,7 +172,7 @@ Set in `.env`:
 
 ```env
 AI_PROVIDER=ollama
-OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_MODEL=qwen2.5:3b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
@@ -118,7 +182,7 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 app/
   routes.py              Desktop pages, API endpoints, OAuth routes
   models.py              SQLite models
-  services/              Memory, planner, connectors, workers, settings
+  services/              Memory, planner, email intelligence, connectors, workers, settings
   templates/             Shared desktop shell and pages
   static/                CSS, JS, manifest, icons
 
@@ -154,6 +218,7 @@ tests/                   Regression and integration tests
 
 - Credentials stay out of git: `credentials/`, `.env`, `instance/`, `release/`, `dist/`, and `build/` are ignored.
 - Gmail tokens live locally.
+- OAuth refresh tokens are encrypted before storage.
 - Destructive automation uses previews and approval.
 - Local API pairing is loopback-only and token protected.
 - Cloud AI is optional; local-first is the default design.

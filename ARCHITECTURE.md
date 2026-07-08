@@ -22,6 +22,20 @@ The local backend is the source of truth. It owns the database, AI classificatio
 
 The web app, plugin, and phone UI are clients. They should send data to the backend and display results from it.
 
+## Product Boundary With WDYD
+
+AiOS owns the agent-grade integration layer:
+
+- Google OAuth and multi-account Gmail sync
+- encrypted refresh-token storage
+- email understanding and semantic search
+- daily and weekly planning
+- command-planner rows for hackathons, repos, learning videos, email tasks, and goals
+- follow-up, waiting-on, and deadline suggestions
+- future connectors such as Outlook, Slack, Notion, GitHub, Linear, and Calendar
+
+What Do You Do stays the activity/wellbeing surface. It consumes AiOS intelligence through loopback APIs and never stores Gmail tokens or raw email content.
+
 ## Main Components
 
 ### 1. Local Backend
@@ -75,6 +89,40 @@ Example output:
   "confidence": 0.88
 }
 ```
+
+### Email Intelligence Core
+
+```mermaid
+flowchart LR
+    G["Google accounts"] --> O["OAuth account manager"]
+    O --> T["Encrypted OAuthToken rows"]
+    O --> S["Gmail sync worker"]
+    S --> E["EmailMessage + EmailThread + Attachment tables"]
+    E --> A["Local analysis service"]
+    A --> L["Ollama or rule fallback"]
+    A --> I["EmailInsight + EmailTask + AISuggestion"]
+    I --> P["DailyPlan / WeeklyPlan"]
+    P --> API["/api/intelligence/*"]
+    API --> W["WDYD read-only planner cards"]
+```
+
+All raw email content stays inside the AiOS local SQLite database. WDYD receives summaries, counts, deadlines, and plan items only.
+
+### Command Planner Core
+
+```mermaid
+flowchart LR
+    H["Hackathons"] --> C["PlanningEvent"]
+    E["EmailTask"] --> C
+    G["Goal planner tasks"] --> C
+    M["Manual rows: repo/video/goal"] --> C
+    C --> Q["Next question + progress prompt"]
+    C --> R["Repo activity refresh"]
+    C --> API["/api/planning-events"]
+    API --> W["WDYD Planner page"]
+```
+
+Each event has deadline, planned start, planned minutes, work done, work left, optional repo URL, latest repo activity, and a next question. WDYD reads this as a dashboard surface; AiOS remains the owner of writes and background enrichment. Repo refresh uses unauthenticated GitHub by default and can use a local `GITHUB_TOKEN` setting for private repos or higher rate limits.
 
 ### 3. Web Dashboard
 
