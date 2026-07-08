@@ -123,5 +123,5 @@ Body:
 
 def get_classifier(provider: str = "rule_based", base_url: str = "", model: str = ""):
     if provider == "ollama":
-        return OllamaClassifier(base_url or "http://localhost:11434", model or "qwen2.5:7b")
+        return OllamaClassifier(base_url or "http://localhost:11434", model or "qwen2.5:3b")
     return RuleBasedClassifier()

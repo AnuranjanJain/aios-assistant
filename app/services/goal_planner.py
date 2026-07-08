@@ -101,7 +101,7 @@ def generate_with_ollama(goal, cadence, duration, config):
         "Use 1 to 3 actionable tasks per period."
     )
     payload = {
-        "model": config.get("OLLAMA_MODEL") or "qwen2.5:7b",
+        "model": config.get("OLLAMA_MODEL") or "qwen2.5:3b",
         "prompt": prompt,
         "stream": False,
         "format": "json",

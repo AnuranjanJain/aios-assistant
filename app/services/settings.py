@@ -13,10 +13,12 @@ SETTING_KEYS = {
     "GMAIL_TOKEN_PATH": "Gmail token path",
     "GMAIL_OPPORTUNITY_QUERY": "Gmail opportunity search query",
     "GMAIL_HACKATHON_QUERY": "Legacy Gmail hackathon search query",
+    "EMAIL_SYNC_INTERVAL_MINUTES": "Email intelligence sync interval (minutes)",
     "JOB_PORTAL_IMPORT_DIR": "Job portal import folder",
     "HACKATHON_IMPORT_DIR": "Hackathon platform import folder",
     "HACKATHON_SCAN_INTERVAL_MINUTES": "Opportunity scan interval (minutes)",
     "WATCH_IMPORT_DIR": "Watch import folder",
+    "GITHUB_TOKEN": "GitHub token for private repo activity",
     "LOCAL_API_TOKEN": "Local API token",
 }
 

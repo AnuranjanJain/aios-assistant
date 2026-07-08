@@ -24,7 +24,7 @@ class Config:
     PORT = int(os.getenv("PORT", "5000"))
     AI_PROVIDER = os.getenv("AI_PROVIDER", "rule_based")
     OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
     OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
     MEMORY_VECTOR_BACKEND = os.getenv("MEMORY_VECTOR_BACKEND", "auto")
     MEMORY_VECTOR_PATH = os.getenv("MEMORY_VECTOR_PATH", "instance/memory_vectors")
