@@ -31,6 +31,7 @@ ALLOWED_START_PATHS = {
     "/jobs",
     "/memory",
     "/planner",
+    "/planning-events",
     "/profile",
     "/settings",
     "/sources",
@@ -181,6 +182,7 @@ def run_worker_mode(worker_id):
         "activity": ("desktop_activity_worker", "main"),
         "watch_imports": ("watch_import_worker", "main"),
         "hackathons": ("hackathon_monitor_worker", "main"),
+        "email_intelligence": ("email_intelligence_worker", "main"),
     }
     target = worker_entrypoints.get(worker_id)
     if target is None:
@@ -302,6 +304,7 @@ def main():
     from app.services.background_services import register_service, unregister_service
     from app.services.settings import get_setting, set_setting
     from desktop_activity_worker import CHECK_SECONDS as ACTIVITY_INTERVAL_SECONDS, scan_once as scan_activity_once
+    from email_intelligence_worker import sync_interval_seconds, scan_once as scan_email_once
     from hackathon_monitor_worker import scan_once as scan_opportunities
     from local_worker import CHECK_INTERVAL_SECONDS, check_reminders, load_state, save_state
     from watch_import_worker import (
@@ -356,8 +359,15 @@ def main():
         save_callback=lambda _state: None,
         interval=ACTIVITY_INTERVAL_SECONDS,
     )
+    email_worker = PollingWorker(
+        service_id="email_intelligence",
+        callback=lambda state: scan_email_once(app, state),
+        state={},
+        save_callback=lambda _state: None,
+        interval=sync_interval_seconds(app),
+    )
 
-    components = (activity_worker, opportunity_worker, watch_worker, reminder_worker, server)
+    components = (email_worker, activity_worker, opportunity_worker, watch_worker, reminder_worker, server)
     runtime_path = paths.data_dir / "runtime.json"
     runtime_descriptor = RuntimeDescriptor(
         runtime_path,
@@ -386,6 +396,12 @@ def main():
         "Logs active desktop windows into wellbeing signals.",
         activity_worker,
     )
+    register_service(
+        "email_intelligence",
+        "Email intelligence planner",
+        "Syncs connected Gmail accounts and generates local AI plans.",
+        email_worker,
+    )
 
     def shutdown():
         for component in components:
@@ -393,7 +409,7 @@ def main():
                 component.shutdown()
             except Exception:
                 pass
-        for service_id in ("reminders", "watch_imports", "opportunities", "activity"):
+        for service_id in ("reminders", "watch_imports", "opportunities", "activity", "email_intelligence"):
             unregister_service(service_id)
 
     atexit.register(shutdown)
@@ -403,6 +419,7 @@ def main():
     watch_worker.start()
     opportunity_worker.start()
     activity_worker.start()
+    email_worker.start()
 
     if not wait_for_server(port):
         shutdown()

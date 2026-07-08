@@ -43,6 +43,12 @@ WORKERS = {
         script="hackathon_monitor_worker.py",
         description="Scans Gmail, hackathon exports, and job portal exports for live opportunity updates.",
     ),
+    "email_intelligence": WorkerDefinition(
+        worker_id="email_intelligence",
+        name="Email Intelligence Planner",
+        script="email_intelligence_worker.py",
+        description="Syncs connected Gmail accounts, analyzes email locally, and refreshes daily/weekly plans.",
+    ),
 }
 
 
