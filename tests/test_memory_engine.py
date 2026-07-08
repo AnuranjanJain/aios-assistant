@@ -19,7 +19,7 @@ class MemoryEngineTestCase(unittest.TestCase):
             SQLALCHEMY_TRACK_MODIFICATIONS = False
             LOCAL_API_TOKEN = ""
             OLLAMA_URL = "http://127.0.0.1:9"
-            OLLAMA_MODEL = "qwen2.5:7b"
+            OLLAMA_MODEL = "qwen2.5:3b"
             OLLAMA_EMBED_MODEL = "nomic-embed-text"
             MEMORY_VECTOR_BACKEND = "sqlite"
             MEMORY_VECTOR_PATH = str(Path(self.temp_dir.name) / "vectors")

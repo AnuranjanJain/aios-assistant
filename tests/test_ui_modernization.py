@@ -17,7 +17,7 @@ class UiModernizationTestCase(unittest.TestCase):
             SQLALCHEMY_TRACK_MODIFICATIONS = False
             LOCAL_API_TOKEN = "local-test-token"
             OLLAMA_URL = "http://127.0.0.1:9"
-            OLLAMA_MODEL = "qwen2.5:7b"
+            OLLAMA_MODEL = "qwen2.5:3b"
             OLLAMA_EMBED_MODEL = "nomic-embed-text"
             MEMORY_VECTOR_BACKEND = "sqlite"
             MEMORY_VECTOR_PATH = str(Path(self.temp_dir.name) / "vectors")
@@ -52,6 +52,7 @@ class UiModernizationTestCase(unittest.TestCase):
             "/jobs",
             "/memory",
             "/planner",
+            "/planning-events",
             "/profile",
             "/settings",
             "/sources",
@@ -75,6 +76,7 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertIn('href="/gmail"', html)
         self.assertIn('href="/hackathons"', html)
         self.assertIn('href="/jobs"', html)
+        self.assertIn('href="/planning-events"', html)
         self.assertIn('href="/wellbeing"', html)
         self.assertIn('class="icon"', html)
         self.assertNotIn("nav-initial", html)
@@ -86,6 +88,7 @@ class UiModernizationTestCase(unittest.TestCase):
             "/browser-agent": ["Browser request", "Build Browser Plan"],
             "/career": ["Local path or GitHub URL", "Optimize Resume"],
             "/planner": ["Planning cadence", "Number of periods"],
+            "/planning-events": ["Event title", "Work left", "Planned start"],
             "/sources": ["Choose export file", "Import Real Data"],
         }
 
@@ -101,9 +104,20 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertIn("Start AiOS automatically", html)
         self.assertIn("Open in background tray mode", html)
         self.assertIn("Exit AiOS", html)
+        self.assertIn("Real-life readiness", html)
+        self.assertIn("Local-only privacy", html)
+        self.assertIn("Gmail account", html)
+        self.assertIn("Ollama loopback", html)
+        self.assertIn("Planner rows", html)
         self.assertIn("Desktop services started by the app", html)
         self.assertIn("Desktop activity tracker", html)
         self.assertIn("Save Startup", html)
+        self.assertIn("Connected Google accounts", html)
+        self.assertIn("Connect Google Account", html)
+        self.assertIn("Sync All Now", html)
+        self.assertIn("GitHub token for private repo activity", html)
+        self.assertIn("Email intelligence sync interval", html)
+        self.assertIn("Test Ollama", html)
 
     def test_desktop_show_route_reports_browser_mode(self):
         response = self.client.post("/api/desktop/show", json={"path": "/"})
