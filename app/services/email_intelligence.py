@@ -5,7 +5,7 @@ import re
 import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
-from email.utils import parsedate_to_datetime
+from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 
 from flask import current_app
@@ -19,6 +19,8 @@ from app.models import (
     EmailMessage,
     EmailTask,
     EmailThread,
+    LifeItem,
+    LifeItemRelation,
     OAuthToken,
     WeeklyPlan,
     db,
@@ -28,6 +30,29 @@ from app.models import (
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
 ]
+
+EMAIL_CATEGORIES = {
+    "internship",
+    "hackathon",
+    "meeting",
+    "assignment",
+    "reminder",
+    "finance",
+    "travel",
+    "shopping",
+    "learning",
+    "personal",
+    "general",
+}
+
+IMPORTANT_CATEGORIES = {
+    "internship",
+    "hackathon",
+    "meeting",
+    "assignment",
+    "reminder",
+    "learning",
+}
 
 
 def _json(value, fallback=None):
@@ -41,6 +66,10 @@ def _json(value, fallback=None):
 
 def _dump(value):
     return json.dumps(value or [], ensure_ascii=False)
+
+
+def _dump_object(value):
+    return json.dumps(value or {}, ensure_ascii=False)
 
 
 def _encryption_key():
@@ -339,9 +368,10 @@ def analyze_pending_emails(limit=25, app_config=None):
 
 def analyze_email(email, app_config):
     prompt = (
-        "Return compact JSON for this email with priority, urgency, category, summary, "
-        "action_items, deadlines, meetings, follow_ups, waiting_on, projects, people, companies. "
-        "No markdown.\n"
+        "Return compact JSON for this email. No markdown. "
+        "Use category only from: internship, hackathon, meeting, assignment, reminder, finance, travel, shopping, learning, personal, general. "
+        "Include priority, urgency, category, summary, action_items, deadlines, meetings, follow_ups, waiting_on, "
+        "projects, people, companies, required_documents, repositories, suggested_actions, confidence.\n"
         f"From: {email.sender}\nSubject: {email.subject}\nSnippet: {email.snippet}\nBody: {(email.body_text or '')[:3500]}"
     )
     response = ollama_generate_json(prompt, app_config)
@@ -371,10 +401,12 @@ def ollama_generate_json(prompt, app_config):
 
 
 def normalize_insight(raw):
+    category = str(raw.get("category") or "general").lower().strip()
+    category = category if category in EMAIL_CATEGORIES else "general"
     return {
         "priority": str(raw.get("priority") or "normal").lower()[:40],
         "urgency": str(raw.get("urgency") or "normal").lower()[:40],
-        "category": str(raw.get("category") or "general").lower()[:80],
+        "category": category,
         "summary": str(raw.get("summary") or "")[:1000],
         "action_items": _as_list(raw.get("action_items")),
         "deadlines": _as_list(raw.get("deadlines")),
@@ -384,30 +416,64 @@ def normalize_insight(raw):
         "projects": _as_list(raw.get("projects")),
         "people": _as_list(raw.get("people")),
         "companies": _as_list(raw.get("companies")),
+        "required_documents": _as_list(raw.get("required_documents")),
+        "repositories": _as_list(raw.get("repositories")),
+        "suggested_actions": _as_list(raw.get("suggested_actions")),
         "confidence": float(raw.get("confidence") or 0.75),
     }
 
 
 def heuristic_insight(email):
-    text = f"{email.subject} {email.snippet} {email.body_text or ''}".lower()
+    full_text = f"{email.subject} {email.snippet} {email.body_text or ''}"
+    text = full_text.lower()
     urgent = any(word in text for word in ["urgent", "asap", "today", "deadline", "by friday", "tomorrow"])
     action = any(word in text for word in ["can you", "please", "finish", "send", "review", "submit"])
     deadlines = extract_deadlines(text)
+    meetings = [email.subject] if any(word in text for word in ["meeting", "call", "zoom", "google meet", "interview"]) else []
+    category = classify_email_text(text)
+    required_documents = extract_required_documents(text)
+    repositories = extract_repositories(full_text)
+    projects = extract_projects(email.subject, full_text)
+    people = extract_people(email.sender, full_text)
+    companies = sorted(set(extract_companies(email.sender) + extract_known_companies(full_text)))
+    suggested_actions = suggest_email_actions(email, category, action, deadlines, required_documents, meetings)
     return {
         "priority": "high" if urgent or deadlines else "normal",
         "urgency": "urgent" if urgent else "normal",
-        "category": "meeting" if "meeting" in text or "call" in text else "action" if action else "general",
+        "category": category,
         "summary": email.snippet or email.subject,
         "action_items": [email.subject] if action else [],
         "deadlines": deadlines,
-        "meetings": [email.subject] if "meeting" in text or "call" in text else [],
+        "meetings": meetings,
         "follow_ups": [email.sender] if "follow up" in text else [],
         "waiting_on": [],
-        "projects": extract_title_words(email.subject),
-        "people": [],
-        "companies": extract_companies(email.sender),
+        "projects": projects,
+        "people": people,
+        "companies": companies,
+        "required_documents": required_documents,
+        "repositories": repositories,
+        "suggested_actions": suggested_actions,
         "confidence": 0.58,
     }
+
+
+def classify_email_text(text):
+    rules = [
+        ("internship", ["internship", "intern ", "interview", "recruiter", "application", "placement", "offer letter"]),
+        ("hackathon", ["hackathon", "devpost", "buildathon", "challenge", "submission", "demo video"]),
+        ("meeting", ["meeting", "calendar invite", "zoom", "google meet", "call", "interview schedule"]),
+        ("assignment", ["assignment", "homework", "coursework", "submit", "submission", "due date"]),
+        ("reminder", ["reminder", "don't forget", "do not forget", "follow up", "following up"]),
+        ("finance", ["invoice", "payment", "bank", "refund", "salary", "tax", "receipt"]),
+        ("travel", ["flight", "hotel", "booking", "boarding", "ticket", "trip", "itinerary"]),
+        ("shopping", ["order", "delivery", "shipped", "cart", "purchase", "tracking number"]),
+        ("learning", ["course", "lecture", "tutorial", "lesson", "module", "workshop", "webinar"]),
+        ("personal", ["family", "personal", "birthday", "appointment"]),
+    ]
+    for category, keywords in rules:
+        if any(keyword in text for keyword in keywords):
+            return category
+    return "general"
 
 
 def extract_deadlines(text):
@@ -415,6 +481,39 @@ def extract_deadlines(text):
     for pattern in [r"\bby\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", r"\b(today|tomorrow)\b", r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b"]:
         found.extend(match.group(0) for match in re.finditer(pattern, text, re.I))
     return found[:5]
+
+
+def extract_required_documents(text):
+    docs = []
+    patterns = {
+        "resume": ["resume", "cv"],
+        "transcript": ["transcript", "marksheet", "grade sheet"],
+        "portfolio": ["portfolio"],
+        "cover letter": ["cover letter"],
+        "id proof": ["id proof", "identity proof", "government id"],
+        "certificate": ["certificate", "certification"],
+    }
+    for label, keywords in patterns.items():
+        if any(keyword in text for keyword in keywords):
+            docs.append(label)
+    return docs[:8]
+
+
+def extract_repositories(text):
+    repos = []
+    for match in re.finditer(r"https?://(?:www\.)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", text):
+        repos.append(match.group(0).rstrip(").,"))
+    for match in re.finditer(r"\brepo(?:sitory)?[:\s]+(https?://\S+)", text, re.I):
+        repos.append(match.group(1).rstrip(").,"))
+    return list(dict.fromkeys(repos))[:6]
+
+
+def extract_projects(subject, text):
+    projects = extract_title_words(subject)
+    for pattern in [r"\bproject[:\s]+([A-Z][A-Za-z0-9 _-]{2,40})", r"\bfor\s+([A-Z][A-Za-z0-9_-]{2,30})\b"]:
+        for match in re.finditer(pattern, text):
+            projects.append(match.group(1).strip())
+    return list(dict.fromkeys(projects))[:8]
 
 
 def extract_title_words(subject):
@@ -425,6 +524,46 @@ def extract_title_words(subject):
 def extract_companies(sender):
     match = re.search(r"@([a-z0-9-]+)\.", sender.lower())
     return [match.group(1).title()] if match else []
+
+
+def extract_known_companies(text):
+    companies = []
+    for match in re.finditer(r"\b(Amazon|Google|Microsoft|Meta|Apple|Netflix|OpenAI|GitHub|LinkedIn|Flipkart|TCS|Infosys|Wipro)\b", text):
+        companies.append(match.group(1))
+    return companies[:8]
+
+
+def extract_people(sender, text):
+    people = []
+    display_name, email_address = parseaddr(sender or "")
+    if display_name and "@" not in display_name:
+        people.append(display_name.strip('" '))
+    elif email_address:
+        local_part = email_address.split("@", 1)[0].replace(".", " ").replace("_", " ")
+        if local_part and not any(char.isdigit() for char in local_part):
+            people.append(local_part.title())
+
+    for pattern in [r"\b(?:with|from|by)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b", r"\b([A-Z][a-z]+\s+[A-Z][a-z]+)\s+(?:asked|sent|shared|scheduled)\b"]:
+        for match in re.finditer(pattern, text):
+            people.append(match.group(1).strip())
+    return list(dict.fromkeys(people))[:8]
+
+
+def suggest_email_actions(email, category, has_action, deadlines, required_documents, meetings):
+    suggestions = []
+    if required_documents:
+        suggestions.append(f"Collect required documents: {', '.join(required_documents)}")
+    if category == "internship":
+        suggestions.append(f"Review internship email: {email.subject}")
+    if category == "hackathon":
+        suggestions.append(f"Plan hackathon next step: {email.subject}")
+    if meetings:
+        suggestions.append(f"Prepare for meeting: {email.subject}")
+    if deadlines:
+        suggestions.append(f"Schedule work before {deadlines[0]}")
+    if has_action and not suggestions:
+        suggestions.append(email.subject)
+    return suggestions[:8]
 
 
 def _as_list(value):
@@ -449,15 +588,153 @@ def upsert_email_insight(email, insight):
     row.projects_json = _dump(insight["projects"])
     row.people_json = _dump(insight["people"])
     row.companies_json = _dump(insight["companies"])
+    row.required_documents_json = _dump(insight["required_documents"])
+    row.repositories_json = _dump(insight["repositories"])
+    row.suggested_actions_json = _dump(insight["suggested_actions"])
     row.model = "ollama_or_rule_based"
     row.confidence = insight["confidence"]
     email.analyzed_at = datetime.utcnow()
     db.session.add(row)
     due_at = first_deadline_datetime(insight["deadlines"], email.sent_at or datetime.utcnow())
-    for title in insight["action_items"]:
+    for title in list(dict.fromkeys(insight["action_items"] + insight["suggested_actions"])):
         if not EmailTask.query.filter_by(email=email, title=title).first():
             db.session.add(EmailTask(email=email, title=title, priority=row.priority, due_at=due_at, source="email_insight"))
+    life_item = upsert_life_item_from_email(email, insight, due_at)
+    if life_item:
+        row.life_item = life_item
     return row
+
+
+def upsert_life_item_from_email(email, insight, due_at=None):
+    if not is_important_email(insight):
+        return None
+
+    source_key = f"email:{email.account_id}:{email.provider_message_id}"
+    item = LifeItem.query.filter_by(source_key=source_key).first()
+    if item is None:
+        item = LifeItem(source_key=source_key)
+        db.session.add(item)
+
+    labels = _json(email.labels_json)
+    next_action = first_non_empty(insight["suggested_actions"] + insight["action_items"]) or f"Review email: {email.subject}"
+    item.title = make_life_item_title(email, insight, next_action)
+    item.description = (insight["summary"] or email.snippet or email.body_text or "")[:2500]
+    item.category = insight["category"] if insight["category"] != "general" else "personal"
+    item.priority = insight["priority"]
+    item.status = "open"
+    item.deadline = due_at
+    item.estimated_hours = estimate_life_item_hours(insight)
+    item.progress = item.progress or 0.0
+    item.energy_level = "high" if insight["priority"] in {"high", "urgent"} else "medium"
+    item.difficulty = "medium"
+    item.repository = first_non_empty(insight["repositories"])
+    item.ai_summary = insight["summary"]
+    item.next_action = next_action
+    item.tags_json = _dump(sorted(set(labels + [insight["category"]] + insight["projects"] + insight["companies"])))
+    item.analytics_json = _dump_object({"source": "email_intelligence", "confidence": insight["confidence"]})
+    item.metadata_json = _dump_object(
+        {
+            "email_id": email.id,
+            "account_id": email.account_id,
+            "provider_message_id": email.provider_message_id,
+            "provider_thread_id": email.provider_thread_id,
+            "thread_id": email.thread_id,
+            "sender": email.sender,
+            "labels": labels,
+            "required_documents": insight["required_documents"],
+            "meetings": insight["meetings"],
+            "people": insight["people"],
+            "companies": insight["companies"],
+            "projects": insight["projects"],
+            "repositories": insight["repositories"],
+        }
+    )
+    history = _json(item.history_json)
+    history.append({"at": datetime.utcnow().isoformat(), "event": "email_insight_updated", "email_id": email.id})
+    item.history_json = _dump(history[-20:])
+    db.session.flush()
+    connect_related_life_items(item, insight)
+    return item
+
+
+def is_important_email(insight):
+    return any(
+        [
+            insight["priority"] in {"high", "urgent"},
+            insight["urgency"] in {"high", "urgent"},
+            insight["category"] in IMPORTANT_CATEGORIES,
+            bool(insight["deadlines"]),
+            bool(insight["action_items"]),
+            bool(insight["suggested_actions"]),
+        ]
+    )
+
+
+def make_life_item_title(email, insight, next_action):
+    if insight["category"] == "meeting" and insight["meetings"]:
+        return f"Meeting: {email.subject}"[:240]
+    if insight["category"] == "internship":
+        company = first_non_empty(insight["companies"])
+        return f"Internship: {company or email.subject}"[:240]
+    if insight["category"] == "hackathon":
+        project = first_non_empty(insight["projects"])
+        return f"Hackathon: {project or email.subject}"[:240]
+    return (next_action or email.subject or "Email follow-up")[:240]
+
+
+def estimate_life_item_hours(insight):
+    if insight["category"] in {"meeting", "reminder"}:
+        return 0.5
+    if insight["category"] in {"hackathon", "assignment", "learning"}:
+        return 2.0
+    if insight["required_documents"]:
+        return 1.0
+    return 0.75
+
+
+def connect_related_life_items(item, insight):
+    signals = {value.lower() for value in insight["projects"] + insight["companies"] if value}
+    repo = first_non_empty(insight["repositories"])
+    if repo:
+        signals.add(repo.lower())
+    candidates = LifeItem.query.filter(LifeItem.id != item.id).limit(200).all()
+    for candidate in candidates:
+        haystack = " ".join(
+            [
+                candidate.title or "",
+                candidate.description or "",
+                candidate.repository or "",
+                candidate.tags_json or "",
+                candidate.metadata_json or "",
+            ]
+        ).lower()
+        matched = [signal for signal in signals if signal and signal in haystack]
+        if not matched:
+            continue
+        exists = LifeItemRelation.query.filter_by(
+            source_item_id=item.id,
+            target_item_id=candidate.id,
+            relation_type="email_context",
+        ).first()
+        if exists:
+            continue
+        db.session.add(
+            LifeItemRelation(
+                source_item=item,
+                target_item=candidate,
+                relation_type="email_context",
+                strength=min(1.0, 0.55 + 0.1 * len(matched)),
+                reason=f"Email mentions shared context: {', '.join(matched[:3])}",
+                metadata_json=_dump_object({"signals": matched[:6]}),
+            )
+        )
+
+
+def first_non_empty(values):
+    for value in values or []:
+        if str(value).strip():
+            return str(value).strip()
+    return None
 
 
 def first_deadline_datetime(deadlines, anchor=None):
@@ -574,7 +851,10 @@ def intelligence_today():
 
 
 def intelligence_summary():
+    from app.services.daily_assistant import latest_daily_assistant_summary
     from app.services.planning_events import planning_board
+    from app.services.github_intelligence import generate_daily_summary, serialize_daily_summary
+    from app.services.learning_intelligence import learning_summary
 
     urgent = EmailInsight.query.filter(EmailInsight.priority.in_(["high", "urgent"])).count()
     unread = EmailMessage.query.filter_by(is_unread=True).count()
@@ -584,13 +864,19 @@ def intelligence_summary():
     suggestions = AISuggestion.query.filter_by(status="open").order_by(AISuggestion.created_at.desc()).limit(6).all()
     deadlines = EmailInsight.query.filter(EmailInsight.deadlines_json != "[]").order_by(EmailInsight.updated_at.desc()).limit(6).all()
     waiting = EmailInsight.query.filter(EmailInsight.waiting_on_json != "[]").order_by(EmailInsight.updated_at.desc()).limit(6).all()
+    learning = learning_summary()
     events = planning_board()
+    github_daily = generate_daily_summary()
+    db.session.commit()
     return {
         "accounts": accounts,
         "unread_emails": unread,
         "urgent_emails": urgent,
+        "assistant": latest_daily_assistant_summary(),
         "today": daily,
         "weekly": serialize_weekly_plan(weekly) if weekly else generate_weekly_plan(),
+        "github": serialize_daily_summary(github_daily),
+        "learning": learning,
         "planning_events": events,
         "suggestions": [serialize_suggestion(item) for item in suggestions],
         "deadlines": [serialize_insight(item) for item in deadlines],
@@ -627,6 +913,7 @@ def serialize_email(email):
 def serialize_insight(insight):
     return {
         "email_id": insight.email_id,
+        "life_item_id": insight.life_item_id,
         "subject": insight.email.subject if insight.email else "",
         "sender": insight.email.sender if insight.email else "",
         "priority": insight.priority,
@@ -639,6 +926,10 @@ def serialize_insight(insight):
         "waiting_on": _json(insight.waiting_on_json),
         "projects": _json(insight.projects_json),
         "companies": _json(insight.companies_json),
+        "people": _json(insight.people_json),
+        "required_documents": _json(insight.required_documents_json),
+        "repositories": _json(insight.repositories_json),
+        "suggested_actions": _json(insight.suggested_actions_json),
     }
 
 
@@ -655,10 +946,15 @@ def serialize_suggestion(row):
 
 
 def run_email_intelligence_cycle(app_config):
+    from app.services.daily_assistant import latest_daily_assistant_summary
+    from app.services.github_intelligence import update_all_repositories
+    from app.services.learning_intelligence import generate_events_from_learning_items, learning_summary
     from app.services.planning_events import planning_board
 
     sync_results = sync_all_accounts(limit_per_account=30)
     analysis = analyze_pending_emails(limit=30, app_config=app_config)
+    github = update_all_repositories(limit=30)
+    generate_events_from_learning_items()
     daily = generate_daily_plan()
     weekly = generate_weekly_plan()
     suggestions = refresh_suggestions()
@@ -666,6 +962,9 @@ def run_email_intelligence_cycle(app_config):
     return {
         "sync": sync_results,
         "analysis": analysis,
+        "assistant": latest_daily_assistant_summary(),
+        "github": github,
+        "learning": learning_summary(),
         "daily": daily,
         "weekly": weekly,
         "suggestions": suggestions,

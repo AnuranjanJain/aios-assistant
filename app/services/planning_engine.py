@@ -162,7 +162,7 @@ class PlanningEngine:
             self._difficulty(event),
             1,
         )
-        event_rank = {"hackathon": 0, "email": 1, "goal": 2, "repo": 2, "learning_video": 3}.get(event.event_type, 4)
+        event_rank = {"hackathon": 0, "email": 1, "goal": 2, "repo": 2, "learning": 3, "learning_video": 3}.get(event.event_type, 4)
         return (deadline, priority_rank, difficulty_rank, event_rank)
 
     def _remaining_minutes(self, event):

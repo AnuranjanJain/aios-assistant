@@ -81,6 +81,8 @@ def upsert_event(source_key, **data):
 
 
 def generate_events_from_sources():
+    from app.services.learning_intelligence import generate_events_from_learning_items
+
     created_or_updated = 0
     offset = 0
 
@@ -154,6 +156,8 @@ def generate_events_from_sources():
         offset += 1
 
     db.session.commit()
+    learning = generate_events_from_learning_items()
+    created_or_updated += learning.get("events", 0)
     return {"ok": True, "events": created_or_updated}
 
 
@@ -192,6 +196,8 @@ def default_next_question(event_type, title, project="", repo_url=""):
     subject = project or title
     if event_type == "learning_video":
         return f"Which video did you complete for {subject}, and what notes should I remember?"
+    if event_type == "learning":
+        return f"What learning did you finish for {subject}? What notes, quiz ideas, or weak topics should I remember?"
     if event_type == "hackathon":
         return f"What changed in {title}? Update work done, work left, repo progress, and submission blockers."
     if event_type == "repo" or repo_url:
@@ -231,9 +237,21 @@ def update_event_progress(event_id, data):
             event.work_done = progress_note
     event.last_prompted_at = datetime.utcnow()
     event.next_question = build_next_question(event)
+    sync_learning_progress_from_event(event, progress_note)
     refresh_repo_activity(event)
     db.session.commit()
     return {"ok": True, "event": serialize_event(event)}
+
+
+def sync_learning_progress_from_event(event, progress_note=""):
+    if event.event_type not in {"learning", "learning_video"}:
+        return
+    try:
+        from app.services.learning_intelligence import sync_learning_item_from_event
+
+        sync_learning_item_from_event(event, progress_note)
+    except (TypeError, ValueError):
+        return
 
 
 def build_next_question(event):
@@ -257,6 +275,7 @@ def planning_board():
             "hackathons": sum(1 for event in events if event.event_type == "hackathon"),
             "emails": sum(1 for event in events if event.event_type == "email"),
             "goals": sum(1 for event in events if event.event_type == "goal"),
+            "learning": sum(1 for event in events if event.event_type in {"learning", "learning_video"}),
             "today": sum(1 for event in events if event_is_in_window(event, days=1)),
             "tomorrow": sum(1 for event in events if event_is_on_date(event, date.today() + timedelta(days=1))),
             "week": sum(1 for event in events if event_is_in_window(event, days=7)),
@@ -453,31 +472,13 @@ def parse_minutes(value, fallback=45):
 def refresh_repo_activity(event):
     if not event.repo_url or "github.com" not in event.repo_url.lower():
         return
-    repo = parse_github_repo(event.repo_url)
-    if not repo:
+    from app.services.github_intelligence import update_repository
+
+    result = update_repository(event.repo_url)
+    if result.get("ok"):
         return
-    try:
-        headers = github_headers()
-        commits = github_json(f"https://api.github.com/repos/{repo}/commits?per_page=3", headers)
-        open_issues = github_json(
-            f"https://api.github.com/search/issues?q=repo:{repo}+type:issue+state:open&per_page=1",
-            headers,
-        )
-        open_prs = github_json(
-            f"https://api.github.com/search/issues?q=repo:{repo}+type:pr+state:open&per_page=1",
-            headers,
-        )
-        summary = summarize_repo_activity(commits, open_issues, open_prs)
-        if summary:
-            event.repo_latest_activity = summary
-        if commits:
-            commit = commits[0]["commit"]
-            message = commit["message"].splitlines()[0]
-            if not event.work_done:
-                event.work_done = f"Latest repo work: {message}"
-    except (OSError, urllib.error.URLError, KeyError, json.JSONDecodeError, TimeoutError):
-        if not event.repo_latest_activity:
-            event.repo_latest_activity = "Repo linked; latest activity not fetched yet."
+    if not event.repo_latest_activity:
+        event.repo_latest_activity = "Repo linked; latest GitHub intelligence not fetched yet."
 
 
 def github_headers():
