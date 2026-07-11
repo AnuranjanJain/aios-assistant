@@ -1,20 +1,48 @@
 import tempfile
 import unittest
 import json
+import sqlite3
 from unittest import mock
 from pathlib import Path
 from datetime import date, datetime, time, timedelta
 
 from app import create_app
-from app.models import ConnectedAccount, EmailMessage, EmailTask, Opportunity, PlanningEvent, db
+from app.models import (
+    ConnectedAccount,
+    DailyAssistantEntry,
+    EmailAttachment,
+    EmailInsight,
+    EmailMessage,
+    EmailTask,
+    GitHubDailySummary,
+    GitHubRepository,
+    EmailThread,
+    LearningItem,
+    LifeItem,
+    LifeItemRelation,
+    MemoryEntity,
+    MemoryFact,
+    Opportunity,
+    PlanTask,
+    GoalPlan,
+    PlanningEvent,
+    WorkCheckpoint,
+    db,
+)
 from app.services.email_intelligence import (
+    _gmail_message_ids,
     analyze_pending_emails,
     decrypt_token_json,
     encrypt_token_json,
     generate_daily_plan,
     intelligence_summary,
     run_email_intelligence_cycle,
+    upsert_gmail_message,
 )
+from app.services.github_intelligence import update_all_repositories, update_repository
+from app.services.learning_intelligence import evening_questions, learning_summary, record_learning_progress, upsert_learning_item
+from app.services.daily_assistant import generate_morning_briefing, evening_checkin_prompt, submit_evening_checkin
+from app.services.knowledge_graph import build_knowledge_graph, query_knowledge_graph
 from app.services.planning_events import create_manual_event, planning_board, update_event_progress
 from app.services.readiness import readiness_summary
 from app.services.settings import set_setting
@@ -95,6 +123,145 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         )
         self.assertGreaterEqual(len(summary["planning_events"]["plan_blocks"]["week"]), 1)
 
+    def test_gmail_upsert_preserves_thread_labels_and_attachment_metadata(self):
+        account = ConnectedAccount(provider="google", email="me@example.com", label="Main")
+        db.session.add(account)
+        db.session.flush()
+
+        imported = upsert_gmail_message(
+            account,
+            {
+                "id": "gmail-sync-1",
+                "threadId": "thread-1",
+                "historyId": "110",
+                "labelIds": ["INBOX", "IMPORTANT", "STARRED", "UNREAD"],
+                "snippet": "Please review the attached brief.",
+                "internalDate": "1783766400000",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "recruiter@amazon.com"},
+                        {"name": "To", "value": "me@example.com"},
+                        {"name": "Subject", "value": "Internship brief and resume request"},
+                    ],
+                    "parts": [
+                        {
+                            "mimeType": "text/plain",
+                            "body": {"data": "UGxlYXNlIHNlbmQgeW91ciByZXN1bWUgYnkgRnJpZGF5Lg=="},
+                        },
+                        {
+                            "filename": "brief.pdf",
+                            "mimeType": "application/pdf",
+                            "body": {"attachmentId": "att-1", "size": 12345},
+                        },
+                    ],
+                },
+            },
+        )
+        db.session.commit()
+
+        message = EmailMessage.query.filter_by(provider_message_id="gmail-sync-1").first()
+        thread = EmailThread.query.filter_by(provider_thread_id="thread-1").first()
+        attachment = EmailAttachment.query.filter_by(email_id=message.id).first()
+
+        self.assertTrue(imported)
+        self.assertEqual(account.sync_cursor, "110")
+        self.assertEqual(message.thread_id, thread.id)
+        self.assertTrue(message.is_unread)
+        self.assertIn("IMPORTANT", json.loads(message.labels_json))
+        self.assertIn("STARRED", json.loads(thread.labels_json))
+        self.assertIn("resume by Friday", message.body_text)
+        self.assertEqual(attachment.filename, "brief.pdf")
+        self.assertEqual(attachment.provider_attachment_id, "att-1")
+        self.assertEqual(attachment.size_bytes, 12345)
+
+    def test_incremental_history_sync_collects_message_ids_and_updates_cursor(self):
+        class FakeExecute:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def execute(self):
+                return self.payload
+
+        class FakeHistory:
+            def list(self, **_kwargs):
+                return FakeExecute(
+                    {
+                        "historyId": "220",
+                        "history": [
+                            {"messagesAdded": [{"message": {"id": "m-1"}}]},
+                            {"labelsAdded": [{"message": {"id": "m-2"}}, {"message": {"id": "m-1"}}]},
+                        ],
+                    }
+                )
+
+        class FakeUsers:
+            def history(self):
+                return FakeHistory()
+
+        class FakeService:
+            def users(self):
+                return FakeUsers()
+
+        account = ConnectedAccount(provider="google", email="me@example.com", label="Main", sync_cursor="100")
+        ids = _gmail_message_ids(FakeService(), account, limit=10)
+
+        self.assertEqual(ids, ["m-1", "m-2"])
+        self.assertEqual(account.sync_cursor, "220")
+
+    def test_internship_email_extracts_fields_and_creates_related_life_item(self):
+        account = ConnectedAccount(provider="google", email="me@example.com", label="Main")
+        existing = LifeItem(
+            source_key="manual:flightiq",
+            title="FlightIQ dashboard",
+            description="Hackathon repository and internship portfolio project for Amazon.",
+            category="hackathon",
+            priority="high",
+            repository="https://github.com/anura/flightiq",
+            tags_json=json.dumps(["FlightIQ", "Amazon"]),
+        )
+        db.session.add_all([account, existing])
+        db.session.flush()
+        db.session.add(
+            EmailMessage(
+                account=account,
+                provider_message_id="gmail-internship-1",
+                provider_thread_id="thread-internship",
+                sender='"Riya Sharma" <recruiter@amazon.com>',
+                subject="Amazon internship documents for FlightIQ by Friday",
+                snippet="Please send your resume, transcript, and GitHub repository before the interview.",
+                body_text=(
+                    "Hi, for the Amazon internship interview please send your resume, transcript, "
+                    "and project repository https://github.com/anura/flightiq by Friday. "
+                    "We will schedule a Zoom interview call after that."
+                ),
+                labels_json=json.dumps(["INBOX", "IMPORTANT"]),
+                is_unread=True,
+                sent_at=datetime(2026, 7, 6, 9, 0),
+            )
+        )
+        db.session.commit()
+
+        result = analyze_pending_emails(app_config={"AI_PROVIDER": "rule_based"})
+        insight = EmailInsight.query.first()
+        item = LifeItem.query.filter(LifeItem.source_key.like("email:%")).first()
+        relation = LifeItemRelation.query.filter_by(source_item_id=item.id, target_item_id=existing.id).first()
+
+        self.assertEqual(result["analyzed"], 1)
+        self.assertEqual(insight.category, "internship")
+        self.assertEqual(insight.priority, "high")
+        self.assertIn("resume", json.loads(insight.required_documents_json))
+        self.assertIn("transcript", json.loads(insight.required_documents_json))
+        self.assertIn("Riya Sharma", json.loads(insight.people_json))
+        self.assertIn("https://github.com/anura/flightiq", json.loads(insight.repositories_json))
+        self.assertTrue(json.loads(insight.suggested_actions_json))
+        self.assertEqual(insight.life_item_id, item.id)
+        self.assertEqual(item.category, "internship")
+        self.assertEqual(item.repository, "https://github.com/anura/flightiq")
+        self.assertIsNotNone(item.deadline)
+        self.assertIn("Collect required documents", item.next_action)
+        self.assertIsNotNone(relation)
+        self.assertEqual(relation.relation_type, "email_context")
+
     def test_intelligence_today_api_is_loopback_client_ready(self):
         response = self.client.get("/api/intelligence/today", headers={"X-AiOS-Token": "local-test-token"})
 
@@ -153,6 +320,34 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         )
         self.assertEqual(remove.status_code, 200)
         self.assertIsNone(db.session.get(ConnectedAccount, account.id))
+
+    def test_existing_sqlite_database_gets_email_life_item_columns(self):
+        with tempfile.TemporaryDirectory() as legacy_dir:
+            database_path = Path(legacy_dir) / "legacy.db"
+            connection = sqlite3.connect(database_path)
+            connection.execute("CREATE TABLE reminder (id INTEGER PRIMARY KEY, title VARCHAR(180), due_at DATETIME)")
+            connection.execute("CREATE TABLE email_insight (id INTEGER PRIMARY KEY, email_id INTEGER NOT NULL UNIQUE)")
+            connection.commit()
+            connection.close()
+
+            class LegacyConfig:
+                TESTING = True
+                SECRET_KEY = "test-secret"
+                SQLALCHEMY_DATABASE_URI = f"sqlite:///{database_path.as_posix()}"
+                SQLALCHEMY_TRACK_MODIFICATIONS = False
+                USER_DISPLAY_NAME = "Legacy User"
+
+            legacy_app = create_app(LegacyConfig)
+            with legacy_app.app_context():
+                columns = {column["name"] for column in db.inspect(db.engine).get_columns("email_insight")}
+                self.assertIn("life_item_id", columns)
+                self.assertIn("required_documents_json", columns)
+                self.assertIn("repositories_json", columns)
+                self.assertIn("suggested_actions_json", columns)
+                self.assertIn("life_item", db.inspect(db.engine).get_table_names())
+                self.assertIn("life_item_relation", db.inspect(db.engine).get_table_names())
+                db.session.remove()
+                db.engine.dispose()
 
     def test_readiness_summary_tracks_real_life_setup_state(self):
         values = {
@@ -291,6 +486,109 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(saved.event_type, "learning_video")
         self.assertIn("progress_log", update["event"]["metadata"])
 
+    def test_learning_intelligence_tracks_items_prompts_and_reschedules(self):
+        project = LifeItem(
+            source_key="manual:rag-project",
+            title="RAG Demo",
+            description="Project using attention and vector search knowledge.",
+            category="project",
+            priority="high",
+            tags_json=json.dumps(["RAG Demo"]),
+        )
+        db.session.add(project)
+        db.session.commit()
+
+        item_types = ["course", "video", "book", "article", "practice", "project"]
+        created = []
+        for item_type in item_types:
+            created.append(
+                upsert_learning_item(
+                    {
+                        "item_type": item_type,
+                        "title": f"{item_type.title()} on attention",
+                        "project": "RAG Demo",
+                        "completion": 0.25 if item_type == "video" else 0,
+                        "scheduled_at": (datetime.utcnow() - timedelta(days=1)).isoformat() if item_type == "video" else None,
+                        "notes": "Initial notes",
+                        "weak_topics": ["attention math"] if item_type == "course" else [],
+                        "projects": ["RAG Demo"],
+                        "quiz": ["Explain attention scores"],
+                    }
+                )["item"]
+            )
+
+        summary = learning_summary()
+        video = LearningItem.query.filter_by(item_type="video").first()
+        event = PlanningEvent.query.filter_by(source_key=f"learning_item:{video.id}").first()
+        relation = LifeItemRelation.query.filter_by(
+            source_item_id=video.life_item_id,
+            target_item_id=project.id,
+            relation_type="uses_learning",
+        ).first()
+
+        self.assertEqual(summary["counts"]["total"], 6)
+        self.assertEqual(summary["counts"]["courses"], 1)
+        self.assertEqual(summary["counts"]["videos"], 1)
+        self.assertEqual(summary["counts"]["books"], 1)
+        self.assertEqual(summary["counts"]["articles"], 1)
+        self.assertEqual(summary["counts"]["practice"], 1)
+        self.assertEqual(summary["counts"]["projects"], 1)
+        self.assertGreater(video.scheduled_at, datetime.utcnow())
+        self.assertEqual(event.event_type, "learning_video")
+        self.assertIn("Which videos did you complete", event.next_question)
+        self.assertTrue(any("Which videos did you complete" in question for question in evening_questions()))
+        self.assertIsNotNone(video.life_item_id)
+        self.assertIsNotNone(relation)
+
+        update = update_event_progress(
+            event.id,
+            {
+                "status": "in_progress",
+                "progress_note": "Completed transformer intro. weak: attention math, masking. quiz: derive QK scores. project: RAG Demo",
+            },
+        )
+        refreshed = db.session.get(LearningItem, video.id)
+
+        self.assertTrue(update["ok"])
+        self.assertGreater(refreshed.completion, 0.25)
+        self.assertIn("transformer intro", refreshed.notes)
+        self.assertIn("attention math", json.loads(refreshed.weak_topics_json))
+        self.assertIn("derive QK scores", json.loads(refreshed.quiz_json))
+        self.assertIn("RAG Demo", json.loads(refreshed.projects_json))
+        self.assertEqual(refreshed.life_item.next_action, "Review weak topics: attention math, masking.")
+
+    def test_learning_progress_completion_updates_life_item_and_plan(self):
+        result = upsert_learning_item(
+            {
+                "item_type": "book",
+                "title": "Designing Data Intensive Applications",
+                "completion": 0.6,
+                "notes": "Read storage chapters",
+            }
+        )
+        item_id = result["item"]["id"]
+
+        progress = record_learning_progress(
+            item_id,
+            {
+                "completed": True,
+                "notes": "Finished replication chapter. revise: consensus",
+                "weak_topics": ["consensus"],
+                "projects": ["AiOS memory"],
+            },
+        )
+        item = db.session.get(LearningItem, item_id)
+        event = PlanningEvent.query.filter_by(source_key=f"learning_item:{item_id}").first()
+
+        self.assertTrue(progress["ok"])
+        self.assertEqual(item.status, "completed")
+        self.assertEqual(item.completion, 1.0)
+        self.assertEqual(item.life_item.status, "completed")
+        self.assertEqual(item.life_item.progress, 100)
+        self.assertIn("consensus", json.loads(item.weak_topics_json))
+        self.assertEqual(event.status, "completed")
+        self.assertIn("Schedule revision", event.work_left)
+
     def test_planning_event_api_creates_real_life_row_from_wdyd(self):
         response = self.client.post(
             "/api/planning-events",
@@ -325,6 +623,125 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(board["counts"]["total"], 1)
         self.assertEqual(board["events"][0]["title"], "Finish GenAI attention video")
         self.assertEqual(board["plan_blocks"]["month"][0]["duration_minutes"], 60)
+
+    def test_daily_assistant_morning_evening_replans_and_preserves_history(self):
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+        first = PlanningEvent(
+            source_key="manual:assistant-finish",
+            event_type="repo",
+            source="manual",
+            title="Ship assistant planner",
+            project="AiOS",
+            deadline=datetime.combine(today, time(17)),
+            planned_start=datetime.combine(today, time(10)),
+            planned_minutes=90,
+            priority="high",
+            status="planned",
+            work_left="Finish morning schedule.",
+        )
+        blocked = PlanningEvent(
+            source_key="manual:assistant-blocked",
+            event_type="learning",
+            source="manual",
+            title="Study scheduling risks",
+            project="AiOS",
+            deadline=datetime.combine(today, time(18)),
+            planned_start=datetime.combine(today, time(13)),
+            planned_minutes=60,
+            priority="normal",
+            status="planned",
+            work_left="Review risk model.",
+        )
+        unscheduled_due = PlanningEvent(
+            source_key="manual:assistant-risk",
+            event_type="email",
+            source="manual",
+            title="Reply to urgent sponsor",
+            project="Email",
+            deadline=datetime.combine(tomorrow, time(11)),
+            planned_minutes=30,
+            priority="urgent",
+            status="planned",
+            work_left="Send update.",
+        )
+        db.session.add_all([first, blocked, unscheduled_due])
+        db.session.commit()
+
+        morning = generate_morning_briefing(today)
+        prompt = evening_checkin_prompt(today)
+        response = submit_evening_checkin(
+            {
+                "date": today.isoformat(),
+                "completed": [first.id],
+                "blocked": [blocked.id],
+                "blockers": "Need clearer priority from user.",
+                "hours_worked": 3.5,
+                "move_deadlines": {str(blocked.id): tomorrow.isoformat()},
+                "modify_priorities": {str(blocked.id): "high"},
+                "notes": "Finished planner shell and risk summary.",
+            }
+        )
+        refreshed_first = db.session.get(PlanningEvent, first.id)
+        refreshed_blocked = db.session.get(PlanningEvent, blocked.id)
+        entries = DailyAssistantEntry.query.order_by(DailyAssistantEntry.created_at.asc()).all()
+
+        self.assertEqual(morning["kind"], "morning")
+        self.assertGreaterEqual(len(morning["schedule"]), 2)
+        self.assertGreater(morning["estimated_hours"], 0)
+        self.assertTrue(any(item["event_id"] == first.id and "high priority" in item["why"] for item in morning["explanations"]))
+        self.assertTrue(any("due soon" in item["risk"] or "overdue" in item["risk"] for item in morning["risks"]))
+        self.assertIn("What did you complete?", prompt["questions"])
+        self.assertTrue(response["ok"])
+        self.assertEqual(refreshed_first.status, "completed")
+        self.assertEqual(refreshed_blocked.status, "blocked")
+        self.assertEqual(refreshed_blocked.priority, "high")
+        self.assertEqual(refreshed_blocked.deadline.date(), tomorrow)
+        blocked_metadata = json.loads(refreshed_blocked.metadata_json)
+        self.assertIn("assistant_history", blocked_metadata)
+        self.assertIn("Need clearer priority", blocked_metadata["progress_log"][-1]["note"])
+        self.assertGreaterEqual(len(entries), 4)
+        self.assertEqual(entries[-1].kind, "evening_response")
+        self.assertIn("Finished planner shell", entries[-1].responses_json)
+        self.assertTrue(response["next_morning"]["schedule"])
+
+    def test_daily_assistant_api_surfaces_morning_and_evening(self):
+        db.session.add(
+            PlanningEvent(
+                source_key="manual:assistant-api",
+                event_type="goal",
+                source="manual",
+                title="API assistant task",
+                planned_start=datetime.combine(date.today(), time(9)),
+                planned_minutes=45,
+                priority="normal",
+                status="planned",
+            )
+        )
+        db.session.commit()
+
+        morning = self.client.post(
+            "/api/intelligence/morning",
+            headers={"X-AiOS-Token": "local-test-token"},
+            json={"date": date.today().isoformat()},
+        )
+        evening = self.client.get(
+            "/api/intelligence/evening",
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        submit = self.client.post(
+            "/api/intelligence/evening",
+            headers={"X-AiOS-Token": "local-test-token"},
+            json={"completed": "API assistant task", "hours_worked": 1, "notes": "Done through API."},
+        )
+
+        self.assertEqual(morning.status_code, 200)
+        self.assertTrue(morning.get_json()["assistant"]["schedule"])
+        self.assertEqual(evening.status_code, 200)
+        self.assertIn("Hours worked?", evening.get_json()["assistant"]["questions"])
+        self.assertEqual(submit.status_code, 200)
+        self.assertTrue(submit.get_json()["ok"])
+        self.assertEqual(PlanningEvent.query.filter_by(title="API assistant task").first().status, "completed")
 
     def test_email_sync_cycle_reports_planner_follow_up_counts(self):
         create_manual_event(
@@ -516,7 +933,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertGreaterEqual(review_start.time(), time(14))
         self.assertNotIn("Too late deep work", {item["title"] for item in today_blocks})
 
-    def test_github_token_is_used_for_repo_activity_refresh(self):
+    def test_github_token_is_used_for_repo_intelligence_refresh(self):
         set_setting("GITHUB_TOKEN", "ghp_local_test")
         event = PlanningEvent(
             source_key="manual:private-repo-test",
@@ -536,14 +953,48 @@ class EmailIntelligenceTestCase(unittest.TestCase):
                 return False
 
             def read(self):
+                if self.url.endswith("/repos/example/private-repo"):
+                    return (
+                        b'{"full_name":"example/private-repo","html_url":"https://github.com/example/private-repo",'
+                        b'"description":"Private planner repo","default_branch":"main","language":"Python",'
+                        b'"private":true,"archived":false,"pushed_at":"2026-07-10T12:00:00Z"}'
+                    )
+                if "graphql" in self.url:
+                    return (
+                        b'{"data":{"repository":{"discussions":{"nodes":[{"title":"Roadmap","url":"https://github.com/example/private-repo/discussions/1",'
+                        b'"createdAt":"2026-07-08T10:00:00Z","updatedAt":"2026-07-10T10:00:00Z","answerChosenAt":null}]}}}}'
+                    )
                 if "commits" in self.url:
                     return (
-                        b'[{"commit":{"message":"ship private planner","committer":{"date":"2026-06-20T10:00:00Z"}}},'
-                        b'{"commit":{"message":"add repo notes","committer":{"date":"2026-06-19T10:00:00Z"}}}]'
+                        b'[{"sha":"abc123456789","html_url":"https://github.com/example/private-repo/commit/abc",'
+                        b'"commit":{"message":"ship private planner","author":{"name":"Anura","date":"2026-07-10T10:00:00Z"},'
+                        b'"committer":{"date":"2026-07-10T10:00:00Z"}}},'
+                        b'{"sha":"def123456789","commit":{"message":"add repo notes","author":{"name":"Anura","date":"2026-07-09T10:00:00Z"},'
+                        b'"committer":{"date":"2026-07-09T10:00:00Z"}}}]'
                     )
-                if "type:issue" in self.url:
-                    return b'{"total_count":2,"items":[]}'
-                return b'{"total_count":1,"items":[]}'
+                if "pulls" in self.url:
+                    return (
+                        b'[{"number":7,"title":"Polish dashboard","state":"open","created_at":"2026-07-09T10:00:00Z",'
+                        b'"updated_at":"2026-07-10T10:00:00Z","html_url":"https://github.com/example/private-repo/pull/7","labels":[]}]'
+                    )
+                if "issues" in self.url:
+                    return (
+                        b'[{"number":4,"title":"Add repo notes","state":"open","created_at":"2026-07-08T10:00:00Z",'
+                        b'"updated_at":"2026-07-10T10:00:00Z","html_url":"https://github.com/example/private-repo/issues/4",'
+                        b'"labels":[{"name":"todo"}]},'
+                        b'{"number":3,"title":"Closed setup","state":"closed","created_at":"2026-07-07T10:00:00Z",'
+                        b'"updated_at":"2026-07-08T10:00:00Z","closed_at":"2026-07-08T10:00:00Z","html_url":"https://github.com/example/private-repo/issues/3",'
+                        b'"labels":[]}]'
+                    )
+                if "branches" in self.url:
+                    return b'[{"name":"main","protected":true},{"name":"feature/planner","protected":false}]'
+                if "releases" in self.url:
+                    return b'[{"name":"v0.1","tag_name":"v0.1","published_at":"2026-07-08T10:00:00Z","draft":false,"prerelease":false}]'
+                if "actions/workflows" in self.url:
+                    return b'{"workflows":[{"name":"Tests","state":"active","path":".github/workflows/test.yml","html_url":"https://github.com/example/private-repo/actions"}]}'
+                if "contributors" in self.url:
+                    return b'[{"login":"anura","contributions":12,"html_url":"https://github.com/anura"}]'
+                return b"{}"
 
         captured = {}
 
@@ -559,12 +1010,227 @@ class EmailIntelligenceTestCase(unittest.TestCase):
 
             refresh_repo_activity(event)
 
-        self.assertEqual(captured["authorization"], ["Bearer ghp_local_test"] * 3)
-        self.assertEqual(captured["timeout"], 2.5)
-        self.assertEqual(len(captured["urls"]), 3)
+        self.assertTrue(all(value == "Bearer ghp_local_test" for value in captured["authorization"]))
+        self.assertGreaterEqual(len(captured["urls"]), 9)
         self.assertIn("ship private planner", event.repo_latest_activity)
-        self.assertIn("add repo notes", event.repo_latest_activity)
-        self.assertIn("2 issues, 1 PRs", event.repo_latest_activity)
+        self.assertIn("1 issues, 1 PRs", event.repo_latest_activity)
+        self.assertIn("Completion estimate", event.repo_latest_activity)
+
+        repo = GitHubRepository.query.filter_by(repo_full_name="example/private-repo").first()
+        self.assertIsNotNone(repo)
+        self.assertIsNotNone(repo.life_item_id)
+        self.assertFalse(repo.inactive)
+        self.assertGreater(repo.completion_percentage, 0)
+        self.assertIn("Polish dashboard", repo.current_sprint)
+        self.assertIn("Add repo notes", repo.remaining_work)
+        self.assertIn("Review or merge PR #7", repo.suggested_next_task)
+        self.assertEqual(len(json.loads(repo.branches_json)), 2)
+        self.assertEqual(len(json.loads(repo.releases_json)), 1)
+        self.assertEqual(len(json.loads(repo.discussions_json)), 1)
+        self.assertEqual(len(json.loads(repo.workflows_json)), 1)
+        self.assertEqual(len(json.loads(repo.contributors_json)), 1)
+
+    def test_github_intelligence_updates_all_repositories_and_daily_summary(self):
+        item = LifeItem(
+            source_key="manual:stale-repo",
+            title="Stale repo",
+            category="project",
+            repository="https://github.com/example/stale-repo",
+        )
+        db.session.add(item)
+        db.session.commit()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self):
+                if self.url.endswith("/repos/example/stale-repo"):
+                    return (
+                        b'{"full_name":"example/stale-repo","html_url":"https://github.com/example/stale-repo",'
+                        b'"description":"Old project","default_branch":"main","language":"JavaScript",'
+                        b'"private":false,"archived":false,"pushed_at":"2026-01-01T12:00:00Z"}'
+                    )
+                if "graphql" in self.url:
+                    return b'{"data":{"repository":{"discussions":{"nodes":[]}}}}'
+                if "commits" in self.url:
+                    return b'[{"sha":"aaa111","commit":{"message":"initial app","author":{"name":"Anura","date":"2026-01-01T10:00:00Z"},"committer":{"date":"2026-01-01T10:00:00Z"}}}]'
+                if "pulls" in self.url:
+                    return b"[]"
+                if "issues" in self.url:
+                    return b'[{"number":9,"title":"Finish README","state":"open","updated_at":"2026-01-02T10:00:00Z","labels":[]}]'
+                if "branches" in self.url:
+                    return b'[{"name":"main","protected":false}]'
+                if "releases" in self.url:
+                    return b"[]"
+                if "actions/workflows" in self.url:
+                    return b'{"workflows":[]}'
+                if "contributors" in self.url:
+                    return b'[{"login":"anura","contributions":1}]'
+                return b"{}"
+
+        def fake_urlopen(request, timeout):
+            FakeResponse.url = request.full_url
+            return FakeResponse()
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = update_all_repositories()
+
+        repo = GitHubRepository.query.filter_by(repo_full_name="example/stale-repo").first()
+        daily = GitHubDailySummary.query.filter_by(summary_date=date.today()).first()
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(repo.inactive)
+        self.assertEqual(repo.life_item_id, item.id)
+        self.assertEqual(item.next_action, "Work on issue #9: Finish README")
+        self.assertEqual(item.progress, repo.completion_percentage)
+        self.assertEqual(daily.repo_count, 1)
+        self.assertEqual(daily.inactive_count, 1)
+        self.assertIn("inactive projects", daily.summary)
+        self.assertIn("Finish README", json.loads(daily.suggested_tasks_json)[0])
+
+    def test_knowledge_graph_answers_continue_project_from_connected_context(self):
+        account = ConnectedAccount(provider="google", email="me@example.com", label="Main")
+        life = LifeItem(
+            source_key="manual:flightiq",
+            title="FlightIQ",
+            description="Hackathon flight intelligence dashboard.",
+            category="hackathon",
+            priority="high",
+            status="open",
+            repository="https://github.com/anura/flightiq",
+            next_action="Record demo video",
+            tags_json=json.dumps(["FlightIQ", "Amazon"]),
+        )
+        repo = GitHubRepository(
+            repo_full_name="anura/flightiq",
+            html_url="https://github.com/anura/flightiq",
+            life_item=life,
+            current_sprint="Demo milestone: finish charts and submit video",
+            remaining_work="Open issues: add repo notes; export dashboard",
+            recent_progress="Recent commits: 2026-07-10 polish dashboard | 2026-07-09 add repo notes",
+            suggested_next_task="Record demo video and close issue #4",
+            completion_percentage=72,
+            commits_json=json.dumps(
+                [
+                    {"sha": "abc123", "message": "polish dashboard", "date": "2026-07-10T10:00:00Z"},
+                    {"sha": "def456", "message": "add repo notes", "date": "2026-07-09T10:00:00Z"},
+                ]
+            ),
+            issues_json=json.dumps([{"number": 4, "title": "Add repo notes", "state": "open"}]),
+            pull_requests_json=json.dumps([]),
+        )
+        email = EmailMessage(
+            account=account,
+            provider_message_id="flightiq-email",
+            sender='"Riya Sharma" <riya@amazon.com>',
+            subject="FlightIQ hackathon deadline and meeting",
+            snippet="Please submit FlightIQ by Friday and join the review call.",
+            body_text="Amazon needs FlightIQ by Friday. Riya will join the meeting.",
+            labels_json=json.dumps(["INBOX", "IMPORTANT"]),
+            sent_at=datetime(2026, 7, 10, 9, 0),
+        )
+        db.session.add_all([account, life, repo, email])
+        db.session.flush()
+        hackathon = Opportunity(
+            kind="hackathon",
+            title="FlightIQ Challenge",
+            organization="Build Club",
+            status="Tracked",
+            source="https://devpost.example/flightiq",
+            deadline=datetime(2026, 7, 13, 17),
+            notes="Submit FlightIQ demo and final repository.",
+        )
+        insight = EmailInsight(
+            email=email,
+            life_item=life,
+            priority="high",
+            urgency="urgent",
+            category="hackathon",
+            summary="Amazon asked for FlightIQ submission by Friday.",
+            action_items_json=json.dumps(["Submit FlightIQ"]),
+            deadlines_json=json.dumps(["by Friday"]),
+            meetings_json=json.dumps(["FlightIQ review call"]),
+            projects_json=json.dumps(["FlightIQ"]),
+            people_json=json.dumps(["Riya Sharma"]),
+            companies_json=json.dumps(["Amazon"]),
+            suggested_actions_json=json.dumps(["Submit demo"]),
+        )
+        learning = LearningItem(
+            life_item=life,
+            item_type="video",
+            title="RAG dashboard video for FlightIQ",
+            project="FlightIQ",
+            completion=0.5,
+            notes="Need to revise chart explanations.",
+            weak_topics_json=json.dumps(["dashboard storytelling"]),
+            projects_json=json.dumps(["FlightIQ"]),
+        )
+        meeting = PlanningEvent(
+            source_key="calendar:flightiq-review",
+            event_type="meeting",
+            source="calendar",
+            title="FlightIQ review meeting",
+            project="FlightIQ",
+            deadline=datetime(2026, 7, 12, 17),
+            planned_start=datetime(2026, 7, 12, 11),
+            planned_minutes=45,
+            status="planned",
+            work_left="Prepare review notes.",
+        )
+        project_memory = MemoryEntity(
+            entity_type="project",
+            name="FlightIQ",
+            slug="project-flightiq",
+            summary="FlightIQ hackathon project with dashboard and demo.",
+        )
+        goal = MemoryEntity(entity_type="goal", name="Ship FlightIQ", slug="goal-ship-flightiq", summary="Submit FlightIQ demo.")
+        db.session.add_all([hackathon, insight, learning, meeting, project_memory, goal])
+        db.session.flush()
+        checkpoint = WorkCheckpoint(
+            project=project_memory,
+            summary="Charts are working.",
+            active_tasks_json=json.dumps(["Record demo video"]),
+            next_actions_json=json.dumps(["Submit final link"]),
+            notes="Latest note: dashboard polish is done.",
+        )
+        fact = MemoryFact(entity=project_memory, fact_type="note", content="FlightIQ notes: demo script needs cleanup.", source="manual")
+        plan = GoalPlan(goal=goal, title="FlightIQ final sprint", cadence="daily", status="active", strategy="Finish demo then submit.")
+        task = PlanTask(plan=plan, title="Submit FlightIQ milestone", status="in_progress", suggested_next="Upload demo video")
+        db.session.add_all([checkpoint, fact, plan, task])
+        db.session.flush()
+        db.session.add(LifeItemRelation(source_item=life, target_item=life, relation_type="self_skip"))  # ignored by graph edge guard
+        db.session.commit()
+
+        graph = build_knowledge_graph()
+        result = query_knowledge_graph("Continue FlightIQ")
+        answer = result["answer"]
+
+        self.assertGreaterEqual(len(graph["nodes"]), 10)
+        self.assertTrue(any(node["kind"] == "repository" and node["title"] == "anura/flightiq" for node in result["nodes"]))
+        self.assertTrue(any(node["kind"] == "hackathon" and node["title"] == "FlightIQ Challenge" for node in result["nodes"]))
+        self.assertIn("polish dashboard", answer["latest_commits"][0]["message"])
+        self.assertIn("Demo milestone", answer["current_milestone"])
+        self.assertTrue(any("FlightIQ hackathon deadline" in item["title"] for item in answer["emails"]))
+        self.assertTrue(any("demo script" in item["data"].get("content", "") or "dashboard polish" in item["data"].get("notes", "") for item in answer["notes"]))
+        self.assertTrue(any(item["deadline"] for item in answer["deadlines"]))
+        self.assertTrue(any("RAG dashboard video" in item["title"] for item in answer["related_learning"]))
+        self.assertTrue(any("FlightIQ review meeting" in item["title"] for item in answer["meetings"]))
+        self.assertTrue(any("Riya Sharma" == item["title"] for item in answer["people"]))
+        self.assertTrue(any("Amazon" == item["title"] for item in answer["companies"]))
+        self.assertIn("Record demo video", answer["next_action"])
+
+        response = self.client.get(
+            "/api/knowledge-graph/query",
+            headers={"X-AiOS-Token": "local-test-token"},
+            query_string={"q": "Continue FlightIQ"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["ok"])
+        self.assertIn("latest_commits", response.get_json()["answer"])
 
     def test_email_sync_interval_is_configurable_with_safe_floor(self):
         set_setting("EMAIL_SYNC_INTERVAL_MINUTES", "1")
