@@ -229,6 +229,7 @@ def connect_planning(graph, life_nodes):
             project=event.project,
             deadline=event.deadline.isoformat() if event.deadline else None,
             planned_start=event.planned_start.isoformat() if event.planned_start else None,
+            planned_minutes=event.planned_minutes,
             status=event.status,
             priority=event.priority,
             notes=event.idea,

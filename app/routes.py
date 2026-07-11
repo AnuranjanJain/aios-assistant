@@ -49,6 +49,7 @@ from app.services.email_intelligence import (
     sync_account as sync_email_account,
     update_account as update_email_account,
 )
+from app.services.executive_assistant import answer_executive_question, executive_briefing
 from app.services.hackathons import ingest_hackathon_signal, serialize_hackathon
 from app.services.goal_planner import (
     create_goal_plan,
@@ -1577,6 +1578,20 @@ def api_analytics():
     if period:
         return jsonify({"ok": True, "report": analytics_report(period, anchor)})
     return jsonify(analytics_overview(anchor))
+
+
+@bp.get("/api/executive-assistant")
+def api_executive_assistant_briefing():
+    return jsonify(executive_briefing(get_effective_config(current_app.config)))
+
+
+@bp.post("/api/executive-assistant")
+def api_executive_assistant_answer():
+    payload = request.get_json(silent=True) or {}
+    question = (payload.get("question") or "").strip()
+    if not question:
+        return jsonify({"ok": False, "error": "Question is required."}), 400
+    return jsonify(answer_executive_question(question, get_effective_config(current_app.config)))
 
 
 @bp.get("/api/notifications")
