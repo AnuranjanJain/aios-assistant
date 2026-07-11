@@ -1,8 +1,9 @@
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from app.models import DailyAssistantEntry, PlanningEvent, db
 from app.services.planning_events import planning_board, update_event_progress
+from app.services.planning_engine import PlanningEngine
 
 
 EVENING_QUESTIONS = [
@@ -12,6 +13,9 @@ EVENING_QUESTIONS = [
     "Need to move deadlines?",
     "Need to modify priorities?",
 ]
+
+MORNING_BRIEFING_AT = time(6, 0)
+EVENING_CHECKIN_AT = time(18, 0)
 
 
 def _dump(value):
@@ -34,7 +38,7 @@ def _json(value, fallback=None):
 def generate_morning_briefing(target_date=None):
     target_date = parse_date(target_date) or date.today()
     board = planning_board()
-    blocks = board["plan_blocks"]["today"] or board["agenda"]["today"] or board["plan_blocks"]["week"][:5]
+    blocks = plan_blocks_for_date(target_date)
     schedule = [normalize_schedule_item(item) for item in blocks]
     explanations = [explain_selection(item) for item in schedule]
     risks = identify_risks(board, schedule, target_date)
@@ -52,6 +56,38 @@ def generate_morning_briefing(target_date=None):
     db.session.add(entry)
     db.session.commit()
     return serialize_entry(entry)
+
+
+def plan_blocks_for_date(target_date):
+    events = PlanningEvent.query.order_by(
+        PlanningEvent.status.asc(),
+        PlanningEvent.deadline.is_(None),
+        PlanningEvent.deadline.asc(),
+        PlanningEvent.planned_start.asc(),
+    ).limit(120).all()
+    blocks = PlanningEngine(events, lambda event: _json(event.metadata_json, {}), today=target_date).build()
+    return blocks["today"] or blocks["week"][:5]
+
+
+def run_daily_assistant_cycle(now=None):
+    now = parse_datetime(now) or datetime.utcnow()
+    result = {"ok": True, "date": now.date().isoformat(), "created": []}
+    if now.time() >= MORNING_BRIEFING_AT and not assistant_entry_exists(now.date(), "morning"):
+        result["morning"] = generate_morning_briefing(now.date())
+        result["created"].append("morning")
+    if now.time() >= EVENING_CHECKIN_AT and not assistant_entry_exists(now.date(), "evening_prompt"):
+        result["evening"] = evening_checkin_prompt(now.date())
+        result["created"].append("evening_prompt")
+    return result
+
+
+def assistant_entry_exists(target_date, kind):
+    return (
+        DailyAssistantEntry.query.filter_by(entry_date=target_date, kind=kind)
+        .order_by(DailyAssistantEntry.created_at.desc())
+        .first()
+        is not None
+    )
 
 
 def evening_checkin_prompt(target_date=None):

@@ -41,7 +41,12 @@ from app.services.email_intelligence import (
 )
 from app.services.github_intelligence import update_all_repositories, update_repository
 from app.services.learning_intelligence import evening_questions, learning_summary, record_learning_progress, upsert_learning_item
-from app.services.daily_assistant import generate_morning_briefing, evening_checkin_prompt, submit_evening_checkin
+from app.services.daily_assistant import (
+    evening_checkin_prompt,
+    generate_morning_briefing,
+    run_daily_assistant_cycle,
+    submit_evening_checkin,
+)
 from app.services.knowledge_graph import build_knowledge_graph, query_knowledge_graph
 from app.services.planning_events import create_manual_event, planning_board, update_event_progress
 from app.services.readiness import readiness_summary
@@ -704,6 +709,40 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(entries[-1].kind, "evening_response")
         self.assertIn("Finished planner shell", entries[-1].responses_json)
         self.assertTrue(response["next_morning"]["schedule"])
+        self.assertTrue(
+            all(
+                datetime.fromisoformat(item["start"]).date() == tomorrow
+                for item in response["next_morning"]["schedule"]
+            )
+        )
+
+    def test_daily_assistant_cycle_runs_once_per_morning_and_evening(self):
+        today = date.today()
+        db.session.add(
+            PlanningEvent(
+                source_key="manual:assistant-cycle",
+                event_type="goal",
+                source="manual",
+                title="Cycle assistant task",
+                planned_start=datetime.combine(today, time(9)),
+                planned_minutes=45,
+                priority="normal",
+                status="planned",
+            )
+        )
+        db.session.commit()
+
+        morning = run_daily_assistant_cycle(datetime.combine(today, time(8)))
+        morning_again = run_daily_assistant_cycle(datetime.combine(today, time(9)))
+        evening = run_daily_assistant_cycle(datetime.combine(today, time(19)))
+        evening_again = run_daily_assistant_cycle(datetime.combine(today, time(20)))
+
+        self.assertEqual(morning["created"], ["morning"])
+        self.assertEqual(morning_again["created"], [])
+        self.assertEqual(evening["created"], ["evening_prompt"])
+        self.assertEqual(evening_again["created"], [])
+        self.assertEqual(DailyAssistantEntry.query.filter_by(entry_date=today, kind="morning").count(), 1)
+        self.assertEqual(DailyAssistantEntry.query.filter_by(entry_date=today, kind="evening_prompt").count(), 1)
 
     def test_daily_assistant_api_surfaces_morning_and_evening(self):
         db.session.add(
