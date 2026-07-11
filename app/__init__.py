@@ -70,6 +70,17 @@ def apply_lightweight_migrations():
         if "updated_at" not in setting_columns:
             migrations.append("ALTER TABLE setting ADD COLUMN updated_at DATETIME")
 
+    if "email_insight" in inspector.get_table_names():
+        email_insight_columns = {column["name"] for column in inspector.get_columns("email_insight")}
+        if "life_item_id" not in email_insight_columns:
+            migrations.append("ALTER TABLE email_insight ADD COLUMN life_item_id INTEGER")
+        if "required_documents_json" not in email_insight_columns:
+            migrations.append("ALTER TABLE email_insight ADD COLUMN required_documents_json TEXT")
+        if "repositories_json" not in email_insight_columns:
+            migrations.append("ALTER TABLE email_insight ADD COLUMN repositories_json TEXT")
+        if "suggested_actions_json" not in email_insight_columns:
+            migrations.append("ALTER TABLE email_insight ADD COLUMN suggested_actions_json TEXT")
+
     for statement in migrations:
         db.session.execute(text(statement))
 

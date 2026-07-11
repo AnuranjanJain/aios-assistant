@@ -216,6 +216,8 @@ class EmailInsight(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email_id = db.Column(db.Integer, db.ForeignKey("email_message.id"), nullable=False, unique=True)
     email = db.relationship("EmailMessage", backref=db.backref("insight", uselist=False, cascade="all, delete-orphan"))
+    life_item_id = db.Column(db.Integer, db.ForeignKey("life_item.id"), nullable=True, index=True)
+    life_item = db.relationship("LifeItem", backref=db.backref("email_insights", cascade="all, delete-orphan"))
     priority = db.Column(db.String(40), nullable=False, default="normal", index=True)
     urgency = db.Column(db.String(40), nullable=False, default="normal", index=True)
     category = db.Column(db.String(80), nullable=False, default="general", index=True)
@@ -228,9 +230,141 @@ class EmailInsight(db.Model):
     projects_json = db.Column(db.Text, nullable=True)
     people_json = db.Column(db.Text, nullable=True)
     companies_json = db.Column(db.Text, nullable=True)
+    required_documents_json = db.Column(db.Text, nullable=True)
+    repositories_json = db.Column(db.Text, nullable=True)
+    suggested_actions_json = db.Column(db.Text, nullable=True)
     embedding_json = db.Column(db.Text, nullable=True)
     model = db.Column(db.String(120), nullable=True)
     confidence = db.Column(db.Float, nullable=False, default=0.0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class LifeItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    source_key = db.Column(db.String(240), nullable=False, unique=True, index=True)
+    title = db.Column(db.String(240), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    category = db.Column(db.String(80), nullable=False, default="personal", index=True)
+    priority = db.Column(db.String(40), nullable=False, default="normal", index=True)
+    status = db.Column(db.String(40), nullable=False, default="open", index=True)
+    deadline = db.Column(db.DateTime, nullable=True, index=True)
+    estimated_hours = db.Column(db.Float, nullable=True)
+    progress = db.Column(db.Float, nullable=False, default=0.0)
+    energy_level = db.Column(db.String(40), nullable=True)
+    difficulty = db.Column(db.String(40), nullable=True)
+    repository = db.Column(db.String(500), nullable=True)
+    ai_summary = db.Column(db.Text, nullable=True)
+    next_action = db.Column(db.Text, nullable=True)
+    tags_json = db.Column(db.Text, nullable=True)
+    analytics_json = db.Column(db.Text, nullable=True)
+    history_json = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class LifeItemRelation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    source_item_id = db.Column(db.Integer, db.ForeignKey("life_item.id"), nullable=False, index=True)
+    target_item_id = db.Column(db.Integer, db.ForeignKey("life_item.id"), nullable=False, index=True)
+    source_item = db.relationship("LifeItem", foreign_keys=[source_item_id], backref=db.backref("outgoing_relations", cascade="all, delete-orphan"))
+    target_item = db.relationship("LifeItem", foreign_keys=[target_item_id], backref=db.backref("incoming_relations", cascade="all, delete-orphan"))
+    relation_type = db.Column(db.String(80), nullable=False, default="related", index=True)
+    strength = db.Column(db.Float, nullable=False, default=0.5)
+    reason = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        db.UniqueConstraint("source_item_id", "target_item_id", "relation_type", name="uq_life_item_relation_pair_type"),
+    )
+
+
+class GitHubRepository(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    repo_full_name = db.Column(db.String(240), nullable=False, unique=True, index=True)
+    html_url = db.Column(db.String(500), nullable=False)
+    life_item_id = db.Column(db.Integer, db.ForeignKey("life_item.id"), nullable=True, index=True)
+    life_item = db.relationship("LifeItem", backref=db.backref("github_repositories", cascade="all, delete-orphan"))
+    description = db.Column(db.Text, nullable=True)
+    default_branch = db.Column(db.String(120), nullable=True)
+    primary_language = db.Column(db.String(120), nullable=True)
+    is_private = db.Column(db.Boolean, nullable=False, default=False)
+    is_archived = db.Column(db.Boolean, nullable=False, default=False)
+    pushed_at = db.Column(db.DateTime, nullable=True, index=True)
+    last_synced_at = db.Column(db.DateTime, nullable=True, index=True)
+    inactive = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    completion_percentage = db.Column(db.Integer, nullable=False, default=0)
+    current_sprint = db.Column(db.Text, nullable=True)
+    remaining_work = db.Column(db.Text, nullable=True)
+    recent_progress = db.Column(db.Text, nullable=True)
+    suggested_next_task = db.Column(db.Text, nullable=True)
+    commits_json = db.Column(db.Text, nullable=True)
+    pull_requests_json = db.Column(db.Text, nullable=True)
+    issues_json = db.Column(db.Text, nullable=True)
+    branches_json = db.Column(db.Text, nullable=True)
+    releases_json = db.Column(db.Text, nullable=True)
+    discussions_json = db.Column(db.Text, nullable=True)
+    workflows_json = db.Column(db.Text, nullable=True)
+    contributors_json = db.Column(db.Text, nullable=True)
+    raw_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class GitHubDailySummary(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    summary_date = db.Column(db.Date, nullable=False, unique=True, index=True)
+    summary = db.Column(db.Text, nullable=False)
+    repo_count = db.Column(db.Integer, nullable=False, default=0)
+    inactive_count = db.Column(db.Integer, nullable=False, default=0)
+    suggested_tasks_json = db.Column(db.Text, nullable=True)
+    repositories_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class LearningItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    life_item_id = db.Column(db.Integer, db.ForeignKey("life_item.id"), nullable=True, index=True)
+    life_item = db.relationship("LifeItem", backref=db.backref("learning_items", cascade="all, delete-orphan"))
+    item_type = db.Column(db.String(40), nullable=False, default="course", index=True)
+    title = db.Column(db.String(240), nullable=False)
+    source_url = db.Column(db.String(500), nullable=True)
+    project = db.Column(db.String(180), nullable=True, index=True)
+    status = db.Column(db.String(40), nullable=False, default="not_started", index=True)
+    completion = db.Column(db.Float, nullable=False, default=0.0)
+    notes = db.Column(db.Text, nullable=True)
+    revision_json = db.Column(db.Text, nullable=True)
+    quiz_json = db.Column(db.Text, nullable=True)
+    weak_topics_json = db.Column(db.Text, nullable=True)
+    projects_json = db.Column(db.Text, nullable=True)
+    scheduled_at = db.Column(db.DateTime, nullable=True, index=True)
+    deadline = db.Column(db.DateTime, nullable=True, index=True)
+    estimated_minutes = db.Column(db.Integer, nullable=False, default=45)
+    last_reviewed_at = db.Column(db.DateTime, nullable=True)
+    next_revision_at = db.Column(db.DateTime, nullable=True, index=True)
+    evening_prompt_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -287,6 +421,21 @@ class DailyPlan(db.Model):
         onupdate=datetime.utcnow,
         nullable=False,
     )
+
+
+class DailyAssistantEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    entry_date = db.Column(db.Date, nullable=False, index=True)
+    kind = db.Column(db.String(40), nullable=False, index=True)
+    summary = db.Column(db.Text, nullable=True)
+    schedule_json = db.Column(db.Text, nullable=True)
+    explanations_json = db.Column(db.Text, nullable=True)
+    risks_json = db.Column(db.Text, nullable=True)
+    questions_json = db.Column(db.Text, nullable=True)
+    responses_json = db.Column(db.Text, nullable=True)
+    replans_json = db.Column(db.Text, nullable=True)
+    estimated_hours = db.Column(db.Float, nullable=False, default=0.0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class WeeklyPlan(db.Model):
