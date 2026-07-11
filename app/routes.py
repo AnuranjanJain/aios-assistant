@@ -35,6 +35,7 @@ from app.services.connectors import (
 )
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
+from app.services.daily_assistant import evening_checkin_prompt, generate_morning_briefing, submit_evening_checkin
 from app.services.email_intelligence import (
     connect_google_account,
     generate_daily_plan as generate_email_daily_plan,
@@ -56,6 +57,7 @@ from app.services.goal_planner import (
     serialize_task,
     update_task,
 )
+from app.services.knowledge_graph import build_knowledge_graph, query_knowledge_graph
 from app.services.memory_engine import (
     answer_memory_question,
     memory_graph,
@@ -1521,6 +1523,24 @@ def api_intelligence_daily_plan():
     return jsonify({"ok": True, "plan": generate_email_daily_plan()})
 
 
+@bp.post("/api/intelligence/morning")
+def api_intelligence_morning():
+    payload = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, "assistant": generate_morning_briefing(payload.get("date"))})
+
+
+@bp.get("/api/intelligence/evening")
+def api_intelligence_evening_prompt():
+    return jsonify({"ok": True, "assistant": evening_checkin_prompt(request.args.get("date"))})
+
+
+@bp.post("/api/intelligence/evening")
+def api_intelligence_evening_submit():
+    payload = request.get_json(silent=True) or {}
+    result = submit_evening_checkin(payload)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
 @bp.post("/api/intelligence/weekly-plan")
 def api_intelligence_weekly_plan():
     return jsonify({"ok": True, "plan": generate_email_weekly_plan()})
@@ -1532,6 +1552,20 @@ def api_intelligence_search():
     if not query:
         return jsonify({"ok": False, "error": "Query is required."}), 400
     return jsonify({"ok": True, "query": query, "results": email_semantic_search(query)})
+
+
+@bp.get("/api/knowledge-graph")
+def api_knowledge_graph():
+    graph = build_knowledge_graph()
+    return jsonify({"ok": True, "nodes": list(graph["nodes"].values()), "edges": graph["edges"]})
+
+
+@bp.get("/api/knowledge-graph/query")
+def api_knowledge_graph_query():
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"ok": False, "error": "Query is required."}), 400
+    return jsonify({"ok": True, **query_knowledge_graph(query)})
 
 
 @bp.get("/api/planning-events")
