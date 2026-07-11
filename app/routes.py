@@ -21,6 +21,7 @@ from app.models import (
 )
 from app.services.agent_ingest import ingest_message as ingest_agent_message
 from app.services.ai_classifier import get_classifier
+from app.services.analytics import analytics_overview, analytics_report
 from app.services.automation import automation_overview, get_automation_engine
 from app.services.browser_automation import browser_agent_overview, get_browser_agent
 from app.services.career import career_overview, get_career_engine
@@ -72,6 +73,7 @@ from app.services.memory_engine import (
     serialize_relation,
     upsert_entity,
 )
+from app.services.notifications import notification_center, reschedule_notification, snooze_notification
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
 from app.services.planning_events import (
@@ -1566,6 +1568,40 @@ def api_knowledge_graph_query():
     if not query:
         return jsonify({"ok": False, "error": "Query is required."}), 400
     return jsonify({"ok": True, **query_knowledge_graph(query)})
+
+
+@bp.get("/api/analytics")
+def api_analytics():
+    period = request.args.get("period", "").strip()
+    anchor = request.args.get("date", "").strip()
+    if period:
+        return jsonify({"ok": True, "report": analytics_report(period, anchor)})
+    return jsonify(analytics_overview(anchor))
+
+
+@bp.get("/api/notifications")
+def api_notifications():
+    return jsonify(notification_center(send=False))
+
+
+@bp.post("/api/notifications/scan")
+def api_notifications_scan():
+    payload = request.get_json(silent=True) or {}
+    return jsonify(notification_center(payload.get("now"), send=bool(payload.get("send"))))
+
+
+@bp.post("/api/notifications/<int:reminder_id>/snooze")
+def api_notification_snooze(reminder_id):
+    payload = request.get_json(silent=True) or {}
+    result = snooze_notification(reminder_id, payload.get("minutes") or 30)
+    return jsonify(result), 200 if result.get("ok") else 404
+
+
+@bp.post("/api/notifications/<int:reminder_id>/reschedule")
+def api_notification_reschedule(reminder_id):
+    payload = request.get_json(silent=True) or {}
+    result = reschedule_notification(reminder_id, payload.get("due_at"))
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 @bp.get("/api/planning-events")
