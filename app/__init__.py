@@ -64,6 +64,16 @@ def apply_lightweight_migrations():
         migrations.append("ALTER TABLE reminder ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT 0")
     if "notified_at" not in reminder_columns:
         migrations.append("ALTER TABLE reminder ADD COLUMN notified_at DATETIME")
+    if "notification_type" not in reminder_columns:
+        migrations.append("ALTER TABLE reminder ADD COLUMN notification_type VARCHAR(60) NOT NULL DEFAULT 'reminder'")
+    if "priority" not in reminder_columns:
+        migrations.append("ALTER TABLE reminder ADD COLUMN priority VARCHAR(40) NOT NULL DEFAULT 'normal'")
+    if "source_key" not in reminder_columns:
+        migrations.append("ALTER TABLE reminder ADD COLUMN source_key VARCHAR(240)")
+    if "snoozed_until" not in reminder_columns:
+        migrations.append("ALTER TABLE reminder ADD COLUMN snoozed_until DATETIME")
+    if "metadata_json" not in reminder_columns:
+        migrations.append("ALTER TABLE reminder ADD COLUMN metadata_json TEXT")
 
     if "setting" in inspector.get_table_names():
         setting_columns = {column["name"] for column in inspector.get_columns("setting")}

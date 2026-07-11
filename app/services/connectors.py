@@ -7,7 +7,7 @@ from pathlib import Path
 from app.models import ConnectorRun, Reminder, db
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.hackathons import detect_platform, ingest_hackathon_signal
-from app.services.notifications import send_desktop_notification
+from app.services.notifications import notification_center
 from app.services.placements import ingest_placement_signal, is_neopat_signal
 
 
@@ -231,25 +231,15 @@ class ReminderConnector(BaseConnector):
     description = "Checks open reminders and triggers desktop notifications for due items."
 
     def run(self, app_config, classifier, provider, model=None):
-        due_reminders = (
-            Reminder.query.filter(Reminder.is_done.is_(False))
-            .filter(Reminder.is_read.is_(False))
-            .order_by(Reminder.due_at.asc())
-            .limit(10)
-            .all()
-        )
-        sent = 0
-        for reminder in due_reminders:
-            if send_desktop_notification("AiOS Reminder", reminder.title):
-                sent += 1
-                reminder.is_read = True
-                reminder.notified_at = datetime.utcnow()
+        result = notification_center(send=True)
+        generated = len(result["generated"])
+        sent = result["dispatched"]["sent"]
 
         return ConnectorResult(
             connector_id=self.connector_id,
             status="ok",
-            message=f"Checked {len(due_reminders)} reminders and sent {sent} desktop notifications.",
-            records_seen=len(due_reminders),
+            message=f"Generated {generated} smart notifications and sent {sent} desktop notifications.",
+            records_seen=len(result["notifications"]),
             records_imported=sent,
         )
 

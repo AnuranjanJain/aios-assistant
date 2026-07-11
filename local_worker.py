@@ -5,8 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from app import create_app
-from app.models import Reminder, db
-from app.services.notifications import send_desktop_notification
+from app.services.notifications import notification_center
 
 
 STATE_PATH = Path(os.getenv("AIOS_WORKER_STATE_PATH", ".aios_worker_state.json"))
@@ -29,32 +28,10 @@ def save_state(state):
 
 
 def check_reminders(app, state):
-    notified = set(state.get("notified_reminders", []))
     now = datetime.utcnow()
-    soon = now + timedelta(minutes=REMINDER_LOOKAHEAD_MINUTES)
 
     with app.app_context():
-        reminders = (
-            Reminder.query.filter(Reminder.is_done.is_(False))
-            .filter(Reminder.is_read.is_(False))
-            .filter(Reminder.due_at <= soon)
-            .order_by(Reminder.due_at.asc())
-            .all()
-        )
-
-        for reminder in reminders:
-            key = str(reminder.id)
-            if key in notified:
-                continue
-
-            send_desktop_notification("AiOS Reminder", reminder.title)
-            reminder.notified_at = datetime.utcnow()
-            reminder.is_read = True
-            notified.add(key)
-
-        db.session.commit()
-
-    state["notified_reminders"] = sorted(notified)
+        state["last_result"] = notification_center(now + timedelta(minutes=REMINDER_LOOKAHEAD_MINUTES), send=True)
 
 
 def main():
