@@ -11,32 +11,32 @@
     </a>
 
     <nav class="menu" aria-label="Dashboard navigation">
-      <a class="{{ 'active' if request.path == '/' and request.args.get('tab', 'overview') == 'overview' else '' }}" href="{{ url_for('main.dashboard') }}?tab=overview">{{ icon("overview") }}<span class="nav-label">Overview</span></a>
-      <a class="{{ 'active' if request.args.get('tab') == 'opportunities' else '' }}" href="{{ url_for('main.dashboard') }}?tab=opportunities">{{ icon("briefcase") }}<span class="nav-label">Opportunities</span></a>
-      <a class="{{ 'active' if request.args.get('tab') == 'reminders' else '' }}" href="{{ url_for('main.dashboard') }}?tab=reminders">{{ icon("bell") }}<span class="nav-label">Reminders</span></a>
-      <a class="{{ 'active' if request.args.get('tab') == 'inbox' else '' }}" href="{{ url_for('main.dashboard') }}?tab=inbox">{{ icon("mail") }}<span class="nav-label">Inbox AI</span></a>
-      <a class="{{ 'active' if request.path == '/wellbeing' else '' }}" href="{{ url_for('main.wellbeing_workspace') }}">{{ icon("heart") }}<span class="nav-label">Wellbeing</span></a>
-      <a class="{{ 'active' if request.path == '/memory' else '' }}" href="{{ url_for('main.memory_workspace') }}">{{ icon("database") }}<span class="nav-label">Memory</span></a>
-      <a class="{{ 'active' if request.path == '/planner' else '' }}" href="{{ url_for('main.planner_workspace') }}">{{ icon("calendar") }}<span class="nav-label">Planner</span></a>
-      <a class="{{ 'active' if request.path == '/planning-events' else '' }}" href="{{ url_for('main.planning_events_workspace') }}">{{ icon("calendar") }}<span class="nav-label">Command Planner</span></a>
-      <a class="{{ 'active' if request.path == '/automation' else '' }}" href="{{ url_for('main.automation_workspace') }}">{{ icon("terminal") }}<span class="nav-label">Automation</span></a>
-      <a class="{{ 'active' if request.path == '/browser-agent' else '' }}" href="{{ url_for('main.browser_agent_workspace') }}">{{ icon("globe") }}<span class="nav-label">Browser Agent</span></a>
-      <a class="{{ 'active' if request.path == '/career' else '' }}" href="{{ url_for('main.career_workspace') }}">{{ icon("career") }}<span class="nav-label">Career Copilot</span></a>
-      <a class="{{ 'active' if request.path == '/sources' else '' }}" href="{{ url_for('main.sources') }}">{{ icon("plug") }}<span class="nav-label">Sources</span></a>
-      <a class="{{ 'active' if request.path == '/connectors' else '' }}" href="{{ url_for('main.connectors') }}">{{ icon("link") }}<span class="nav-label">Connectors</span></a>
-      <a class="{{ 'active' if request.path == '/workers' else '' }}" href="{{ url_for('main.workers') }}">{{ icon("cpu") }}<span class="nav-label">Workers</span></a>
-      <a class="{{ 'active' if request.path == '/settings' else '' }}" href="{{ url_for('main.settings') }}">{{ icon("sliders") }}<span class="nav-label">Settings</span></a>
+      <a class="{{ 'active' if request.path == '/' and request.args.get('tab', 'overview') == 'overview' else '' }}" href="{{ url_for('main.dashboard') }}?tab=overview" title="Overview">{{ icon("overview") }}<span class="nav-label">Overview</span></a>
+      <a class="{{ 'active' if request.args.get('tab') == 'opportunities' else '' }}" href="{{ url_for('main.dashboard') }}?tab=opportunities" title="Opportunities">{{ icon("briefcase") }}<span class="nav-label">Opportunities</span></a>
+      <a class="{{ 'active' if request.args.get('tab') == 'reminders' else '' }}" href="{{ url_for('main.dashboard') }}?tab=reminders" title="Reminders">{{ icon("bell") }}<span class="nav-label">Reminders</span></a>
+      <a class="{{ 'active' if request.args.get('tab') == 'inbox' else '' }}" href="{{ url_for('main.dashboard') }}?tab=inbox" title="Inbox AI">{{ icon("mail") }}<span class="nav-label">Inbox AI</span></a>
+      <a class="{{ 'active' if request.path == '/wellbeing' else '' }}" href="{{ url_for('main.wellbeing_workspace') }}" title="Wellbeing">{{ icon("heart") }}<span class="nav-label">Wellbeing</span></a>
+      <a class="{{ 'active' if request.path == '/memory' else '' }}" href="{{ url_for('main.memory_workspace') }}" title="Memory">{{ icon("database") }}<span class="nav-label">Memory</span></a>
+      <a class="{{ 'active' if request.path == '/planner' else '' }}" href="{{ url_for('main.planner_workspace') }}" title="Planner">{{ icon("calendar") }}<span class="nav-label">Planner</span></a>
+      <a class="{{ 'active' if request.path == '/planning-events' else '' }}" href="{{ url_for('main.planning_events_workspace') }}" title="Command Planner">{{ icon("calendar") }}<span class="nav-label">Command Planner</span></a>
+      <a class="{{ 'active' if request.path == '/automation' else '' }}" href="{{ url_for('main.automation_workspace') }}" title="Automation">{{ icon("terminal") }}<span class="nav-label">Automation</span></a>
+      <a class="{{ 'active' if request.path == '/browser-agent' else '' }}" href="{{ url_for('main.browser_agent_workspace') }}" title="Browser Agent">{{ icon("globe") }}<span class="nav-label">Browser Agent</span></a>
+      <a class="{{ 'active' if request.path == '/career' else '' }}" href="{{ url_for('main.career_workspace') }}" title="Career Copilot">{{ icon("career") }}<span class="nav-label">Career Copilot</span></a>
+      <a class="{{ 'active' if request.path == '/sources' else '' }}" href="{{ url_for('main.sources') }}" title="Sources">{{ icon("plug") }}<span class="nav-label">Sources</span></a>
+      <a class="{{ 'active' if request.path == '/connectors' else '' }}" href="{{ url_for('main.connectors') }}" title="Connectors">{{ icon("link") }}<span class="nav-label">Connectors</span></a>
+      <a class="{{ 'active' if request.path == '/workers' else '' }}" href="{{ url_for('main.workers') }}" title="Workers">{{ icon("cpu") }}<span class="nav-label">Workers</span></a>
+      <a class="{{ 'active' if request.path == '/settings' else '' }}" href="{{ url_for('main.settings') }}" title="Settings">{{ icon("sliders") }}<span class="nav-label">Settings</span></a>
     </nav>
 
     <div class="agent-card">
       <span class="pulse"></span>
       <div>
         <strong>Live local agent</strong>
-        <small data-live-updated>Waiting for sync...</small>
+        <small data-live-updated>Local sync</small>
       </div>
     </div>
     <form method="post" action="{{ url_for('main.logout') }}">
-      <button type="submit" class="ghost-button workspace-lock-button">Lock workspace</button>
+      <button type="submit" class="ghost-button workspace-lock-button" title="Lock workspace">{{ icon("lock") }}<span>Lock workspace</span></button>
     </form>
   </aside>
 {%- endmacro %}

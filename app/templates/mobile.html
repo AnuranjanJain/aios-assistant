@@ -7,6 +7,7 @@
   <title>AiOS Mobile</title>
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='design-system.css') }}">
 </head>
 <body class="mobile-body">
   <main class="mobile-app">
@@ -14,7 +15,7 @@
       <p class="eyebrow">AiOS mobile</p>
       <h1>Anuranjan, here is today.</h1>
       <p data-live-plan-summary>{{ plan.summary }}</p>
-      <small class="live-sync" data-live-updated>Waiting for sync...</small>
+      <small class="live-sync" data-live-updated>Local sync</small>
     </header>
 
     <section id="today" class="mobile-card glass">
@@ -53,9 +54,9 @@
         <a class="mini-link" href="{{ url_for('main.connectors') }}">Connectors</a>
       </div>
       <form method="post" action="{{ url_for('main.ingest_message') }}">
-        <input name="sender" placeholder="sender@example.com">
-        <input name="subject" placeholder="Email subject" required>
-        <textarea name="body" placeholder="Paste email, job, or deadline"></textarea>
+        <label><span class="sr-only">Sender email</span><input name="sender" placeholder="sender@example.com"></label>
+        <label><span class="sr-only">Email subject</span><input name="subject" placeholder="Email subject" required></label>
+        <label><span class="sr-only">Message body</span><textarea name="body" placeholder="Paste email, job, or deadline"></textarea></label>
         <button type="submit">Classify</button>
       </form>
     </section>

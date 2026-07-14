@@ -1,20 +1,8 @@
-﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#4c1d95">
-  <title>AiOS Connectors</title>
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-  <main class="dashboard source-dashboard">
-      {{ topbar() }}
-      <section class="source-page">
+{% extends "base.html" %}
+{% block title %}AiOS Connectors{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
+  <section class="source-page">
     <section class="source-hero glass">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <p class="eyebrow">Connectors</p>
@@ -25,25 +13,21 @@
     <section class="panel glass google-connect-card">
       <div class="panel-heading">
         <div>
-          <p class="eyebrow">{{ "Connected" if google.connected else "Google account" }}</p>
-          <h2>{{ google.account or "Gmail read-only access" }}</h2>
+          <p class="eyebrow">{{ "Connected" if google.connected else "Google accounts" }}</p>
+          <h2>{{ google.account_count }} Gmail {{ "account" if google.account_count == 1 else "accounts" }}</h2>
         </div>
         <span class="worker-dot {{ 'on' if google.connected else '' }}"></span>
       </div>
       <p class="source-note">{{ google.message }}</p>
-      <p class="source-note">AiOS reads matching opportunity messages only. The OAuth token remains on this device.</p>
+      <p class="source-note">AiOS requests read-only Gmail access. Tokens and synchronized content remain encrypted or stored locally on this device.</p>
       <div class="worker-actions">
         {% if google.connected %}
           <form method="post" action="{{ url_for('main.run_connector_route', connector_id='gmail') }}">
             <button type="submit">Scan Gmail now</button>
           </form>
-          <form method="post" action="{{ url_for('main.disconnect_google_route') }}">
-            <button type="submit" class="ghost-button">Disconnect</button>
-          </form>
+          <a class="button-ghost" href="{{ url_for('main.settings') }}#connected-accounts">Manage accounts</a>
         {% else %}
-          <form method="post" action="{{ url_for('main.connect_google_route') }}">
-            <button type="submit" {% if not google.credentials_ready %}disabled{% endif %}>Connect Google</button>
-          </form>
+          <a class="button-primary" href="{{ url_for('main.settings') }}#connected-accounts">Set up Gmail</a>
         {% endif %}
       </div>
     </section>
@@ -56,7 +40,7 @@
       </section>
     {% endif %}
 
-    <section class="source-grid">
+    <section id="connector-list" class="source-grid">
       {% for connector in connectors %}
         <article class="panel glass">
           <div class="panel-heading">
@@ -98,8 +82,4 @@
       </div>
     </section>
   </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% endblock %}

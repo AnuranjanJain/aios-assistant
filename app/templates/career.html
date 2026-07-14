@@ -1,19 +1,8 @@
-﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101510">
-  <title>AiOS Career Copilot</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-  <main class="dashboard source-dashboard">
-      {{ topbar() }}
-      <section class="source-page career-page">
+{% extends "base.html" %}
+{% block title %}AiOS Career Copilot{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
+  <section class="source-page career-page">
     <section class="source-hero glass career-hero">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <div class="career-hero-grid">
@@ -39,7 +28,7 @@
       <article class="stat-card"><span>Strong matches</span><strong>{{ counts.strong_matches }}</strong><small>70 percent or above</small></article>
     </section>
 
-    <section class="career-grid">
+    <section id="career-tools" class="career-grid">
       <article class="panel glass career-card">
         <p class="eyebrow">GitHub Analyzer</p>
         <h2>Analyze repository</h2>
@@ -186,8 +175,4 @@
       <code>vector_index={{ capabilities.vector_index }}</code>
     </section>
   </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% endblock %}

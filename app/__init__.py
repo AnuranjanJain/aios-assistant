@@ -2,7 +2,7 @@ import os
 import secrets
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, render_template, request
 from sqlalchemy import text
 
 from config import Config
@@ -18,6 +18,7 @@ def create_app(config_class=Config):
 
     db.init_app(app)
     app.register_blueprint(bp)
+    register_error_pages(app)
 
     with app.app_context():
         if str(app.config.get("SQLALCHEMY_DATABASE_URI", "")).startswith("sqlite"):
@@ -29,6 +30,40 @@ def create_app(config_class=Config):
         ensure_memory_user(app.config.get("USER_DISPLAY_NAME", "Local User"))
 
     return app
+
+
+def register_error_pages(app):
+    def render_error(status_code, title, explanation, suggested_fix):
+        return (
+            render_template(
+                "error.html",
+                status_code=status_code,
+                title=title,
+                explanation=explanation,
+                suggested_fix=suggested_fix,
+                technical_details=f"HTTP {status_code} | {request.method} {request.path}",
+            ),
+            status_code,
+        )
+
+    app.register_error_handler(
+        404,
+        lambda _error: render_error(
+            404,
+            "This page is not here",
+            "The link may be outdated, or the page may have moved.",
+            "Return to the dashboard or go back to the last working screen.",
+        ),
+    )
+    app.register_error_handler(
+        500,
+        lambda _error: render_error(
+            500,
+            "AiOS could not finish that",
+            "Your local data is still on this device, but this screen failed to load.",
+            "Try again once. If it repeats, copy the error details and report the issue.",
+        ),
+    )
 
 
 def configure_secret_key(app):

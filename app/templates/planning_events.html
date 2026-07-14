@@ -1,19 +1,8 @@
-{% from "_desktop_shell.html" import sidebar, topbar with context %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101510">
-  <title>AiOS Command Planner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-    <main class="dashboard source-dashboard">
-      {{ topbar() }}
-      <section class="source-page planner-page">
+{% extends "base.html" %}
+{% block title %}AiOS Command Planner{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
+  <section class="source-page planner-page">
         <section class="source-hero glass planner-hero">
           <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
           <p class="eyebrow">Command planner</p>
@@ -57,7 +46,7 @@
               <h2>Add repo, GenAI video, monthly goal, or manual event</h2>
             </div>
           </div>
-          <form class="settings-form planning-event-create" method="post" action="{{ url_for('main.create_planning_event_route') }}">
+          <form id="quick-add" class="settings-form planning-event-create" method="post" action="{{ url_for('main.create_planning_event_route') }}">
             <label><span>Type</span>
               <select name="event_type">
                 <option value="manual">Manual</option>
@@ -142,20 +131,21 @@
               </p>
             </div>
           </div>
-          <div class="planning-table-wrap">
+          <div class="planning-table-wrap" role="region" aria-label="Planning events table" tabindex="0">
             <table class="planning-table">
+              <caption class="sr-only">Planning events with source, project, deadline, progress, repository, next question, and status controls.</caption>
               <thead>
                 <tr>
-                  <th>Event</th>
-                  <th>Source</th>
-                  <th>Project</th>
-                  <th>Deadline</th>
-                  <th>Plan</th>
-                  <th>Work done</th>
-                  <th>Work left / notes</th>
-                  <th>Repo / latest</th>
-                  <th>Next question</th>
-                  <th>Status</th>
+                  <th scope="col">Event</th>
+                  <th scope="col">Source</th>
+                  <th scope="col">Project</th>
+                  <th scope="col">Deadline</th>
+                  <th scope="col">Plan</th>
+                  <th scope="col">Work done</th>
+                  <th scope="col">Work left / notes</th>
+                  <th scope="col">Repo / latest</th>
+                  <th scope="col">Next question</th>
+                  <th scope="col">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -217,9 +207,5 @@
             {% endfor %}
           </div>
         </section>
-      </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+  </section>
+{% endblock %}

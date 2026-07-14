@@ -1,0 +1,40 @@
+{% from "_icons.html" import icon %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b09">
+  <title>{{ status_code }} - AiOS Assistant</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='design-system.css') }}">
+</head>
+<body class="error-page-body">
+  <main class="error-page" aria-labelledby="error-title">
+    <section class="error-state">
+      <span class="error-state-icon" aria-hidden="true">{{ icon("warning") }}</span>
+      <p class="eyebrow">Error {{ status_code }}</p>
+      <h1 id="error-title">{{ title }}</h1>
+      <p class="error-state-copy">{{ explanation }}</p>
+      <div class="error-suggestion">
+        <strong>Suggested fix</strong>
+        <p>{{ suggested_fix }}</p>
+      </div>
+      <div class="error-actions">
+        <button type="button" data-error-retry>Retry</button>
+        <button type="button" class="ghost-button" data-error-back>Go Back</button>
+        <a class="secondary-action link-action" href="{{ url_for('main.dashboard') }}">Dashboard</a>
+      </div>
+      <details class="error-details">
+        <summary>Technical details</summary>
+        <code data-error-details>{{ technical_details }}</code>
+        <div class="error-detail-actions">
+          <button type="button" class="ghost-button" data-copy-error>Copy Error</button>
+          <a class="secondary-action link-action" href="https://github.com/AnuranjanJain/aios-assistant/issues" target="_blank" rel="noreferrer">Report Issue</a>
+        </div>
+      </details>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

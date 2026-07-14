@@ -1,20 +1,8 @@
-﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
+{% extends "base.html" %}
 {% from "_icons.html" import icon %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101510">
-  <title>AiOS Profile</title>
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-  <main class="dashboard source-dashboard">
-      {{ topbar() }}
+{% block title %}AiOS Profile{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
       <section class="source-page profile-page">
     <section class="source-hero glass">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
@@ -34,7 +22,7 @@
     <section class="profile-grid">
       <article class="panel glass profile-preview">
         <div class="profile-photo-large">
-          <img src="{{ profile.photo_url }}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
+          <img src="{{ profile.photo_url }}" alt="{{ profile.display_name }} profile photo" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
           <span hidden>{{ profile.initials }}</span>
         </div>
         <div>
@@ -75,8 +63,4 @@
       </article>
     </section>
   </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% endblock %}

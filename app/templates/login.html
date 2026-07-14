@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#4c1d95">
+  <meta name="theme-color" content="#090b09">
   <title>Unlock AiOS</title>
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='design-system.css') }}">
 </head>
 <body>
   <main class="auth-page">
@@ -22,10 +23,11 @@
       {% endif %}
       <form class="settings-form" method="post" action="{{ url_for('main.unlock') }}">
         <input type="hidden" name="next" value="{{ next_url }}">
-        <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" required>
+        <label><span>PIN</span><input name="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="4 to 12 digits" required></label>
         <button type="submit">{{ "Unlock" if has_pin else "Set PIN" }}</button>
       </form>
     </section>
   </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

@@ -1,19 +1,8 @@
-﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101510">
-  <title>AiOS Browser Agent</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-  <main class="dashboard source-dashboard">
-      {{ topbar() }}
-      <section class="source-page browser-agent-page">
+{% extends "base.html" %}
+{% block title %}AiOS Browser Agent{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
+  <section class="source-page browser-agent-page">
     <section class="source-hero glass browser-agent-hero">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <div class="browser-agent-hero-grid">
@@ -29,7 +18,7 @@
         </div>
       </div>
 
-      <form class="browser-agent-command" method="post" action="{{ url_for('main.create_browser_plan') }}">
+      <form id="browser-command" class="browser-agent-command" method="post" action="{{ url_for('main.create_browser_plan') }}">
         <label class="browser-agent-prompt">
           <span>Browser request</span>
           <textarea name="request" required placeholder="Find remote Python internships"></textarea>
@@ -141,8 +130,4 @@
       <h3>Local database</h3><code>{{ capabilities.database }}</code>
     </section>
   </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% endblock %}

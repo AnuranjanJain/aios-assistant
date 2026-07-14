@@ -1,25 +1,14 @@
-﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101510">
-  <title>AiOS Goal Planner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-  <main class="dashboard source-dashboard">
-      {{ topbar() }}
-      <section class="source-page planner-page">
+{% extends "base.html" %}
+{% block title %}AiOS Goal Planner{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
+  <section class="source-page planner-page">
     <section class="source-hero glass planner-hero">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <p class="eyebrow">Adaptive AI goal planner</p>
       <h1>Turn intention into motion.</h1>
       <p>Create daily, weekly, or monthly roadmaps that adapt as work is completed.</p>
-      <form class="planner-create" method="post" action="{{ url_for('main.create_planner_goal') }}">
+      <form id="planner-create" class="planner-create" method="post" action="{{ url_for('main.create_planner_goal') }}">
         <label><span>Goal</span><input name="goal" required placeholder="I want to learn Operating Systems"></label>
         <label><span>Planning cadence</span>
           <select name="cadence">
@@ -83,9 +72,9 @@
                     <details>
                       <summary>Log work session</summary>
                       <form class="planner-session-form" method="post" action="{{ url_for('main.create_planner_session', task_id=task.id) }}">
-                        <input name="duration_minutes" type="number" min="1" placeholder="Minutes">
-                        <input name="resources" placeholder="Resources used">
-                        <textarea name="summary" placeholder="What did you learn or complete?"></textarea>
+                        <label><span class="sr-only">Session duration in minutes</span><input name="duration_minutes" type="number" min="1" placeholder="Minutes"></label>
+                        <label><span class="sr-only">Resources used</span><input name="resources" placeholder="Resources used"></label>
+                        <label><span class="sr-only">Session summary</span><textarea name="summary" placeholder="What did you learn or complete?"></textarea></label>
                         <label><input type="checkbox" name="completed" value="1"> Mark completed</label>
                         <button type="submit">Save Session</button>
                       </form>
@@ -101,8 +90,4 @@
       {% endfor %}
     </section>
   </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% endblock %}

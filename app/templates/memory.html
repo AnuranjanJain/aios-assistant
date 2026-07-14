@@ -1,27 +1,15 @@
-﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#4c1d95">
-  <title>AiOS Memory</title>
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-  <main class="dashboard source-dashboard">
-      {{ topbar() }}
-      <section class="source-page memory-page">
+{% extends "base.html" %}
+{% block title %}AiOS Memory{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
+  <section class="source-page memory-page">
     <section class="source-hero glass memory-hero">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <p class="eyebrow">Persistent personal memory</p>
       <h1>Continue where you stopped.</h1>
       <p>Projects, goals, preferences, learning paths, tasks, and work checkpoints stay on this device.</p>
       <form class="memory-search" data-memory-search>
-        <input name="query" placeholder="What was I doing yesterday?" autocomplete="off">
+        <label><span class="sr-only">Ask local memory</span><input name="query" placeholder="What was I doing yesterday?" autocomplete="off"></label>
         <button type="submit">Ask Memory</button>
       </form>
       <div class="memory-answer" data-memory-answer hidden></div>
@@ -125,8 +113,4 @@
       </form>
     </section>
   </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% endblock %}

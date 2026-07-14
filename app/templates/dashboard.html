@@ -1,26 +1,12 @@
-﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#4c1d95">
-  <title>AiOS Assistant</title>
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-
-    <main class="dashboard">
-      {{ topbar() }}
+{% extends "base.html" %}
+{% block title %}AiOS Assistant{% endblock %}
+{% block content %}
 
       <nav class="dashboard-tabs" aria-label="Dashboard sections">
-        <button type="button" data-dashboard-tab="overview">Overview</button>
-        <button type="button" data-dashboard-tab="opportunities">Opportunities</button>
-        <button type="button" data-dashboard-tab="reminders">Reminders</button>
-        <button type="button" data-dashboard-tab="inbox">Inbox AI</button>
+        <button type="button" data-dashboard-tab="overview" aria-pressed="false">Overview</button>
+        <button type="button" data-dashboard-tab="opportunities" aria-pressed="false">Opportunities</button>
+        <button type="button" data-dashboard-tab="reminders" aria-pressed="false">Reminders</button>
+        <button type="button" data-dashboard-tab="inbox" aria-pressed="false">Inbox AI</button>
       </nav>
 
       <header class="hero workspace-hero" data-dashboard-tab-panel="overview">
@@ -196,9 +182,9 @@
             </div>
           </div>
           <form method="post" action="{{ url_for('main.ingest_message') }}">
-            <input name="sender" placeholder="sender@example.com">
-            <input name="subject" placeholder="Email subject" required>
-            <textarea name="body" placeholder="Paste email body"></textarea>
+            <label><span class="sr-only">Sender email</span><input name="sender" placeholder="sender@example.com"></label>
+            <label><span class="sr-only">Email subject</span><input name="subject" placeholder="Email subject" required></label>
+            <label><span class="sr-only">Email body</span><textarea name="body" placeholder="Paste email body"></textarea></label>
             <button type="submit">Classify Message</button>
           </form>
         </article>
@@ -348,8 +334,4 @@
           </div>
         </article>
       </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% endblock %}

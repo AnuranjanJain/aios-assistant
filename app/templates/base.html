@@ -1,0 +1,27 @@
+{% from "_desktop_shell.html" import sidebar, topbar with context %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b09">
+  <title>{% block title %}AiOS Assistant{% endblock %}</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='design-system.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="{% block body_class %}workspace-body{% endblock %}">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="shell workspace-shell">
+    {{ sidebar() }}
+    <main id="main-content" class="{% block main_class %}dashboard{% endblock %}" tabindex="-1">
+      {{ topbar() }}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <div class="page-loading-indicator" aria-hidden="true"></div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

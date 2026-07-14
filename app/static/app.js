@@ -36,7 +36,7 @@ async function refreshLiveDashboard() {
 
 function updateSummary(payload) {
   document.querySelectorAll("[data-live-plan-summary]").forEach((node) => {
-    node.textContent = payload.plan?.summary || node.textContent;
+    updateLiveValue(node, payload.plan?.summary || node.textContent);
   });
 }
 
@@ -44,9 +44,21 @@ function updateStats(payload) {
   document.querySelectorAll("[data-live-stat]").forEach((node) => {
     const key = node.dataset.liveStat;
     if (Object.prototype.hasOwnProperty.call(payload.stats || {}, key)) {
-      node.textContent = payload.stats[key];
+      updateLiveValue(node, payload.stats[key]);
     }
   });
+}
+
+function updateLiveValue(node, value) {
+  const next = String(value ?? "");
+  if (node.textContent === next) {
+    return;
+  }
+  node.textContent = next;
+  node.classList.remove("is-updating");
+  void node.offsetWidth;
+  node.classList.add("is-updating");
+  window.setTimeout(() => node.classList.remove("is-updating"), 300);
 }
 
 function updateLists(payload) {
@@ -73,6 +85,9 @@ function updateLists(payload) {
 
     node.dataset.signature = signature;
     node.innerHTML = items.length ? items.map(renderer).join("") : `<p class="empty">${emptyText(key)}</p>`;
+    enhanceEmptyStates(node);
+    setupSmoothNavigation();
+    setupRevealAnimations(node);
     node.querySelector(".list-row")?.classList.add("is-fresh");
   });
 }
@@ -183,12 +198,59 @@ window.addEventListener("load", () => {
   refreshLiveDashboard();
   setInterval(refreshLiveDashboard, LIVE_INTERVAL_MS);
   setupDashboardTabs();
+  enhanceEmptyStates();
   setupSmoothNavigation();
   setupFormBusyStates();
+  setupInlineValidation();
   setupMemorySearch();
   setupDesktopExitButton();
+  setupErrorActions();
+  setupRevealAnimations();
   loadDesktopStatus();
 });
+
+function setupRevealAnimations(root = document) {
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const selector = [
+    ".workspace-hero",
+    ".source-hero",
+    ".stat-card",
+    ".panel",
+    ".lead-section",
+    ".task-strip",
+    ".agent-summary-panel",
+    ".list-row",
+    ".settings-section"
+  ].join(",");
+  const nodes = Array.from(root.querySelectorAll(selector))
+    .filter((node) => node.dataset.motionReady !== "1");
+  if (!nodes.length) {
+    return;
+  }
+
+  document.documentElement.classList.add("motion-ready");
+  nodes.forEach((node, index) => {
+    node.dataset.motionReady = "1";
+    node.classList.add("motion-item");
+    node.style.setProperty("--motion-index", String(index % 8));
+  });
+
+  if (reduceMotion || !("IntersectionObserver" in window)) {
+    nodes.forEach((node) => node.classList.add("is-visible"));
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) {
+        return;
+      }
+      entry.target.classList.add("is-visible");
+      observer.unobserve(entry.target);
+    });
+  }, { rootMargin: "0px 0px -5%", threshold: 0.06 });
+  nodes.forEach((node) => observer.observe(node));
+}
 
 function setupDashboardTabs() {
   const tabs = Array.from(document.querySelectorAll("[data-dashboard-tab]"));
@@ -205,7 +267,7 @@ function setupDashboardTabs() {
     tabs.forEach((tab) => {
       const active = tab.dataset.dashboardTab === name;
       tab.classList.toggle("active", active);
-      tab.setAttribute("aria-selected", String(active));
+      tab.setAttribute("aria-pressed", String(active));
     });
     panels.forEach((panel) => {
       panel.hidden = panel.dataset.dashboardTabPanel !== name;
@@ -275,7 +337,9 @@ function setupFormBusyStates() {
         return;
       }
       const original = button.textContent.trim();
+      const pendingSurface = form.closest(".list-row, .pipeline-item, .planner-task, .career-row, .browser-job, .automation-run");
       form.classList.add("is-submitting");
+      pendingSurface?.classList.add("is-pending");
       form.setAttribute("aria-busy", "true");
       button.setAttribute("aria-busy", "true");
       button.dataset.originalText = original;
@@ -283,6 +347,49 @@ function setupFormBusyStates() {
       showDesktopToast(busyText(original));
     });
   });
+}
+
+function setupInlineValidation() {
+  document.querySelectorAll("input, select, textarea").forEach((field) => {
+    if (field.dataset.validationReady === "1") {
+      return;
+    }
+    field.dataset.validationReady = "1";
+
+    field.addEventListener("invalid", () => showFieldError(field));
+    field.addEventListener("input", () => {
+      if (field.validity.valid) {
+        clearFieldError(field);
+      }
+    });
+    field.addEventListener("change", () => {
+      if (field.validity.valid) {
+        clearFieldError(field);
+      }
+    });
+  });
+}
+
+function showFieldError(field) {
+  const owner = field.closest("label") || field.parentElement;
+  if (!owner) {
+    return;
+  }
+  let error = owner.querySelector(":scope > .field-error");
+  if (!error) {
+    error = document.createElement("small");
+    error.className = "field-error";
+    error.setAttribute("role", "alert");
+    owner.appendChild(error);
+  }
+  error.textContent = field.validationMessage || "Check this field and try again.";
+  field.setAttribute("aria-invalid", "true");
+}
+
+function clearFieldError(field) {
+  const owner = field.closest("label") || field.parentElement;
+  owner?.querySelector(":scope > .field-error")?.remove();
+  field.removeAttribute("aria-invalid");
 }
 
 function busyText(label) {
@@ -312,6 +419,81 @@ function showDesktopToast(message) {
   toast.hidden = false;
 }
 
+function enhanceEmptyStates(root = document) {
+  const actions = {
+    "/planner": ["Create roadmap", "#planner-create", "Try: Learn Operating Systems in four weekly periods."],
+    "/planning-events": ["Add event", "#quick-add", "Try: Add a repository task with a deadline and next action."],
+    "/automation": ["Build preview", "#automation-command", "Try: Organize a local folder with a safe preview."],
+    "/browser-agent": ["Build plan", "#browser-command", "Try: Find remote Python internships."],
+    "/career": ["Open career tools", "#career-tools", "Try: Analyze a local repository before targeting a role."],
+    "/sources": ["Import data", "#source-import", "Try: Import an EML, MBOX, JSON, or CSV export."],
+    "/connectors": ["View connectors", "#connector-list", "Try: Connect Gmail or run a local import connector."],
+    "/settings": ["Configure sources", "#connected-accounts", "Try: Connect Gmail and verify local Ollama."],
+    "/": ["Connect sources", "/sources", "Try: Connect Gmail or import a local data export."],
+    "/mobile": ["Connect sources", "/sources", "Try: Capture an email, job, or deadline."]
+  };
+  const [primaryLabel, primaryHref, example] = actions[window.location.pathname]
+    || ["Connect sources", "/sources", "Try: Add one local source to begin building context."];
+
+  root.querySelectorAll(".empty:not([data-empty-enhanced])").forEach((node) => {
+    const explanation = node.textContent.trim() || "This view will update when local data becomes available.";
+    node.dataset.emptyEnhanced = "1";
+    node.textContent = "";
+
+    const icon = document.createElement("span");
+    icon.className = "empty-state-mark";
+    icon.setAttribute("aria-hidden", "true");
+
+    const content = document.createElement("span");
+    content.className = "empty-state-content";
+    const title = document.createElement("strong");
+    title.textContent = "Nothing here yet";
+    const copy = document.createElement("span");
+    copy.textContent = explanation;
+    const sample = document.createElement("small");
+    sample.textContent = example;
+    content.append(title, copy, sample);
+
+    const actionRow = document.createElement("span");
+    actionRow.className = "empty-state-actions";
+    const primary = document.createElement("a");
+    primary.className = "button-primary";
+    primary.href = primaryHref;
+    primary.textContent = primaryLabel;
+    const secondary = document.createElement("a");
+    secondary.className = "button-ghost";
+    secondary.href = "/";
+    secondary.textContent = "Dashboard";
+    actionRow.append(primary, secondary);
+
+    node.append(icon, content, actionRow);
+  });
+}
+
+function setupErrorActions() {
+  const retry = document.querySelector("[data-error-retry]");
+  const back = document.querySelector("[data-error-back]");
+  const copy = document.querySelector("[data-copy-error]");
+  const details = document.querySelector("[data-error-details]");
+
+  retry?.addEventListener("click", () => window.location.reload());
+  back?.addEventListener("click", () => {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.href = "/";
+  });
+  copy?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(details?.textContent?.trim() || "AiOS error");
+      showDesktopToast("Error details copied.");
+    } catch (_error) {
+      showDesktopToast("Unable to copy error details.");
+    }
+  });
+}
+
 function setupMemorySearch() {
   const form = document.querySelector("[data-memory-search]");
   const answer = document.querySelector("[data-memory-answer]");
@@ -327,7 +509,9 @@ function setupMemorySearch() {
     }
 
     answer.hidden = false;
-    answer.textContent = "Searching local memory...";
+    answer.textContent = "";
+    answer.classList.add("skeleton", "memory-answer-skeleton");
+    answer.setAttribute("aria-label", "Searching local memory");
     try {
       const response = await fetch("/api/memory/ask", {
         method: "POST",
@@ -336,8 +520,12 @@ function setupMemorySearch() {
         body: JSON.stringify({ query })
       });
       const payload = await response.json();
+      answer.classList.remove("skeleton", "memory-answer-skeleton");
+      answer.removeAttribute("aria-label");
       answer.textContent = response.ok ? payload.answer : payload.error || "Memory search failed.";
     } catch (_error) {
+      answer.classList.remove("skeleton", "memory-answer-skeleton");
+      answer.removeAttribute("aria-label");
       answer.textContent = "Local memory is unavailable.";
     }
   });
