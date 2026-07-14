@@ -64,3 +64,8 @@ Linux config:  $XDG_CONFIG_HOME/aios-assistant
 ```
 
 Credentials, Gmail tokens, SQLite databases, logs, imports, and memory vectors stay local to those runtime folders.
+
+For Gmail, select **Continue with Google** under **Settings -> Connected Google
+accounts**, then approve read-only access. No keys or JSON files are required.
+Connect each mailbox separately. See
+[Gmail OAuth Setup](GMAIL_OAUTH_SETUP.md).

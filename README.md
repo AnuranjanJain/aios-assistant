@@ -1,6 +1,21 @@
 # AiOS Assistant
 
-> A local-first desktop command center for memory, planning, mail signals, hackathons, jobs, wellbeing, and tiny agent chores.
+<p align="center">
+  <img src="app/static/icons/aios-icon.svg" width="82" alt="AiOS logo">
+</p>
+
+<h3 align="center">Your local AI life operating system</h3>
+
+<p align="center">
+  Memory, Gmail, projects, learning and daily plans in one private workspace.
+</p>
+
+<p align="center">
+  <img alt="Windows desktop" src="https://img.shields.io/badge/Windows-desktop-75D7FF?style=for-the-badge&labelColor=121512">
+  <img alt="Local first" src="https://img.shields.io/badge/local--first-yes-A7FF3C?style=for-the-badge&labelColor=121512">
+  <img alt="Google Gmail readonly" src="https://img.shields.io/badge/Gmail-read--only-FFD166?style=for-the-badge&labelColor=121512">
+  <img alt="Ollama ready" src="https://img.shields.io/badge/Ollama-ready-72E6A2?style=for-the-badge&labelColor=121512">
+</p>
 
 AiOS is the personal assistant layer for **What Do You Do** and the wider AiOS idea: it runs on your machine, keeps data local, and turns scattered signals into a clean daily workspace.
 
@@ -8,7 +23,7 @@ AiOS is the personal assistant layer for **What Do You Do** and the wider AiOS i
   <img src="docs/screenshots/aios-desktop-shell-tour.gif" alt="AiOS desktop shell tour" width="820">
 </p>
 
-## The Vibe
+## See It In Motion
 
 | Overview | Opportunities |
 | --- | --- |
@@ -17,6 +32,19 @@ AiOS is the personal assistant layer for **What Do You Do** and the wider AiOS i
 | Memory | Profile |
 | --- | --- |
 | ![AiOS memory](docs/screenshots/aios-desktop-shell-memory.png) | ![AiOS profile](docs/screenshots/aios-desktop-shell-profile.png) |
+
+| Planner | Mobile companion |
+| --- | --- |
+| ![AiOS planner](docs/screenshots/aios-desktop-planner.png) | ![AiOS mobile dashboard](docs/screenshots/aios-mobile-dashboard.png) |
+
+## Two Apps, One Private Loop
+
+| App | Job |
+| --- | --- |
+| **[What Do You Do](https://github.com/AnuranjanJain/what-do-you-do)** | Observes activity and answers where the day went. |
+| **AiOS Assistant** | Connects mail, projects and memory, then decides what should happen next. |
+
+They communicate only through loopback APIs. Raw activity and email content stay on the device.
 
 ## What It Does
 
@@ -96,11 +124,17 @@ Use **Settings -> Test Ollama** to check the local Ollama server and whether the
 
 Manage Gmail from **Settings -> Connected Google accounts**:
 
-- connect another Google account
+- select **Continue with Google** to connect the first account
+- select **Add another Google account** for additional accounts
 - rename an account
 - pause or resume sync
 - sync one account or all accounts
-- remove an account and its local token
+- remove an account, revoke Google access, and delete its local token
+
+The installed app includes its Google desktop client configuration. Users never
+paste keys or import JSON. The browser flow uses PKCE, a random loopback port,
+account selection, and read-only Gmail access. See
+[Gmail OAuth](docs/GMAIL_OAUTH_SETUP.md) for privacy and release-maintainer notes.
 
 Set `EMAIL_SYNC_INTERVAL_MINUTES` in Settings to control continuous background sync. The worker enforces a 2-minute minimum to avoid hammering Gmail.
 
