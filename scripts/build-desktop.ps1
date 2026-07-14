@@ -4,6 +4,12 @@ $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
 python -m pip install -r requirements-desktop.txt
+
+$oauthClient = Join-Path $env:APPDATA "AiOS Assistant\credentials\google_client_secret.json"
+if (-not (Test-Path -LiteralPath $oauthClient)) {
+    throw "Release OAuth client is missing at $oauthClient. Release maintainers must provision it before building."
+}
+$env:AIOS_GOOGLE_OAUTH_BUNDLE = $oauthClient
 python -m PyInstaller --clean --noconfirm desktop_app.spec
 
 $output = Join-Path $repo "release\windows"

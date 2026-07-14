@@ -66,8 +66,6 @@ def configure_desktop_environment():
         "DATABASE_URL": f"sqlite:///{(paths.data_dir / 'aios_assistant.db').as_posix()}",
         "AIOS_INSTANCE_PATH": str(paths.instance_dir),
         "MEMORY_VECTOR_PATH": str(paths.data_dir / "memory_vectors"),
-        "GMAIL_CREDENTIALS_PATH": str(paths.credentials_dir / "google_client_secret.json"),
-        "GMAIL_TOKEN_PATH": str(paths.credentials_dir / "gmail_token.json"),
         "JOB_PORTAL_IMPORT_DIR": str(paths.imports_dir / "job_portals"),
         "HACKATHON_IMPORT_DIR": str(paths.imports_dir / "hackathons"),
         "WATCH_IMPORT_DIR": str(paths.imports_dir / "watch"),

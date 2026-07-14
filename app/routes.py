@@ -42,6 +42,7 @@ from app.services.email_intelligence import (
     generate_daily_plan as generate_email_daily_plan,
     generate_weekly_plan as generate_email_weekly_plan,
     intelligence_summary,
+    google_client_status,
     list_accounts as list_email_accounts,
     remove_account as remove_email_account,
     run_email_intelligence_cycle,
@@ -113,7 +114,19 @@ def inject_desktop_shell_context():
 
 
 def is_trusted_browser_origin(origin):
-    return origin in TRUSTED_BROWSER_ORIGINS
+    if origin in TRUSTED_BROWSER_ORIGINS:
+        return True
+
+    origin_url = urlsplit(origin)
+    app_url = urlsplit(request.host_url)
+    loopback_hosts = {"127.0.0.1", "localhost", "::1"}
+    return (
+        origin_url.scheme in {"http", "https"}
+        and origin_url.scheme == app_url.scheme
+        and origin_url.hostname in loopback_hosts
+        and app_url.hostname in loopback_hosts
+        and origin_url.port == app_url.port
+    )
 
 
 def is_extension_origin(origin):
@@ -727,6 +740,7 @@ def settings():
         ai_result=None,
         email_result=None,
         email_accounts=list_email_accounts(),
+        google_client=google_client_status(values),
         readiness=readiness_summary(values),
     )
 
@@ -807,7 +821,6 @@ def save_settings():
     elif settings_action == "connect_google_email":
         email_result = connect_google_account(
             get_effective_config(current_app.config),
-            label=request.form.get("label", ""),
         )
     elif settings_action == "sync_all_email":
         email_result = {"ok": True, **run_email_intelligence_cycle(get_effective_config(current_app.config))}
@@ -845,6 +858,7 @@ def save_settings():
         ai_result=ai_result,
         email_result=email_result,
         email_accounts=list_email_accounts(),
+        google_client=google_client_status(values),
         readiness=readiness_summary(values),
     )
 
@@ -1477,7 +1491,8 @@ def api_connectors():
 
 @bp.get("/api/intelligence/accounts")
 def api_intelligence_accounts():
-    return jsonify({"ok": True, "accounts": list_email_accounts()})
+    values = get_effective_config(current_app.config)
+    return jsonify({"ok": True, "accounts": list_email_accounts(), "google_client": google_client_status(values)})
 
 
 @bp.post("/api/intelligence/accounts/google/connect")

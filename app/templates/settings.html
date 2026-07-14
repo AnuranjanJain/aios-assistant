@@ -1,26 +1,23 @@
-﻿{% from "_desktop_shell.html" import sidebar, topbar with context %}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#4c1d95">
-  <title>AiOS Settings</title>
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body class="workspace-body">
-  <div class="shell workspace-shell">
-    {{ sidebar() }}
-  <main class="dashboard source-dashboard">
-      {{ topbar() }}
-      <section class="source-page">
+{% extends "base.html" %}
+{% block title %}AiOS Settings{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
+  <section class="source-page">
     <section class="source-hero glass">
       <a class="back-link" href="{{ url_for('main.dashboard') }}">Back to dashboard</a>
       <p class="eyebrow">Local settings</p>
       <h1>Configure the real agent.</h1>
       <p>These values are stored locally in the SQLite database and override `.env` defaults.</p>
     </section>
+
+    <nav class="settings-section-nav" aria-label="Settings sections">
+      <a href="#readiness">Readiness</a>
+      <a href="#startup">Startup</a>
+      <a href="#intelligence">AI and connectors</a>
+      <a href="#connected-accounts">Google accounts</a>
+      <a href="#diagnostics">Diagnostics</a>
+      <a href="#privacy">Privacy</a>
+    </nav>
 
     {% if saved %}
       <section class="panel glass">
@@ -50,7 +47,7 @@
       </section>
     {% endif %}
 
-    <section class="panel glass">
+    <section id="readiness" class="panel glass settings-section">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Real-life readiness</p>
@@ -75,7 +72,7 @@
       </div>
     </section>
 
-    <section class="panel glass">
+    <section id="startup" class="panel glass settings-section">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Startup</p>
@@ -86,7 +83,7 @@
         </span>
       </div>
       <form class="settings-form startup-form" method="post" action="{{ url_for('main.save_settings') }}">
-        <label class="toggle-row">
+        <label class="toggle-row switch">
           <input
             name="startup_enabled"
             type="checkbox"
@@ -94,12 +91,13 @@
             {% if startup.enabled %}checked{% endif %}
             {% if not startup.supported %}disabled{% endif %}
           >
+          <span class="switch-track" aria-hidden="true"></span>
           <span>
             Start AiOS automatically on {{ startup.platform }}
             <small>Opens the installed desktop app after login and starts its local background services.</small>
           </span>
         </label>
-        <label class="toggle-row">
+        <label class="toggle-row switch">
           <input
             name="startup_background"
             type="checkbox"
@@ -107,6 +105,7 @@
             {% if startup.background %}checked{% endif %}
             {% if not startup.supported %}disabled{% endif %}
           >
+          <span class="switch-track" aria-hidden="true"></span>
           <span>
             Open in background tray mode
             <small>Starts AiOS hidden in the system tray until you open it from the tray icon.</small>
@@ -146,7 +145,7 @@
       </p>
     </section>
 
-    <section class="panel glass">
+    <section id="intelligence" class="panel glass settings-section">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Config</p>
@@ -178,7 +177,7 @@
       </p>
     </section>
 
-    <section class="panel glass">
+    <section id="connected-accounts" class="panel glass settings-section">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Email intelligence</p>
@@ -190,18 +189,22 @@
         Gmail OAuth tokens are encrypted locally. Email understanding and planning run through local Ollama or the rule-based fallback.
       </p>
       <form class="settings-form email-connect-form" method="post" action="{{ url_for('main.save_settings') }}">
-        <label><span>Account label</span><input name="label" placeholder="College Gmail, Work Gmail, Personal"></label>
         <div class="worker-actions">
-          <button type="submit" name="settings_action" value="connect_google_email">Connect Google Account</button>
+          <button class="google-signin-button" type="submit" name="settings_action" value="connect_google_email" {% if not google_client.ready %}disabled title="Google sign-in is unavailable in this build"{% endif %}>
+            <span class="google-signin-mark" aria-hidden="true">G</span>
+            {{ "Add another Google account" if email_accounts else "Continue with Google" }}
+          </button>
           <button type="submit" name="settings_action" value="sync_all_email" class="ghost-button">Sync All Now</button>
         </div>
+        <small>AiOS requests read-only Gmail access. It cannot send, edit, or delete email.</small>
+        {% if not google_client.ready %}<p class="service-error">{{ google_client.message }}</p>{% endif %}
       </form>
       <div class="pipeline-list">
         {% for account in email_accounts %}
           <article class="pipeline-item">
             <div>
               <strong>{{ account.label }}</strong>
-              <p>{{ account.email }} - {{ "Sync on" if account.sync_enabled else "Sync paused" }}</p>
+              <p>{{ account.email }} - {{ "Sync on" if account.sync_enabled else "Sync paused" }} - {{ account.status }}</p>
               {% if account.last_sync_at %}<p class="source-note">Last sync: {{ account.last_sync_at }}</p>{% endif %}
               {% if account.last_error %}<p class="service-error">{{ account.last_error }}</p>{% endif %}
               <form class="settings-form email-account-form" method="post" action="{{ url_for('main.save_settings') }}">
@@ -227,7 +230,7 @@
       </div>
     </section>
 
-    <section class="panel glass" data-desktop-diagnostics>
+    <section id="diagnostics" class="panel glass settings-section" data-desktop-diagnostics>
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Desktop runtime</p>
@@ -235,11 +238,11 @@
         </div>
       </div>
       <div class="pipeline-list" data-desktop-status>
-        <p class="source-note">Checking desktop runtime...</p>
+        <div class="skeleton desktop-status-skeleton" role="status" aria-label="Checking desktop runtime"></div>
       </div>
     </section>
 
-    <section class="panel glass">
+    <section id="privacy" class="panel glass settings-section">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Privacy</p>
@@ -258,8 +261,4 @@
       </form>
     </section>
   </section>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% endblock %}

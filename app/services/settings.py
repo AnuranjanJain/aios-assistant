@@ -9,8 +9,6 @@ SETTING_KEYS = {
     "MEMORY_VECTOR_BACKEND": "Memory vector backend (auto, chroma, faiss, sqlite)",
     "MEMORY_VECTOR_PATH": "Memory vector storage path",
     "GMAIL_MBOX_PATH": "Gmail Takeout mbox path",
-    "GMAIL_CREDENTIALS_PATH": "Gmail credentials path",
-    "GMAIL_TOKEN_PATH": "Gmail token path",
     "GMAIL_OPPORTUNITY_QUERY": "Gmail opportunity search query",
     "GMAIL_HACKATHON_QUERY": "Legacy Gmail hackathon search query",
     "EMAIL_SYNC_INTERVAL_MINUTES": "Email intelligence sync interval (minutes)",

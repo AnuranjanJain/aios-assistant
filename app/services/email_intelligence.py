@@ -2,13 +2,17 @@ import base64
 import hashlib
 import json
 import re
+import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 
 from flask import current_app
+
+from runtime_paths import get_runtime_paths
 
 from app.models import (
     AISuggestion,
@@ -105,19 +109,81 @@ def serialize_account(account):
         "sync_enabled": account.sync_enabled,
         "last_sync_at": account.last_sync_at.isoformat() if account.last_sync_at else None,
         "last_error": account.last_error or "",
+        "status": "attention" if account.last_error else "paused" if not account.sync_enabled else "connected",
+        "token_expires_at": account.oauth_token.expires_at.isoformat() if account.oauth_token and account.oauth_token.expires_at else None,
     }
 
 
+def _google_credentials_path(app_config):
+    bundle_root = getattr(sys, "_MEIPASS", "")
+    if bundle_root:
+        bundled = Path(bundle_root) / "app_credentials" / "google_client_secret.json"
+        if bundled.exists():
+            return bundled.resolve()
+
+    configured = Path(app_config.get("GMAIL_CREDENTIALS_PATH") or "credentials/google_client_secret.json").expanduser()
+    if configured.exists() or configured.is_absolute():
+        return configured.resolve()
+    return (get_runtime_paths().credentials_dir / "google_client_secret.json").resolve()
+
+
+def google_client_status(app_config):
+    path = _google_credentials_path(app_config)
+    result = {
+        "ready": False,
+        "client_id_hint": "",
+        "message": "Google sign-in is unavailable in this build.",
+    }
+    if not path.exists():
+        return result
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        installed = payload.get("installed") if isinstance(payload, dict) else None
+        if not isinstance(installed, dict):
+            result["message"] = "This is not a Google Desktop app OAuth client file."
+            return result
+        required = ("client_id", "auth_uri", "token_uri")
+        missing = [key for key in required if not str(installed.get(key) or "").strip()]
+        if missing:
+            result["message"] = f"OAuth client file is missing: {', '.join(missing)}."
+            return result
+        client_id = installed["client_id"]
+        result.update(
+            ready=True,
+            client_id_hint=f"...{client_id[-18:]}",
+            message="Google sign-in is ready.",
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        result["message"] = f"OAuth client file could not be read: {exc}"
+    return result
+
+
 def connect_google_account(app_config, label=""):
-    credentials_path = Path(app_config.get("GMAIL_CREDENTIALS_PATH", "credentials/google_client_secret.json"))
+    credentials_path = _google_credentials_path(app_config)
     if not credentials_path.exists():
         return {"ok": False, "message": f"Missing Google OAuth client at {credentials_path}"}
 
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
 
-    flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), GMAIL_SCOPES)
-    credentials = flow.run_local_server(port=0, open_browser=True, prompt="consent")
+    client_config = json.loads(credentials_path.read_text(encoding="utf-8"))
+    client_config["installed"]["auth_uri"] = "https://accounts.google.com/o/oauth2/v2/auth"
+    flow = InstalledAppFlow.from_client_config(
+        client_config,
+        GMAIL_SCOPES,
+        autogenerate_code_verifier=True,
+    )
+    credentials = flow.run_local_server(
+        host="127.0.0.1",
+        bind_addr="127.0.0.1",
+        port=0,
+        open_browser=True,
+        prompt="select_account consent",
+        access_type="offline",
+        include_granted_scopes="true",
+        timeout_seconds=300,
+        success_message="AiOS connected Gmail successfully. You can close this tab and return to AiOS.",
+    )
     service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
     profile = service.users().getProfile(userId="me").execute()
     email = profile.get("emailAddress", "").strip()
@@ -155,13 +221,35 @@ def update_account(account_id, label=None, sync_enabled=None):
     return {"ok": True, "account": serialize_account(account)}
 
 
-def remove_account(account_id):
+def remove_account(account_id, revoke=True):
     account = db.session.get(ConnectedAccount, account_id)
     if account is None:
         return {"ok": False, "message": "Account not found."}
+    revoked = False
+    if revoke and account.oauth_token:
+        try:
+            token_data = json.loads(decrypt_token_json(account.oauth_token.token_json_encrypted))
+            revoke_token = token_data.get("refresh_token") or token_data.get("token")
+            if revoke_token:
+                body = urllib.parse.urlencode({"token": revoke_token}).encode("ascii")
+                revoke_request = urllib.request.Request(
+                    "https://oauth2.googleapis.com/revoke",
+                    data=body,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(revoke_request, timeout=5) as response:
+                    revoked = response.status == 200
+        except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError):
+            revoked = False
+    email = account.email
     db.session.delete(account)
     db.session.commit()
-    return {"ok": True}
+    return {
+        "ok": True,
+        "revoked": revoked,
+        "message": f"Removed {email}." + (" Google access was revoked." if revoked else " The local token was deleted."),
+    }
 
 
 def credentials_for_account(account):
@@ -223,38 +311,63 @@ def sync_account(account, limit=50):
 
 
 def _gmail_message_ids(service, account, limit):
-    label_ids = ["INBOX", "SENT", "DRAFT", "IMPORTANT", "STARRED"]
     found = []
     seen = set()
     if account.sync_cursor:
         try:
-            history = service.users().history().list(
-                userId="me",
-                startHistoryId=account.sync_cursor,
-                historyTypes=["messageAdded", "labelAdded"],
-                maxResults=limit,
-            ).execute()
-            for item in history.get("history", []):
-                for added in item.get("messagesAdded", []) + item.get("labelsAdded", []):
-                    message_id = added.get("message", {}).get("id")
-                    if message_id and message_id not in seen:
-                        seen.add(message_id)
-                        found.append(message_id)
-            if history.get("historyId"):
-                account.sync_cursor = str(history["historyId"])
-            if found:
-                return found[:limit]
-        except Exception:
+            page_token = None
+            newest_history_id = account.sync_cursor
+            while len(found) < limit:
+                kwargs = {
+                    "userId": "me",
+                    "startHistoryId": account.sync_cursor,
+                    "historyTypes": ["messageAdded", "labelAdded", "labelRemoved"],
+                    "maxResults": min(500, limit),
+                }
+                if page_token:
+                    kwargs["pageToken"] = page_token
+                history = service.users().history().list(**kwargs).execute()
+                for item in history.get("history", []):
+                    for change in (
+                        item.get("messagesAdded", [])
+                        + item.get("labelsAdded", [])
+                        + item.get("labelsRemoved", [])
+                    ):
+                        message_id = change.get("message", {}).get("id")
+                        if message_id and message_id not in seen:
+                            seen.add(message_id)
+                            found.append(message_id)
+                            if len(found) >= limit:
+                                break
+                newest_history_id = str(history.get("historyId") or newest_history_id)
+                page_token = history.get("nextPageToken")
+                if not page_token:
+                    break
+            account.sync_cursor = newest_history_id
+            return found[:limit]
+        except Exception as exc:
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            if status not in {404, None}:
+                raise
             account.sync_cursor = None
 
-    for label_id in label_ids:
-        if len(found) >= limit:
-            break
-        response = service.users().messages().list(userId="me", labelIds=[label_id], maxResults=min(25, limit)).execute()
+    page_token = None
+    while len(found) < limit:
+        kwargs = {
+            "userId": "me",
+            "maxResults": min(100, limit - len(found)),
+            "includeSpamTrash": False,
+        }
+        if page_token:
+            kwargs["pageToken"] = page_token
+        response = service.users().messages().list(**kwargs).execute()
         for item in response.get("messages", []):
             if item["id"] not in seen:
                 seen.add(item["id"])
                 found.append(item["id"])
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
     return found[:limit]
 
 
@@ -296,7 +409,11 @@ def upsert_gmail_message(account, raw):
     db.session.flush()
 
     if raw.get("historyId"):
-        account.sync_cursor = str(raw["historyId"])
+        incoming_cursor = str(raw["historyId"])
+        try:
+            account.sync_cursor = str(max(int(account.sync_cursor or 0), int(incoming_cursor)))
+        except ValueError:
+            account.sync_cursor = incoming_cursor
     if existing is None:
         for attachment in _attachments_from_payload(payload):
             db.session.add(EmailAttachment(email=message, **attachment))

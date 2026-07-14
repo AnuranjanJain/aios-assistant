@@ -1,7 +1,24 @@
 # Build on the target operating system:
 #   python -m PyInstaller --clean --noconfirm desktop_app.spec
 
+import os
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_submodules
+
+
+oauth_candidates = [
+    os.environ.get("AIOS_GOOGLE_OAUTH_BUNDLE", ""),
+    str(Path(os.environ.get("APPDATA", "")) / "AiOS Assistant" / "credentials" / "google_client_secret.json"),
+    "credentials/google_client_secret.json",
+]
+oauth_client = next((Path(path) for path in oauth_candidates if path and Path(path).is_file()), None)
+datas = [
+    ("app/templates", "app/templates"),
+    ("app/static", "app/static"),
+]
+if oauth_client:
+    datas.append((str(oauth_client), "app_credentials"))
 
 
 hiddenimports = (
@@ -31,10 +48,7 @@ a = Analysis(
     ["desktop_app.py"],
     pathex=["."],
     binaries=[],
-    datas=[
-        ("app/templates", "app/templates"),
-        ("app/static", "app/static"),
-    ],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

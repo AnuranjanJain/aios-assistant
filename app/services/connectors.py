@@ -1,14 +1,12 @@
 from dataclasses import dataclass
-from datetime import datetime
 import csv
 import json
 from pathlib import Path
 
 from app.models import ConnectorRun, Reminder, db
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
-from app.services.hackathons import detect_platform, ingest_hackathon_signal
+from app.services.hackathons import ingest_hackathon_signal
 from app.services.notifications import notification_center
-from app.services.placements import ingest_placement_signal, is_neopat_signal
 
 
 @dataclass
@@ -41,19 +39,22 @@ class BaseConnector:
 class GmailConnector(BaseConnector):
     connector_id = "gmail"
     name = "Gmail"
-    description = "Scans Gmail for hackathon, application, shortlist, deadline, submission, and result updates."
+    description = "Synchronizes every connected Gmail account into local email intelligence."
 
     def status(self, app_config):
-        mbox_path = app_config.get("GMAIL_MBOX_PATH", "")
-        credentials_path = app_config.get("GMAIL_CREDENTIALS_PATH", "")
-        token_path = app_config.get("GMAIL_TOKEN_PATH", "")
-        configured = bool(mbox_path and Path(mbox_path).exists()) or bool(token_path and Path(token_path).exists())
+        from app.services.email_intelligence import google_client_status, list_accounts
 
-        setup = "Set GMAIL_MBOX_PATH to a Gmail Takeout .mbox file for local import."
-        if credentials_path and Path(credentials_path).exists() and not (token_path and Path(token_path).exists()):
-            setup = "Google credentials found. Run this connector once to approve read-only Gmail access."
-        if configured:
-            setup = "Ready."
+        mbox_path = app_config.get("GMAIL_MBOX_PATH", "")
+        accounts = list_accounts()
+        client = google_client_status(app_config)
+        configured = bool(accounts) or bool(mbox_path and Path(mbox_path).exists())
+        if accounts:
+            enabled = sum(1 for account in accounts if account["sync_enabled"])
+            setup = f"{len(accounts)} accounts connected; {enabled} syncing in the background."
+        elif client["ready"]:
+            setup = "OAuth is ready. Connect your first Google account in Settings."
+        else:
+            setup = "Import a Google Desktop OAuth client in Settings, or configure a Gmail Takeout mbox."
 
         return {
             "id": self.connector_id,
@@ -64,12 +65,27 @@ class GmailConnector(BaseConnector):
         }
 
     def run(self, app_config, classifier, provider, model=None, interactive=False):
-        token_path = app_config.get("GMAIL_TOKEN_PATH", "")
-        credentials_path = app_config.get("GMAIL_CREDENTIALS_PATH", "")
-        if (token_path and Path(token_path).exists()) or (
-            credentials_path and Path(credentials_path).exists()
-        ):
-            return self._run_gmail_api(app_config, classifier, interactive=interactive)
+        from app.models import ConnectedAccount
+        from app.services.email_intelligence import run_email_intelligence_cycle
+
+        accounts = ConnectedAccount.query.filter_by(provider="google").count()
+        if accounts:
+            result = run_email_intelligence_cycle(app_config)
+            sync_results = result.get("sync", [])
+            seen = sum(int(item.get("seen", 0)) for item in sync_results)
+            imported = sum(int(item.get("imported", 0)) for item in sync_results)
+            failures = [item for item in sync_results if not item.get("ok")]
+            return ConnectorResult(
+                connector_id=self.connector_id,
+                status="partial" if failures else "ok",
+                message=(
+                    f"Synced {len(sync_results)} Gmail accounts, checked {seen} changed messages, "
+                    f"and stored {imported} new messages locally."
+                    + (f" {len(failures)} accounts need attention." if failures else "")
+                ),
+                records_seen=seen,
+                records_imported=imported,
+            )
 
         mbox_path = app_config.get("GMAIL_MBOX_PATH", "")
         if mbox_path and Path(mbox_path).exists():
@@ -85,143 +101,7 @@ class GmailConnector(BaseConnector):
         return ConnectorResult(
             connector_id=self.connector_id,
             status="setup_required",
-            message="No Gmail source configured. Add GMAIL_MBOX_PATH for local import or configure Gmail OAuth credentials.",
-        )
-
-    def _run_gmail_api(self, app_config, classifier, interactive=False):
-        try:
-            from google.auth.transport.requests import Request
-            from google.oauth2.credentials import Credentials
-            from google_auth_oauthlib.flow import InstalledAppFlow
-            from googleapiclient.discovery import build
-            from googleapiclient.errors import HttpError
-        except ImportError:
-            return ConnectorResult(
-                connector_id=self.connector_id,
-                status="setup_required",
-                message="Install Gmail dependencies with pip install -r requirements.txt.",
-            )
-
-        scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
-        token_path = Path(app_config.get("GMAIL_TOKEN_PATH", "credentials/gmail_token.json"))
-        credentials_path = Path(
-            app_config.get("GMAIL_CREDENTIALS_PATH", "credentials/google_client_secret.json")
-        )
-        credentials = None
-
-        if token_path.exists():
-            credentials = Credentials.from_authorized_user_file(str(token_path), scopes)
-        if credentials and credentials.expired and credentials.refresh_token:
-            credentials.refresh(Request())
-        if not credentials or not credentials.valid:
-            if not interactive:
-                return ConnectorResult(
-                    connector_id=self.connector_id,
-                    status="setup_required",
-                    message="Google is not connected. Use Connect Google, then run the Gmail scan.",
-                )
-            if not credentials_path.exists():
-                return ConnectorResult(
-                    connector_id=self.connector_id,
-                    status="setup_required",
-                    message=f"Missing Gmail OAuth credentials: {credentials_path}",
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), scopes)
-            credentials = flow.run_local_server(port=0)
-            token_path.parent.mkdir(parents=True, exist_ok=True)
-            token_path.write_text(credentials.to_json(), encoding="utf-8")
-
-        service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
-        query = app_config.get("GMAIL_OPPORTUNITY_QUERY") or app_config.get("GMAIL_HACKATHON_QUERY") or (
-            "newer_than:365d (from:unstop.com OR from:hack2skill.com OR "
-            "from:hackerearth.com OR from:devfolio.co OR from:devpost.com OR "
-            "subject:hackathon OR subject:submission OR subject:shortlisted OR "
-            "subject:application OR subject:applied OR subject:interview OR "
-            "subject:assessment OR subject:\"online assessment\" OR subject:offer OR "
-            "subject:rejected OR subject:rejection OR subject:intern OR subject:placement OR "
-            "subject:neopat)"
-        )
-        try:
-            response = service.users().messages().list(userId="me", q=query, maxResults=100).execute()
-        except HttpError as exc:
-            return ConnectorResult(
-                connector_id=self.connector_id,
-                status="setup_required",
-                message=f"Gmail API request failed. {format_google_api_error(exc)}",
-            )
-        messages = response.get("messages", [])
-        imported = 0
-        hackathon_imported = 0
-        placement_imported = 0
-        neopat_imported = 0
-
-        for item in messages:
-            try:
-                message = service.users().messages().get(
-                    userId="me",
-                    id=item["id"],
-                    format="metadata",
-                    metadataHeaders=["From", "Subject", "Date"],
-                ).execute()
-            except HttpError:
-                continue
-            headers = {
-                header["name"].lower(): header["value"]
-                for header in message.get("payload", {}).get("headers", [])
-            }
-            subject = headers.get("subject") or "Gmail update"
-            sender = headers.get("from", "")
-            snippet = message.get("snippet", "")
-            occurred_at = datetime.fromtimestamp(int(message.get("internalDate", "0")) / 1000)
-            classification = classifier.classify(subject, snippet)
-            platform = detect_platform(sender, subject, snippet)
-
-            if classification.category == "hackathon" or platform != "other":
-                _opportunity, _update, created = ingest_hackathon_signal(
-                    title=subject,
-                    source=f"gmail:{sender}",
-                    body=snippet,
-                    organization=sender,
-                    platform=platform,
-                    status=classification.status,
-                    deadline=classification.deadline,
-                    external_id=f"gmail:hackathon:{item['id']}",
-                    occurred_at=occurred_at,
-                )
-                hackathon_imported += int(created)
-            elif classification.category in {"job", "interview", "deadline", "meeting"}:
-                is_neopat = is_neopat_signal(subject, sender, snippet)
-                _opportunity, _update, created = ingest_placement_signal(
-                    title=classification.title or subject,
-                    source=f"gmail:{sender}",
-                    body=snippet,
-                    organization=classification.organization or sender,
-                    status=classification.status,
-                    kind="neopat" if is_neopat else "job",
-                    deadline=classification.deadline,
-                    external_id=f"gmail:placement:{item['id']}",
-                    occurred_at=occurred_at,
-                )
-                if is_neopat:
-                    neopat_imported += int(created)
-                else:
-                    placement_imported += int(created)
-            # Gmail requests are network-bound. Release SQLite's write lock after
-            # each idempotent message so WDYD and the live dashboard stay writable.
-            db.session.commit()
-
-        imported = hackathon_imported + placement_imported + neopat_imported
-
-        return ConnectorResult(
-            connector_id=self.connector_id,
-            status="ok",
-            message=(
-                f"Scanned {len(messages)} matching Gmail messages and imported "
-                f"{hackathon_imported} hackathon updates, {placement_imported} placement updates, "
-                f"and {neopat_imported} NeoPat updates."
-            ),
-            records_seen=len(messages),
-            records_imported=imported,
+            message="No Gmail account is connected. Open Settings, import a Google Desktop OAuth client, then connect an account.",
         )
 
 
@@ -365,73 +245,41 @@ CONNECTORS = {
 
 
 def gmail_oauth_status(app_config, include_profile=False):
-    token_path = Path(app_config.get("GMAIL_TOKEN_PATH", "credentials/gmail_token.json"))
-    credentials_path = Path(app_config.get("GMAIL_CREDENTIALS_PATH", "credentials/google_client_secret.json"))
+    from app.services.email_intelligence import google_client_status, list_accounts
+
+    client = google_client_status(app_config)
+    accounts = list_accounts()
     result = {
-        "credentials_ready": credentials_path.exists(),
-        "connected": False,
-        "account": None,
-        "message": "Google OAuth client is not configured.",
+        "credentials_ready": client["ready"],
+        "connected": bool(accounts),
+        "account": accounts[0]["email"] if len(accounts) == 1 else None,
+        "accounts": accounts,
+        "account_count": len(accounts),
+        "message": (
+            f"{len(accounts)} Google accounts connected."
+            if accounts
+            else client["message"]
+        ),
     }
-    if not credentials_path.exists():
-        return result
-    result["message"] = "Ready to connect Google."
-    if not token_path.exists():
-        return result
-
-    try:
-        from google.auth.transport.requests import Request
-        from google.oauth2.credentials import Credentials
-
-        scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
-        credentials = Credentials.from_authorized_user_file(str(token_path), scopes)
-        if credentials.expired and credentials.refresh_token:
-            credentials.refresh(Request())
-            token_path.write_text(credentials.to_json(), encoding="utf-8")
-        result["connected"] = bool(credentials.valid)
-        result["message"] = "Google connected." if credentials.valid else "Google authorization expired."
-        if credentials.valid and include_profile:
-            from googleapiclient.discovery import build
-
-            profile = (
-                build("gmail", "v1", credentials=credentials, cache_discovery=False)
-                .users()
-                .getProfile(userId="me")
-                .execute()
-            )
-            result["account"] = profile.get("emailAddress")
-    except Exception as exc:
-        result["message"] = f"Google connection needs attention: {exc}"
     return result
 
 
 def connect_gmail(app_config):
-    credentials_path = Path(app_config.get("GMAIL_CREDENTIALS_PATH", "credentials/google_client_secret.json"))
-    token_path = Path(app_config.get("GMAIL_TOKEN_PATH", "credentials/gmail_token.json"))
-    if not credentials_path.exists():
-        return {
-            "connected": False,
-            "message": "This build has no Google Desktop OAuth client configured.",
-        }
+    from app.services.email_intelligence import connect_google_account
 
-    from google_auth_oauthlib.flow import InstalledAppFlow
-
-    scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
-    flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), scopes)
-    credentials = flow.run_local_server(port=0, open_browser=True, prompt="consent")
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(credentials.to_json(), encoding="utf-8")
-    try:
-        __import__("os").chmod(token_path, 0o600)
-    except OSError:
-        pass
-    return gmail_oauth_status(app_config, include_profile=True)
+    result = connect_google_account(app_config)
+    return {
+        "connected": bool(result.get("ok")),
+        "account": (result.get("account") or {}).get("email"),
+        "message": result.get("message", "Google connection finished."),
+    }
 
 
 def disconnect_gmail(app_config):
-    token_path = Path(app_config.get("GMAIL_TOKEN_PATH", "credentials/gmail_token.json"))
-    token_path.unlink(missing_ok=True)
-    return {"connected": False, "message": "Google disconnected. The local Gmail token was removed."}
+    return {
+        "connected": False,
+        "message": "Manage individual Google accounts in Settings so one account is never removed by accident.",
+    }
 
 
 def list_connectors(app_config):

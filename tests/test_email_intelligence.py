@@ -23,6 +23,7 @@ from app.models import (
     MemoryEntity,
     MemoryFact,
     Opportunity,
+    OAuthToken,
     PlanTask,
     GoalPlan,
     PlanningEvent,
@@ -35,6 +36,7 @@ from app.services.email_intelligence import (
     decrypt_token_json,
     encrypt_token_json,
     generate_daily_plan,
+    google_client_status,
     intelligence_summary,
     run_email_intelligence_cycle,
     upsert_gmail_message,
@@ -213,6 +215,85 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(ids, ["m-1", "m-2"])
         self.assertEqual(account.sync_cursor, "220")
 
+    def test_incremental_history_sync_follows_pages_and_label_changes(self):
+        pages = {
+            None: {
+                "historyId": "220",
+                "nextPageToken": "next",
+                "history": [{"messagesAdded": [{"message": {"id": "m-1"}}]}],
+            },
+            "next": {
+                "historyId": "240",
+                "history": [{"labelsRemoved": [{"message": {"id": "m-2"}}]}],
+            },
+        }
+
+        class FakeExecute:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def execute(self):
+                return self.payload
+
+        class FakeHistory:
+            def list(self, **kwargs):
+                return FakeExecute(pages[kwargs.get("pageToken")])
+
+        class FakeUsers:
+            def history(self):
+                return FakeHistory()
+
+        class FakeService:
+            def users(self):
+                return FakeUsers()
+
+        account = ConnectedAccount(provider="google", email="pages@example.com", sync_cursor="100")
+        self.assertEqual(_gmail_message_ids(FakeService(), account, limit=10), ["m-1", "m-2"])
+        self.assertEqual(account.sync_cursor, "240")
+
+    def test_google_desktop_oauth_client_status_hides_client_secret(self):
+        target = Path(self.temp_dir.name) / "credentials" / "google_client_secret.json"
+        config = {"GMAIL_CREDENTIALS_PATH": str(target)}
+        client = {
+            "installed": {
+                "client_id": "desktop-client.apps.googleusercontent.com",
+                "client_secret": "local-client-secret",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": ["http://localhost"],
+            }
+        }
+
+        target.parent.mkdir(parents=True)
+        target.write_text(json.dumps(client), encoding="utf-8")
+        status = google_client_status(config)
+
+        self.assertTrue(status["ready"])
+        self.assertNotIn("local-client-secret", json.dumps(status))
+
+    def test_removing_account_revokes_google_token_and_deletes_local_data(self):
+        account = ConnectedAccount(provider="google", email="remove@example.com", label="Remove")
+        db.session.add(account)
+        db.session.flush()
+        db.session.add(
+            OAuthToken(
+                account=account,
+                token_json_encrypted=encrypt_token_json(json.dumps({"refresh_token": "refresh-secret"})),
+            )
+        )
+        db.session.commit()
+
+        response = mock.MagicMock()
+        response.__enter__.return_value.status = 200
+        with mock.patch("app.services.email_intelligence.urllib.request.urlopen", return_value=response) as revoke:
+            from app.services.email_intelligence import remove_account
+
+            result = remove_account(account.id)
+
+        self.assertTrue(result["revoked"])
+        self.assertIsNone(db.session.get(ConnectedAccount, account.id))
+        self.assertIn(b"refresh-secret", revoke.call_args.args[0].data)
+
     def test_internship_email_extracts_fields_and_creates_related_life_item(self):
         account = ConnectedAccount(provider="google", email="me@example.com", label="Main")
         existing = LifeItem(
@@ -289,7 +370,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         db.session.commit()
 
         html = self.client.get("/settings").get_data(as_text=True)
-        self.assertIn("Connect Google Account", html)
+        self.assertIn("Add another Google account", html)
         self.assertIn("Sync All Now", html)
         self.assertIn("Main Gmail", html)
         self.assertIn("Pause", html)
@@ -595,6 +676,8 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertIn("Schedule revision", event.work_left)
 
     def test_planning_event_api_creates_real_life_row_from_wdyd(self):
+        planned_start = datetime.now() + timedelta(hours=1)
+        deadline = planned_start + timedelta(days=2)
         response = self.client.post(
             "/api/planning-events",
             headers={"X-AiOS-Token": "local-test-token"},
@@ -603,8 +686,8 @@ class EmailIntelligenceTestCase(unittest.TestCase):
                 "title": "Finish GenAI attention video",
                 "project": "GenAI",
                 "idea": "Understand attention before building the demo.",
-                "deadline": "2026-07-12T18:00:00",
-                "planned_start": "2026-07-10T09:00:00",
+                "deadline": deadline.isoformat(),
+                "planned_start": planned_start.isoformat(),
                 "planned_minutes": 60,
                 "work_done": "Watched embeddings chapter.",
                 "work_left": "Finish attention video and save notes.",
@@ -783,13 +866,15 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(PlanningEvent.query.filter_by(title="API assistant task").first().status, "completed")
 
     def test_email_sync_cycle_reports_planner_follow_up_counts(self):
+        planned_start = datetime.now() + timedelta(hours=1)
+        deadline = planned_start + timedelta(days=2)
         create_manual_event(
             {
                 "event_type": "learning_video",
                 "title": "Finish GenAI attention video",
                 "project": "GenAI",
-                "deadline": "2026-07-12T18:00:00",
-                "planned_start": "2026-07-10T09:00:00",
+                "deadline": deadline.isoformat(),
+                "planned_start": planned_start.isoformat(),
                 "planned_minutes": 60,
                 "work_left": "Finish attention video and save notes.",
             }

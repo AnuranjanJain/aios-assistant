@@ -45,6 +45,13 @@ class LocalIntegrationTestCase(unittest.TestCase):
         )
         self.assertEqual(blocked.status_code, 403)
 
+        desktop_origin = self.client.get(
+            "/settings",
+            base_url="http://127.0.0.1:5050",
+            headers={"Origin": "http://127.0.0.1:5050"},
+        )
+        self.assertEqual(desktop_origin.status_code, 200)
+
         activity = self.client.post(
             "/api/wellbeing/activity",
             headers={"X-AiOS-Token": "local-test-token"},
