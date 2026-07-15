@@ -15,6 +15,7 @@
       <a class="{{ 'active' if request.args.get('tab') == 'opportunities' else '' }}" href="{{ url_for('main.dashboard') }}?tab=opportunities" title="Opportunities">{{ icon("briefcase") }}<span class="nav-label">Opportunities</span></a>
       <a class="{{ 'active' if request.args.get('tab') == 'reminders' else '' }}" href="{{ url_for('main.dashboard') }}?tab=reminders" title="Reminders">{{ icon("bell") }}<span class="nav-label">Reminders</span></a>
       <a class="{{ 'active' if request.args.get('tab') == 'inbox' else '' }}" href="{{ url_for('main.dashboard') }}?tab=inbox" title="Inbox AI">{{ icon("mail") }}<span class="nav-label">Inbox AI</span></a>
+      <a class="{{ 'active' if request.path == '/projects' else '' }}" href="{{ url_for('main.projects_workspace') }}" title="Projects">{{ icon("briefcase") }}<span class="nav-label">Projects</span></a>
       <a class="{{ 'active' if request.path == '/wellbeing' else '' }}" href="{{ url_for('main.wellbeing_workspace') }}" title="Wellbeing">{{ icon("heart") }}<span class="nav-label">Wellbeing</span></a>
       <a class="{{ 'active' if request.path == '/memory' else '' }}" href="{{ url_for('main.memory_workspace') }}" title="Memory">{{ icon("database") }}<span class="nav-label">Memory</span></a>
       <a class="{{ 'active' if request.path == '/planner' else '' }}" href="{{ url_for('main.planner_workspace') }}" title="Planner">{{ icon("calendar") }}<span class="nav-label">Planner</span></a>

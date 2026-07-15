@@ -1,5 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime, time
+from hmac import compare_digest
 from pathlib import Path
+import secrets
 from time import monotonic
 from urllib.parse import urlsplit
 import json
@@ -46,6 +48,7 @@ from app.services.email_intelligence import (
     run_email_intelligence_cycle,
     semantic_search as email_semantic_search,
     sync_account as sync_email_account,
+    sync_account_intelligence,
     update_account as update_email_account,
 )
 from app.services.executive_assistant import answer_executive_question, executive_briefing
@@ -74,6 +77,7 @@ from app.services.memory_engine import (
     upsert_entity,
 )
 from app.services.notifications import notification_center, reschedule_notification, snooze_notification
+from app.services.college_intelligence import pat_college_summary
 from app.services.oauth_sign_in import (
     cancel_google_sign_in,
     consume_google_sign_in_result,
@@ -89,6 +93,7 @@ from app.services.planning_events import (
     update_event_progress,
 )
 from app.services.readiness import readiness_summary
+from app.services.project_context import create_project, project_context, update_project
 from app.services.settings import SETTING_KEYS, apply_settings, get_effective_config, get_setting, set_setting
 from app.services.startup import (
     save_startup_settings,
@@ -99,6 +104,7 @@ from app.services.workers import list_worker_status, start_worker, stop_worker
 
 
 bp = Blueprint("main", __name__)
+_EMAIL_VIEW_REFRESH_AT = 0.0
 TRUSTED_BROWSER_ORIGINS = {
     "http://127.0.0.1:5000",
     "http://localhost:5000",
@@ -113,6 +119,11 @@ TRUSTED_BROWSER_ORIGINS = {
 LOGIN_ATTEMPTS = {}
 LOGIN_ATTEMPT_LIMIT = 5
 LOGIN_ATTEMPT_WINDOW_SECONDS = 60
+LOCAL_FORM_TOKEN_COOKIE = "aios_form_token"
+LOCAL_FORM_TOKEN_FIELD = "_local_form_token"
+LOCAL_FORM_TOKEN_HEADER = "X-AiOS-Form-Token"
+LOCAL_FORM_TOKEN_SESSION_KEY = "local_form_token"
+SAFE_REQUEST_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 @bp.app_context_processor
@@ -140,6 +151,59 @@ def is_extension_origin(origin):
     return origin.startswith(("chrome-extension://", "moz-extension://"))
 
 
+def is_trusted_same_origin_navigation(origin):
+    if is_trusted_browser_origin(origin):
+        return True
+
+    referer = request.headers.get("Referer", "")
+    return (
+        request.headers.get("Sec-Fetch-Site", "").lower() == "same-origin"
+        and bool(referer)
+        and is_trusted_browser_origin(referer)
+    )
+
+
+def get_local_form_token():
+    token = session.get(LOCAL_FORM_TOKEN_SESSION_KEY)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session[LOCAL_FORM_TOKEN_SESSION_KEY] = token
+    return token
+
+
+def has_valid_local_form_token():
+    expected = session.get(LOCAL_FORM_TOKEN_SESSION_KEY, "")
+    supplied = request.headers.get(LOCAL_FORM_TOKEN_HEADER, "") or request.form.get(LOCAL_FORM_TOKEN_FIELD, "")
+    return bool(expected and supplied and compare_digest(expected, supplied))
+
+
+def wants_json_response():
+    return request.path.startswith("/api/") or request.accept_mimetypes.best == "application/json"
+
+
+def request_error_response(status_code, error_code, title, explanation, suggested_fix):
+    if wants_json_response():
+        return jsonify(
+            {
+                "ok": False,
+                "error": error_code,
+                "message": explanation,
+                "suggested_fix": suggested_fix,
+            }
+        ), status_code
+    return (
+        render_template(
+            "error.html",
+            status_code=status_code,
+            title=title,
+            explanation=explanation,
+            suggested_fix=suggested_fix,
+            technical_details=f"{error_code} | HTTP {status_code} | {request.method} {request.path}",
+        ),
+        status_code,
+    )
+
+
 def safe_next_url(value):
     candidate = (value or "").strip()
     parsed = urlsplit(candidate)
@@ -157,12 +221,31 @@ def recent_login_attempts(client_key):
 
 @bp.before_app_request
 def require_ui_auth():
+    if request.method in SAFE_REQUEST_METHODS and not request.path.startswith("/static/"):
+        get_local_form_token()
+
     origin = request.headers.get("Origin", "")
-    if origin and not is_trusted_browser_origin(origin):
+    if origin and not is_trusted_same_origin_navigation(origin):
         extension_preflight = request.method == "OPTIONS" and is_extension_origin(origin)
         extension_with_token = is_extension_origin(origin) and has_valid_api_token(request, current_app.config)
-        if not extension_preflight and not extension_with_token:
-            return jsonify({"error": "origin_not_allowed"}), 403
+        local_form_with_token = request.method not in SAFE_REQUEST_METHODS and has_valid_local_form_token()
+        api_with_token = request.path.startswith("/api/") and has_valid_api_token(request, current_app.config)
+        if not extension_preflight and not extension_with_token and not local_form_with_token and not api_with_token:
+            current_app.logger.warning(
+                "Blocked browser origin origin=%r host=%r remote=%r method=%s path=%s",
+                origin,
+                request.host,
+                request.remote_addr,
+                request.method,
+                request.path,
+            )
+            return request_error_response(
+                403,
+                "origin_not_allowed",
+                "AiOS blocked an unsafe request",
+                "The request did not include proof that it came from this local AiOS window. Your data was not changed.",
+                "Go back and try the action again. If it repeats, close and reopen AiOS to refresh the local session.",
+            )
 
     if request.method == "OPTIONS":
         return None
@@ -201,8 +284,19 @@ def add_local_api_headers(response):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Vary"] = "Origin"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-AiOS-Token"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-AiOS-Token, X-AiOS-Form-Token"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, OPTIONS"
+    local_form_token = session.get(LOCAL_FORM_TOKEN_SESSION_KEY)
+    if local_form_token:
+        response.set_cookie(
+            LOCAL_FORM_TOKEN_COOKIE,
+            local_form_token,
+            max_age=31536000,
+            httponly=False,
+            secure=request.is_secure,
+            samesite="Strict",
+            path="/",
+        )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Frame-Options"] = "DENY"
@@ -750,6 +844,27 @@ def settings():
     )
 
 
+@bp.get("/projects")
+def projects_workspace():
+    return render_template("projects.html", context=project_context(), result=None)
+
+
+@bp.post("/projects")
+def create_project_route():
+    result = create_project(
+        request.form.get("title", ""),
+        repository=request.form.get("repository", ""),
+        working_directory=request.form.get("working_directory", ""),
+    )
+    return render_template("projects.html", context=project_context(), result=result), 200 if result.get("ok") else 400
+
+
+@bp.post("/projects/<int:project_id>")
+def update_project_route(project_id):
+    result = update_project(project_id, request.form.to_dict())
+    return render_template("projects.html", context=project_context(), result=result), 200 if result.get("ok") else 404
+
+
 @bp.get("/settings/google/connect")
 def connect_google_email_route():
     job = _start_google_sign_in()
@@ -881,7 +996,7 @@ def save_settings():
     }:
         account_id = int(request.form.get("account_id", "0") or 0)
         if settings_action == "sync_email_account":
-            email_result = sync_email_account(account_id)
+            email_result = sync_account_intelligence(account_id, get_effective_config(current_app.config))
         elif settings_action == "pause_email_account":
             email_result = update_email_account(account_id, sync_enabled=False)
         elif settings_action == "resume_email_account":
@@ -966,16 +1081,52 @@ def import_source():
 
 
 def build_dashboard_context():
+    global _EMAIL_VIEW_REFRESH_AT
+    now = monotonic()
+    if now - _EMAIL_VIEW_REFRESH_AT >= 60:
+        try:
+            from app.services.email_views import materialize_email_views
+
+            materialize_email_views(limit=100)
+            _EMAIL_VIEW_REFRESH_AT = now
+        except Exception:
+            db.session.rollback()
     opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
-    reminders = Reminder.query.order_by(Reminder.due_at.asc()).all()
-    inbox_items = InboxItem.query.order_by(InboxItem.created_at.desc()).limit(8).all()
+    end_of_today = datetime.combine(date.today(), time.max)
+    reminders = (
+        Reminder.query.filter(Reminder.is_done.is_(False), Reminder.due_at <= end_of_today)
+        .order_by(Reminder.due_at.asc())
+        .all()
+    )
+    inbox_items = InboxItem.query.order_by(InboxItem.occurred_at.desc(), InboxItem.created_at.desc()).limit(20).all()
     activity_events = ActivityEvent.query.order_by(ActivityEvent.created_at.desc()).limit(5).all()
     connector_runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(5).all()
     plan = build_daily_plan(opportunities, reminders)
     stats = build_dashboard_stats(opportunities, reminders, inbox_items, activity_events)
 
+    opportunity_cards = [serialize_opportunity(item) for item in opportunities]
+    achievements = [item for item in opportunity_cards if item["is_achievement"]]
+    deadline_candidates = sorted(
+        [
+            item
+            for item in opportunity_cards
+            if item["deadline"]
+            and item["days_left"] is not None
+            and item["days_left"] >= 0
+            and item["kind"] in {"hackathon", "competition"}
+            and item["program"].strip().lower() not in {"vitbhopal", "vitstudent", "placement office"}
+        ],
+        key=lambda item: (item["days_left"] is None, item["days_left"] if item["days_left"] is not None else 999999),
+    )
+    deadline_highlights_by_program = {}
+    for item in deadline_candidates:
+        deadline_highlights_by_program.setdefault(item["program"].strip().lower(), item)
+    deadline_highlights = list(deadline_highlights_by_program.values())
     return {
         "opportunities": opportunities,
+        "opportunity_cards": opportunity_cards,
+        "achievements": achievements,
+        "deadline_highlights": deadline_highlights[:8],
         "reminders": reminders,
         "inbox_items": inbox_items,
         "activity_events": activity_events,
@@ -1479,6 +1630,8 @@ def api_live():
             "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
             "reminders": [serialize_reminder(item) for item in context["reminders"][:5]],
             "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:6]],
+            "achievements": context["achievements"][:6],
+            "deadline_highlights": context["deadline_highlights"],
             "activities": [serialize_activity(item) for item in context["activity_events"][:5]],
             "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:6]],
             "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
@@ -1569,8 +1722,31 @@ def api_intelligence_remove_account(account_id):
 
 @bp.post("/api/intelligence/accounts/<int:account_id>/sync")
 def api_intelligence_sync_account(account_id):
-    result = sync_email_account(account_id)
+    result = sync_account_intelligence(account_id, get_effective_config(current_app.config))
     return jsonify(result), 200 if result.get("ok") else 400
+
+
+@bp.get("/api/projects/context")
+def api_projects_context():
+    return jsonify({"ok": True, **project_context()})
+
+
+@bp.post("/api/projects")
+def api_create_project():
+    payload = request.get_json(silent=True) or {}
+    result = create_project(payload.get("title"), payload.get("repository"), payload.get("working_directory"))
+    return jsonify(result), 201 if result.get("ok") else 400
+
+
+@bp.patch("/api/projects/<int:project_id>")
+def api_update_project(project_id):
+    result = update_project(project_id, request.get_json(silent=True) or {})
+    return jsonify(result), 200 if result.get("ok") else 404
+
+
+@bp.get("/api/college/pat")
+def api_college_pat():
+    return jsonify({"ok": True, **pat_college_summary()})
 
 
 @bp.post("/api/intelligence/sync")
@@ -1806,14 +1982,42 @@ def get_user_profile():
 
 
 def serialize_opportunity(item):
+    deadline = item.deadline
+    days_left = (deadline.date() - date.today()).days if deadline else None
+    text = f"{item.title or ''} {item.organization or ''} {item.notes or ''}".lower()
+    if "promptwars" in text or "prompt wars" in text or "challenge 4" in text:
+        program = "PromptWars"
+    elif item.organization and item.organization.lower() not in {"no-reply", "email", "google"}:
+        program = item.organization
+    else:
+        program = item.title.split(":", 1)[0][:80]
+    achievement_statuses = {"selected", "shortlisted", "finalist", "winner"}
+    is_achievement = any(token in (item.status or "").lower() for token in achievement_statuses)
+    if deadline:
+        if days_left > 1:
+            deadline_message = f"{program} has {days_left} days left to build and submit the project."
+        elif days_left == 1:
+            deadline_message = f"{program} has 1 day left to build and submit the project."
+        elif days_left == 0:
+            deadline_message = f"{program} is due today. Finish and submit the project."
+        else:
+            deadline_message = f"{program} was due {abs(days_left)} day{'s' if abs(days_left) != 1 else ''} ago. Review the submission status."
+    else:
+        deadline_message = ""
     return {
         "id": item.id,
+        "source_key": item.source_key,
+        "email_message_id": item.email_message_id,
         "kind": item.kind,
         "title": item.title,
         "organization": item.organization,
         "status": item.status,
         "source": item.source,
-        "deadline": item.deadline.isoformat() if item.deadline else None,
+        "deadline": deadline.isoformat() if deadline else None,
+        "days_left": days_left,
+        "deadline_message": deadline_message,
+        "program": program,
+        "is_achievement": is_achievement,
         "notes": item.notes,
         "updated_at": item.updated_at.isoformat(),
     }
@@ -1825,6 +2029,8 @@ def serialize_reminder(item):
         "title": item.title,
         "due_at": item.due_at.isoformat(),
         "channel": item.channel,
+        "notification_type": item.notification_type,
+        "priority": item.priority,
         "is_done": item.is_done,
         "is_read": item.is_read,
         "notified_at": item.notified_at.isoformat() if item.notified_at else None,
@@ -1849,10 +2055,15 @@ def serialize_activity(item):
 def serialize_inbox_item(item):
     return {
         "id": item.id,
+        "source_key": item.source_key,
+        "email_message_id": item.email_message_id,
         "sender": item.sender,
         "subject": item.subject,
         "category": item.category,
         "confidence": item.confidence,
+        "summary": item.summary or item.body or "",
+        "next_action": item.next_action or "",
+        "occurred_at": item.occurred_at.isoformat() if item.occurred_at else None,
         "created_at": item.created_at.isoformat(),
     }
 

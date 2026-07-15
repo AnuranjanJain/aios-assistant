@@ -8,6 +8,8 @@ db = SQLAlchemy()
 
 class Opportunity(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    source_key = db.Column(db.String(240), nullable=True, unique=True, index=True)
+    email_message_id = db.Column(db.Integer, db.ForeignKey("email_message.id"), nullable=True, index=True)
     kind = db.Column(db.String(40), nullable=False)
     title = db.Column(db.String(180), nullable=False)
     organization = db.Column(db.String(120), nullable=True)
@@ -43,11 +45,16 @@ class Reminder(db.Model):
 
 class InboxItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    source_key = db.Column(db.String(240), nullable=True, unique=True, index=True)
+    email_message_id = db.Column(db.Integer, db.ForeignKey("email_message.id"), nullable=True, index=True)
     sender = db.Column(db.String(180), nullable=True)
     subject = db.Column(db.String(240), nullable=False)
     body = db.Column(db.Text, nullable=True)
     category = db.Column(db.String(80), nullable=False, default="general")
     confidence = db.Column(db.Float, nullable=False, default=0.0)
+    summary = db.Column(db.Text, nullable=True)
+    next_action = db.Column(db.Text, nullable=True)
+    occurred_at = db.Column(db.DateTime, nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -264,6 +271,7 @@ class LifeItem(db.Model):
     energy_level = db.Column(db.String(40), nullable=True)
     difficulty = db.Column(db.String(40), nullable=True)
     repository = db.Column(db.String(500), nullable=True)
+    working_directory = db.Column(db.String(1000), nullable=True)
     ai_summary = db.Column(db.Text, nullable=True)
     next_action = db.Column(db.Text, nullable=True)
     tags_json = db.Column(db.Text, nullable=True)

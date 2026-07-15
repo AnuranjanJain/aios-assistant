@@ -2,6 +2,7 @@ import base64
 import hashlib
 import html
 import json
+import logging
 import re
 import sys
 import urllib.error
@@ -34,6 +35,9 @@ from app.models import (
     WeeklyPlan,
     db,
 )
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 GMAIL_SCOPES = [
@@ -369,6 +373,41 @@ def sync_all_accounts(limit_per_account=50):
     return results
 
 
+def _friendly_sync_error(exc):
+    raw_message = str(exc)
+    lowered = raw_message.lower()
+    status = getattr(getattr(exc, "resp", None), "status", None)
+    if status == 401 or "invalid_grant" in lowered or "expired or revoked" in lowered:
+        return {
+            "error_code": "google_access_expired",
+            "message": "Google access expired. Your account and existing mail are still saved in AiOS.",
+            "suggested_fix": "Remove this Google account, connect it again, then press Sync.",
+        }
+    if status == 403 or "insufficient permission" in lowered or "access_denied" in lowered:
+        return {
+            "error_code": "gmail_permission_denied",
+            "message": "Google did not allow read-only Gmail access. Nothing was removed from AiOS.",
+            "suggested_fix": "Confirm Gmail API is enabled and this address is an OAuth test user, then reconnect the account.",
+        }
+    if status == 429 or "rate limit" in lowered or "quota" in lowered:
+        return {
+            "error_code": "gmail_rate_limited",
+            "message": "Gmail asked AiOS to slow down. Your account and synced mail remain saved.",
+            "suggested_fix": "Wait a few minutes and press Sync once more.",
+        }
+    if isinstance(exc, (OSError, urllib.error.URLError)) or "timed out" in lowered:
+        return {
+            "error_code": "gmail_network_unavailable",
+            "message": "AiOS could not reach Gmail. Your local email data is unchanged.",
+            "suggested_fix": "Check your internet connection and retry Sync.",
+        }
+    return {
+        "error_code": "gmail_sync_failed",
+        "message": "Gmail sync could not finish. Your account and existing mail remain saved.",
+        "suggested_fix": "Retry once. If it repeats, reconnect this Google account and sync again.",
+    }
+
+
 def sync_account(account, limit=50):
     if isinstance(account, int):
         account = db.session.get(ConnectedAccount, account)
@@ -379,8 +418,6 @@ def sync_account(account, limit=50):
 
     try:
         from googleapiclient.discovery import build
-        from googleapiclient.errors import HttpError
-
         credentials = credentials_for_account(account)
         if credentials is None:
             raise RuntimeError("OAuth token is missing.")
@@ -394,12 +431,18 @@ def sync_account(account, limit=50):
         account.last_error = None
         db.session.commit()
         return {"ok": True, "account": serialize_account(account), "seen": len(message_ids), "imported": imported}
-    except HttpError as exc:
-        account.last_error = str(exc)
     except Exception as exc:
-        account.last_error = str(exc)
+        LOGGER.warning("Gmail sync failed for account_id=%s: %s", account.id, exc)
+        error = _friendly_sync_error(exc)
+        account.last_error = error["message"]
     db.session.commit()
-    return {"ok": False, "account": serialize_account(account), "seen": 0, "imported": 0, "message": account.last_error}
+    return {
+        "ok": False,
+        "account": serialize_account(account),
+        "seen": 0,
+        "imported": 0,
+        **error,
+    }
 
 
 def _gmail_message_ids(service, account, limit):
@@ -573,6 +616,26 @@ def analyze_pending_emails(limit=25, app_config=None):
         analyzed += 1
     db.session.commit()
     return {"ok": True, "analyzed": analyzed}
+
+
+def sync_account_intelligence(account, app_config=None, limit=50):
+    sync = sync_account(account, limit=limit)
+    if not sync.get("ok"):
+        return sync
+    analysis = analyze_pending_emails(limit=limit, app_config=app_config or {})
+    from app.services.email_views import materialize_email_views
+
+    views = materialize_email_views(limit=100)
+    return {
+        **sync,
+        "analysis": analysis,
+        "views": views,
+        "message": (
+            f"Gmail sync finished: {sync.get('imported', 0)} new messages, "
+            f"{analysis['analyzed']} analyzed, {views['opportunities']} opportunities, "
+            f"and {views['reminders']} reminders added."
+        ),
+    }
 
 
 def analyze_email(email, app_config):
@@ -1064,6 +1127,8 @@ def intelligence_summary():
     from app.services.planning_events import planning_board
     from app.services.github_intelligence import generate_daily_summary, serialize_daily_summary
     from app.services.learning_intelligence import learning_summary
+    from app.services.college_intelligence import pat_college_summary
+    from app.services.project_context import project_context
 
     urgent = EmailInsight.query.filter(EmailInsight.priority.in_(["high", "urgent"])).count()
     unread = EmailMessage.query.filter_by(is_unread=True).count()
@@ -1087,6 +1152,8 @@ def intelligence_summary():
         "github": serialize_daily_summary(github_daily),
         "learning": learning,
         "planning_events": events,
+        "projects": project_context(),
+        "college": pat_college_summary(),
         "suggestions": [serialize_suggestion(item) for item in suggestions],
         "deadlines": [serialize_insight(item) for item in deadlines],
         "waiting_for": [serialize_insight(item) for item in waiting],
@@ -1159,9 +1226,11 @@ def run_email_intelligence_cycle(app_config):
     from app.services.github_intelligence import update_all_repositories
     from app.services.learning_intelligence import generate_events_from_learning_items, learning_summary
     from app.services.planning_events import planning_board
+    from app.services.email_views import materialize_email_views
 
     sync_results = sync_all_accounts(limit_per_account=30)
     analysis = analyze_pending_emails(limit=30, app_config=app_config)
+    views = materialize_email_views(limit=100)
     github = update_all_repositories(limit=30)
     generate_events_from_learning_items()
     daily = generate_daily_plan()
@@ -1171,6 +1240,7 @@ def run_email_intelligence_cycle(app_config):
     return {
         "sync": sync_results,
         "analysis": analysis,
+        "views": views,
         "assistant": latest_daily_assistant_summary(),
         "github": github,
         "learning": learning_summary(),

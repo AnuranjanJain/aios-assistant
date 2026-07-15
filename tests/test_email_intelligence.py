@@ -16,6 +16,7 @@ from app.models import (
     EmailTask,
     GitHubDailySummary,
     GitHubRepository,
+    InboxItem,
     EmailThread,
     LearningItem,
     LifeItem,
@@ -27,6 +28,7 @@ from app.models import (
     PlanTask,
     GoalPlan,
     PlanningEvent,
+    Reminder,
     WorkCheckpoint,
     db,
 )
@@ -39,8 +41,13 @@ from app.services.email_intelligence import (
     google_client_status,
     intelligence_summary,
     run_email_intelligence_cycle,
+    sync_account,
     upsert_gmail_message,
+    upsert_email_insight,
 )
+from app.services.college_intelligence import pat_college_summary
+from app.services.email_views import materialize_email_views
+from app.services.project_context import create_project, project_context, update_project
 from app.services.github_intelligence import update_all_repositories, update_repository
 from app.services.learning_intelligence import evening_questions, learning_summary, record_learning_progress, upsert_learning_item
 from app.services.daily_assistant import (
@@ -75,6 +82,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
             MEMORY_VECTOR_PATH = str(Path(self.temp_dir.name) / "vectors")
             USER_DISPLAY_NAME = "Anuranjan"
 
+        self.config_class = TestConfig
         self.app = create_app(TestConfig)
         self.client = self.app.test_client()
         self.ctx = self.app.app_context()
@@ -92,6 +100,392 @@ class EmailIntelligenceTestCase(unittest.TestCase):
 
         self.assertNotIn("secret-refresh-token", encrypted)
         self.assertEqual(decrypt_token_json(encrypted), token)
+
+    def test_sync_error_is_safe_helpful_and_preserves_account(self):
+        account = ConnectedAccount(provider="google", email="still-here@example.com", label="Still here")
+        db.session.add(account)
+        db.session.commit()
+
+        with mock.patch(
+            "app.services.email_intelligence.credentials_for_account",
+            side_effect=RuntimeError("invalid_grant: Token has been expired or revoked"),
+        ):
+            result = sync_account(account)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "google_access_expired")
+        self.assertIn("still saved", result["message"])
+        self.assertIn("connect it again", result["suggested_fix"])
+        self.assertIsNotNone(db.session.get(ConnectedAccount, account.id))
+
+    def test_gmail_insights_feed_inbox_opportunities_and_reminders(self):
+        account = ConnectedAccount(provider="google", email="student@example.com", label="Student")
+        email = EmailMessage(
+            account=account,
+            provider_message_id="opportunity-1",
+            sender="recruiting@example.org",
+            subject="Backend internship interview by Friday",
+            snippet="Please prepare for the interview by Friday.",
+            body_text="Action required: prepare for the backend internship interview by Friday.",
+            is_unread=True,
+            sent_at=datetime.now(),
+        )
+        db.session.add_all([account, email])
+        db.session.flush()
+        upsert_email_insight(
+            email,
+            {
+                "priority": "high",
+                "urgency": "urgent",
+                "category": "internship",
+                "summary": "Backend internship interview requires preparation.",
+                "action_items": ["Prepare for backend interview"],
+                "deadlines": ["by Friday"],
+                "meetings": ["Backend interview"],
+                "follow_ups": [],
+                "waiting_on": [],
+                "projects": ["Backend internship"],
+                "people": [],
+                "companies": ["Example"],
+                "required_documents": ["resume"],
+                "repositories": [],
+                "suggested_actions": ["Review interview requirements"],
+                "confidence": 0.91,
+            },
+        )
+        db.session.commit()
+
+        result = materialize_email_views()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(InboxItem.query.filter_by(email_message_id=email.id).count(), 1)
+        self.assertEqual(Opportunity.query.filter_by(email_message_id=email.id).count(), 1)
+        self.assertEqual(Reminder.query.filter(Reminder.source_key.like("email-task:%")).count(), 0)
+        materialize_email_views()
+        self.assertEqual(InboxItem.query.filter_by(email_message_id=email.id).count(), 1)
+
+    def test_round_selection_and_promptwars_deadline_become_highlights(self):
+        account = ConnectedAccount(provider="google", email="builder@example.com", label="Builder")
+        email = EmailMessage(
+            account=account,
+            provider_message_id="promptwars-round-2",
+            sender="PromptWars <admin@hack2skill.com>",
+            subject="You have been selected for Round 2 of PromptWars",
+            snippet="Congratulations. Build your Challenge 4 project and submit it by Sunday.",
+            body_text=(
+                "You have been selected for Round 2. The final week is live. "
+                "Build your Challenge 4 project and submit it by Sunday before the rush."
+            ),
+            sent_at=datetime(2026, 7, 15, 9, 0),
+        )
+        db.session.add_all([account, email])
+        db.session.flush()
+        upsert_email_insight(
+            email,
+            {
+                "priority": "high",
+                "urgency": "urgent",
+                "category": "hackathon",
+                "summary": "PromptWars selected you for the second round.",
+                "action_items": ["Build and submit Challenge 4"],
+                "deadlines": [],
+                "meetings": [],
+                "follow_ups": [],
+                "waiting_on": [],
+                "projects": ["PromptWars"],
+                "people": [],
+                "companies": ["PromptWars"],
+                "required_documents": [],
+                "repositories": [],
+                "suggested_actions": ["Finish the PromptWars project"],
+                "confidence": 0.94,
+            },
+        )
+        db.session.commit()
+
+        materialize_email_views()
+        opportunity = Opportunity.query.filter_by(email_message_id=email.id).one()
+        inbox = InboxItem.query.filter_by(email_message_id=email.id).one()
+
+        self.assertEqual(opportunity.status, "Selected for Round 2")
+        self.assertEqual(opportunity.deadline, datetime(2026, 7, 19, 18, 0))
+        self.assertGreaterEqual(len(inbox.summary.splitlines()), 3)
+        self.assertLessEqual(len(inbox.summary.splitlines()), 4)
+
+    def test_general_mail_with_personal_next_round_language_is_an_achievement(self):
+        account = ConnectedAccount(provider="google", email="grid@example.com", label="Grid")
+        email = EmailMessage(
+            account=account,
+            provider_message_id="grid-round-1",
+            sender="Flipkart <admin@hirepro.in>",
+            subject="Flipkart GRiD 8.0 | Round 1 (Screening) Update",
+            snippet=(
+                "We are pleased to inform you that your profile is eligible for the next "
+                "round of evaluation. Hearty Congratulations!"
+            ),
+            sent_at=datetime.now(),
+        )
+        db.session.add_all([account, email])
+        db.session.flush()
+        upsert_email_insight(
+            email,
+            {
+                "priority": "normal",
+                "urgency": "normal",
+                "category": "general",
+                "summary": email.snippet,
+                "action_items": [],
+                "deadlines": [],
+                "meetings": [],
+                "follow_ups": [],
+                "waiting_on": [],
+                "projects": [],
+                "people": [],
+                "companies": ["Flipkart"],
+                "required_documents": [],
+                "repositories": [],
+                "suggested_actions": [],
+                "confidence": 0.8,
+            },
+        )
+        db.session.commit()
+
+        materialize_email_views()
+        opportunity = Opportunity.query.filter_by(email_message_id=email.id).one()
+
+        self.assertEqual(opportunity.status, "Selected for Round 2")
+        self.assertEqual(opportunity.kind, "competition")
+
+    def test_today_reminders_only_use_latest_one_hundred_emails(self):
+        account = ConnectedAccount(provider="google", email="tasks@example.com", label="Tasks")
+        db.session.add(account)
+        db.session.flush()
+        anchor = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+        emails = []
+        for index in range(101):
+            email = EmailMessage(
+                account=account,
+                provider_message_id=f"task-mail-{index}",
+                sender="tasks@example.com",
+                subject=f"Task mail {index}",
+                snippet="A task update.",
+                sent_at=anchor - timedelta(minutes=index),
+            )
+            emails.append(email)
+            db.session.add(email)
+        db.session.flush()
+        db.session.add_all(
+            [
+                EmailTask(email=emails[0], title="Do this today", priority="high", due_at=None),
+                EmailTask(email=emails[1], title="Do this tomorrow", priority="high", due_at=anchor + timedelta(days=1)),
+                EmailTask(email=emails[100], title="Old mail task", priority="urgent", due_at=anchor),
+            ]
+        )
+        db.session.commit()
+
+        result = materialize_email_views(limit=250)
+        reminders = Reminder.query.filter(Reminder.source_key.like("email-task:%")).all()
+
+        self.assertEqual(result["emails_scanned"], 100)
+        self.assertEqual([item.title for item in reminders], ["Do this today"])
+        self.assertEqual(reminders[0].due_at.date(), date.today())
+
+    def test_pat_college_summary_extracts_today_class_and_requirements(self):
+        account = ConnectedAccount(provider="google", email="college@example.com", label="College")
+        email = EmailMessage(
+            account=account,
+            provider_message_id="pat-1",
+            sender="pat@vitbhopal.ac.in",
+            subject="PAT class today",
+            snippet="PAT class today at 10:30 am.",
+            body_text="PAT class today at 10:30 am. Venue: Lab 2. Bring laptop and college ID card. Attendance is mandatory.",
+            sent_at=datetime.now(),
+        )
+        db.session.add_all([account, email])
+        db.session.commit()
+
+        summary = pat_college_summary()
+
+        self.assertTrue(summary["has_class_today"])
+        self.assertEqual(summary["status"], "scheduled")
+        self.assertEqual(summary["time"], "10:30 am")
+        self.assertIn("laptop", summary["bring"])
+        self.assertIn("college ID card", summary["bring"])
+        self.assertIn("Lab 2", summary["location"])
+
+    def test_pat_college_summary_ignores_job_mail_and_quoted_timestamps(self):
+        account = ConnectedAccount(provider="google", email="college@example.com", label="College")
+        anchor = datetime(2026, 7, 15, 10, 0)
+        exam = EmailMessage(
+            account=account,
+            provider_message_id="pat-exam",
+            sender="pat@vitbhopal.ac.in",
+            subject="PAT exam on Friday + ID card",
+            snippet="Bring your laptop and college ID card for the PAT exam.",
+            body_text=(
+                "Bring your laptop, college ID card, 10th marksheet and rough sheets. "
+                "Report at 9 am.\nOn Tue, Jul 14, 2026 at 6:08 PM Placement Office &lt;"
+                + ("long-address-fragment" * 12)
+                + "&gt; wrote: class today."
+            ),
+            sent_at=anchor,
+        )
+        job = EmailMessage(
+            account=account,
+            provider_message_id="pat-job",
+            sender="placement@example.com",
+            subject="Fwd: Example Corp Super Dream Offer (Internship + Full Time) Registration - 2027 Batch",
+            snippet="Only students enrolled in PAT can apply.",
+            body_text="Date of Visit: later. Internship registration for PAT students.",
+            sent_at=anchor,
+        )
+        db.session.add_all([account, exam, job])
+        db.session.commit()
+
+        summary = pat_college_summary(today=date(2026, 7, 15))
+
+        self.assertFalse(summary["has_class_today"])
+        self.assertEqual(summary["status"], "upcoming")
+        self.assertEqual(len(summary["updates"]), 1)
+        self.assertEqual(summary["next_event_days"], 2)
+        self.assertIn("Friday, 17 Jul", summary["headline"])
+        self.assertEqual(summary["updates"][0]["event_date"], "2026-07-17")
+        self.assertEqual(summary["updates"][0]["time"], "9 am")
+        self.assertEqual(summary["updates"][0]["location"], "")
+        self.assertIn("10th marksheet", summary["updates"][0]["bring"])
+        self.assertIn("rough sheets", summary["updates"][0]["bring"])
+        self.assertIn("10th marksheet", summary["bring"])
+        self.assertGreaterEqual(len(summary["latest_summary"].splitlines()), 3)
+
+    def test_project_context_keeps_selected_repo_folder_progress_and_timeline(self):
+        result = create_project(
+            "FlightIQ",
+            "https://github.com/anura/flightiq",
+            str(Path(self.temp_dir.name) / "flightiq"),
+        )
+        project_id = result["project"]["id"]
+        item = db.session.get(LifeItem, project_id)
+        repository = GitHubRepository(
+            repo_full_name="anura/flightiq",
+            html_url="https://github.com/anura/flightiq",
+            life_item=item,
+            completion_percentage=64,
+            recent_progress="Dashboard and API completed.",
+            remaining_work="Finish evaluation and release.",
+            suggested_next_task="Run evaluation suite.",
+            commits_json=json.dumps([{"date": "2026-07-15T09:00:00", "message": "Add dashboard", "url": "https://github.com/anura/flightiq/commit/1"}]),
+        )
+        db.session.add(repository)
+        db.session.commit()
+        update_project(project_id, {"progress": 64, "selected": True, "progress_note": "Dashboard shipped."})
+
+        context = project_context()
+
+        self.assertEqual(context["selected"]["title"], "FlightIQ")
+        self.assertEqual(context["selected"]["progress"], 64)
+        self.assertIn("flightiq", context["selected"]["working_directory"].lower())
+
+    def test_project_context_falls_back_to_local_git_when_github_is_unavailable(self):
+        result = create_project(
+            "Local Project",
+            "https://github.com/example/local-project",
+            str(Path(self.temp_dir.name) / "local-project"),
+        )
+        local_snapshot = {
+            "branch": "main",
+            "progress": 40,
+            "work_done": "Recent local commits: Build mail intelligence",
+            "remaining_work": "2 uncommitted file changes need review on main.",
+            "next_action": "Review and commit the 2 local changes.",
+            "commits": [
+                {
+                    "at": "2026-07-15T10:00:00+00:00",
+                    "kind": "commit",
+                    "title": "Build mail intelligence",
+                    "url": "https://github.com/example/local-project/commit/abc",
+                }
+            ],
+        }
+
+        with mock.patch("app.services.project_context._local_git_snapshot", return_value=local_snapshot):
+            context = project_context()
+
+        self.assertEqual(context["selected"]["id"], result["project"]["id"])
+        self.assertEqual(context["selected"]["progress"], 40)
+        self.assertIn("Build mail intelligence", context["selected"]["work_done"])
+        self.assertEqual(context["selected"]["next_action"], "Review and commit the 2 local changes.")
+        self.assertTrue(any(entry["kind"] == "commit" for entry in context["selected"]["timeline"]))
+        self.assertTrue(any(event["kind"] == "commit" for event in context["selected"]["timeline"]))
+
+    def test_project_context_groups_repository_mail_updates_and_hides_merge_commits(self):
+        first = LifeItem(
+            source_key="email:1:legal-1",
+            title="LegalEase pull request update",
+            category="project",
+            repository="https://github.com/anura/legalease",
+        )
+        second = LifeItem(
+            source_key="email:1:legal-2",
+            title="Another LegalEase notification",
+            category="project",
+            repository="https://github.com/anura/legalease",
+        )
+        db.session.add_all([first, second])
+        db.session.flush()
+        db.session.add(
+            GitHubRepository(
+                repo_full_name="anura/legalease",
+                html_url="https://github.com/anura/legalease",
+                life_item=first,
+                commits_json=json.dumps(
+                    [
+                        {"date": "2026-07-15T10:00:00", "message": "Merge pull request #42 from feature", "url": "merge"},
+                        {"date": "2026-07-15T09:00:00", "message": "Add contract review", "url": "feature"},
+                    ]
+                ),
+            )
+        )
+        db.session.commit()
+
+        context = project_context()
+
+        self.assertEqual(context["counts"]["total"], 1)
+        self.assertEqual(context["projects"][0]["grouped_updates"], 2)
+        titles = [event["title"] for event in context["projects"][0]["timeline"]]
+        self.assertIn("Add contract review", titles)
+        self.assertFalse(any(title.startswith("Merge pull request") for title in titles))
+
+    def test_connected_accounts_and_tokens_survive_app_restart(self):
+        account = ConnectedAccount(provider="google", email="persistent@example.com", label="Persistent")
+        db.session.add(account)
+        db.session.flush()
+        db.session.add(
+            OAuthToken(
+                account=account,
+                token_json_encrypted=encrypt_token_json(json.dumps({"refresh_token": "keep-until-disconnected"})),
+            )
+        )
+        db.session.commit()
+        account_id = account.id
+
+        db.session.remove()
+        db.engine.dispose()
+        self.ctx.pop()
+        try:
+            restarted_app = create_app(self.config_class)
+            with restarted_app.app_context():
+                persisted = db.session.get(ConnectedAccount, account_id)
+                self.assertIsNotNone(persisted)
+                self.assertEqual(persisted.email, "persistent@example.com")
+                self.assertEqual(
+                    json.loads(decrypt_token_json(persisted.oauth_token.token_json_encrypted))["refresh_token"],
+                    "keep-until-disconnected",
+                )
+                db.session.remove()
+                db.engine.dispose()
+        finally:
+            self.ctx = self.app.app_context()
+            self.ctx.push()
 
     def test_email_analysis_generates_local_plan_summary(self):
         account = ConnectedAccount(provider="google", email="me@example.com", label="Main")

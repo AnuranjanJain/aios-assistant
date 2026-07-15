@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Projects - AiOS Assistant{% endblock %}
+{% block main_class %}dashboard source-dashboard{% endblock %}
+{% block content %}
+  <section class="source-page project-context-page">
+    <section class="source-hero glass">
+      <p class="eyebrow">Project context</p>
+      <h1>Know exactly what you are building.</h1>
+      <p>Select one active project, connect its GitHub repository and local working directory, then follow progress and history without searching.</p>
+      <div class="project-context-stats">
+        <span><strong>{{ context.counts.total }}</strong> projects</span>
+        <span><strong>{{ context.counts.with_repository }}</strong> repositories</span>
+        <span><strong>{{ context.counts.with_working_directory }}</strong> local folders</span>
+      </div>
+    </section>
+
+    {% if result %}
+      <section class="panel glass {{ 'memory-error' if not result.ok else '' }}">
+        <p class="eyebrow">{{ "Project updated" if result.ok else "Project needs attention" }}</p>
+        <h2>{{ result.message }}</h2>
+      </section>
+    {% endif %}
+
+    <section class="panel glass project-create-panel">
+      <div class="panel-heading">
+        <div><p class="eyebrow">Add context</p><h2>Track a project</h2></div>
+      </div>
+      <form class="project-context-form" method="post" action="{{ url_for('main.create_project_route') }}">
+        <label><span>Project name</span><input name="title" required placeholder="FlightIQ"></label>
+        <label><span>GitHub repository</span><input name="repository" placeholder="https://github.com/you/project"></label>
+        <label><span>Local working directory</span><input name="working_directory" placeholder="C:\Users\you\Documents\project"></label>
+        <button type="submit">Add and select</button>
+      </form>
+    </section>
+
+    <section class="project-context-list">
+      {% for project in context.projects %}
+        <article class="panel glass project-context-card {{ 'is-selected' if project.selected else '' }}">
+          <header class="project-context-head">
+            <div>
+              <p class="eyebrow">{{ "Active project" if project.selected else project.category }}{% if project.grouped_updates > 1 %} · {{ project.grouped_updates }} updates grouped{% endif %}</p>
+              <h2>{{ project.title }}</h2>
+            </div>
+            <span class="status-pill {{ 'on' if project.selected else '' }}">{{ project.progress }}%</span>
+          </header>
+          <div class="progress-track"><span style="width: {{ project.progress }}%"></span></div>
+          <div class="project-context-columns">
+            <div><small>Work done</small><p>{{ project.work_done or "No GitHub progress summary yet." }}</p></div>
+            <div><small>Remaining work</small><p>{{ project.remaining_work or project.next_action or "Choose the next concrete task." }}</p></div>
+          </div>
+          <form class="project-context-form project-edit-form" method="post" action="{{ url_for('main.update_project_route', project_id=project.id) }}">
+            <label><span>GitHub repository</span><input name="repository" value="{{ project.repository }}" placeholder="https://github.com/you/project"></label>
+            <label><span>Local working directory</span><input name="working_directory" value="{{ project.working_directory }}" placeholder="C:\Users\you\Documents\project"></label>
+            <label><span>Progress</span><input name="progress" type="number" min="0" max="100" value="{{ project.progress }}"></label>
+            <input type="hidden" name="selected" value="true">
+            <button type="submit">{{ "Save context" if project.selected else "Select project" }}</button>
+          </form>
+          <details class="project-timeline">
+            <summary>Timeline · {{ project.timeline|length }} meaningful updates</summary>
+            <div class="project-timeline-list">
+              {% for event in project.timeline %}
+                <article>
+                  <span>{{ event.kind|replace('_', ' ') }}</span>
+                  <div>
+                    {% if event.url %}<a href="{{ event.url }}" target="_blank" rel="noreferrer"><strong>{{ event.title }}</strong></a>{% else %}<strong>{{ event.title }}</strong>{% endif %}
+                    <small>{{ event.at or "Time unavailable" }}</small>
+                  </div>
+                </article>
+              {% else %}
+                <p class="empty">GitHub commits and project updates will appear after the next intelligence sync.</p>
+              {% endfor %}
+            </div>
+          </details>
+        </article>
+      {% else %}
+        <section class="panel glass"><p class="empty">No projects yet. Add one above or sync a Gmail message containing a GitHub repository.</p></section>
+      {% endfor %}
+    </section>
+  </section>
+{% endblock %}

@@ -4,6 +4,58 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+const LOCAL_FORM_TOKEN_COOKIE = "aios_form_token";
+const LOCAL_FORM_TOKEN_FIELD = "_local_form_token";
+const LOCAL_FORM_TOKEN_HEADER = "X-AiOS-Form-Token";
+const UNSAFE_REQUEST_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function readCookie(name) {
+  const prefix = `${encodeURIComponent(name)}=`;
+  const item = document.cookie
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(prefix));
+  return item ? decodeURIComponent(item.slice(prefix.length)) : "";
+}
+
+function attachLocalFormToken(form) {
+  if (!form || String(form.method || "get").toUpperCase() === "GET") {
+    return;
+  }
+  const token = readCookie(LOCAL_FORM_TOKEN_COOKIE);
+  if (!token) {
+    return;
+  }
+  let input = form.querySelector(`input[name="${LOCAL_FORM_TOKEN_FIELD}"]`);
+  if (!input) {
+    input = document.createElement("input");
+    input.type = "hidden";
+    input.name = LOCAL_FORM_TOKEN_FIELD;
+    form.appendChild(input);
+  }
+  input.value = token;
+}
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (input, init = {}) => {
+  const sourceRequest = input instanceof Request ? input : null;
+  const method = String(init.method || sourceRequest?.method || "GET").toUpperCase();
+  const url = new URL(sourceRequest?.url || String(input), window.location.href);
+  if (!UNSAFE_REQUEST_METHODS.has(method) || url.origin !== window.location.origin) {
+    return nativeFetch(input, init);
+  }
+
+  const token = readCookie(LOCAL_FORM_TOKEN_COOKIE);
+  if (!token) {
+    return nativeFetch(input, init);
+  }
+  const headers = new Headers(init.headers || sourceRequest?.headers || {});
+  headers.set(LOCAL_FORM_TOKEN_HEADER, token);
+  return nativeFetch(input, { ...init, headers });
+};
+
+document.addEventListener("submit", (event) => attachLocalFormToken(event.target), true);
+
 const LIVE_INTERVAL_MS = 8000;
 const SIDEBAR_SCROLL_KEY = "aios.sidebar.scrollTop";
 
@@ -64,6 +116,7 @@ function updateLiveValue(node, value) {
 
 function updateLists(payload) {
   const listRenderers = {
+    achievements: renderAchievements,
     opportunities: renderOpportunities,
     reminders: renderReminders,
     activities: renderActivities,
@@ -79,7 +132,13 @@ function updateLists(payload) {
     }
 
     const items = payload[key] || [];
-    const signature = JSON.stringify(items.map((item) => item.id || item.created_at || item.title));
+    const signature = JSON.stringify(items.map((item) => [
+      item.id || item.created_at || item.title,
+      item.status,
+      item.deadline,
+      item.summary,
+      item.is_done
+    ]));
     if (node.dataset.signature === signature) {
       return;
     }
@@ -93,9 +152,20 @@ function updateLists(payload) {
   });
 }
 
+function renderAchievements(item) {
+  return `
+    <article class="achievement-card">
+      <span class="achievement-icon">✓</span>
+      <small>${escapeHtml(item.program || item.organization || "Opportunity")}</small>
+      <strong>${escapeHtml(item.status)}</strong>
+      <p>${escapeHtml(item.title)}</p>
+    </article>
+  `;
+}
+
 function renderOpportunities(item) {
   return `
-    <article class="list-row">
+    <article class="list-row ${item.days_left !== null && item.days_left !== undefined && Number(item.days_left) <= 3 ? "opportunity-urgent" : ""}">
       <span class="status-dot"></span>
       <div class="list-copy">
         <strong>${escapeHtml(item.title)}</strong>
@@ -104,6 +174,9 @@ function renderOpportunities(item) {
           <span>${escapeHtml(item.status)}</span>
           <span>${escapeHtml(item.organization || "Unknown")}</span>
         </small>
+        ${item.deadline_message ? `<p class="deadline-copy">${escapeHtml(item.deadline_message)}</p>` : ""}
+        ${item.notes ? `<p class="list-summary mail-summary">${escapeHtml(item.notes)}</p>` : ""}
+        <small>${escapeHtml(item.source || "Local source")}${item.updated_at ? ` · ${formatTime(item.updated_at)}` : ""}</small>
       </div>
     </article>
   `;
@@ -119,6 +192,7 @@ function renderReminders(item) {
       <div class="list-copy">
         <strong>${escapeHtml(item.title)}</strong>
         <small>${formatTime(item.due_at)}${item.is_read ? " - read" : ""}</small>
+        <small class="list-meta"><span>${escapeHtml(item.priority || "normal")}</span><span>${escapeHtml(item.notification_type || "reminder")}</span></small>
       </div>
       ${actions}
     </article>
@@ -147,6 +221,8 @@ function renderInboxItems(item) {
           <span>${escapeHtml(item.category)}</span>
           <span>${escapeHtml(item.sender || "Manual input")}</span>
         </small>
+        ${item.summary ? `<p class="list-summary mail-summary">${escapeHtml(item.summary)}</p>` : ""}
+        ${item.next_action ? `<small class="list-next-action">Next: ${escapeHtml(item.next_action)}</small>` : ""}
       </div>
     </article>
   `;
@@ -166,6 +242,7 @@ function renderConnectorRuns(item) {
 
 function emptyText(key) {
   return {
+    achievements: "Selections and round milestones will appear here.",
     opportunities: "Real opportunities will appear after connector or extension capture.",
     reminders: "No reminders waiting.",
     activities: "Desktop and wellbeing activity will appear here.",
@@ -376,6 +453,7 @@ function setupSmoothNavigation() {
 
 function setupFormBusyStates() {
   document.querySelectorAll("form").forEach((form) => {
+    attachLocalFormToken(form);
     if (form.dataset.busyReady === "1") {
       return;
     }
