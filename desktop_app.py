@@ -111,6 +111,8 @@ class TrayController:
         self.window = None
         self.icon = None
         self.exiting = False
+        self.ready = False
+        self.close_notice_sent = False
 
     def attach_window(self, window):
         self.window = window
@@ -131,17 +133,29 @@ class TrayController:
         draw.ellipse((10, 10, 54, 54), fill=(255, 216, 77, 255))
         draw.ellipse((22, 22, 42, 42), fill=(76, 29, 149, 255))
         menu = pystray.Menu(
-            pystray.MenuItem("Open AiOS", lambda _icon, _item: self.show()),
-            pystray.MenuItem("Exit AiOS", lambda _icon, _item: self.exit()),
+            pystray.MenuItem("Open AiOS", lambda _icon, _item: self.show(), default=True),
+            pystray.MenuItem("Settings", lambda _icon, _item: self.show("/settings")),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Exit AiOS completely", lambda _icon, _item: self.exit()),
         )
         self.icon = pystray.Icon("aios-assistant", image, self.title, menu)
-        threading.Thread(target=self.icon.run, daemon=True).start()
+        self.ready = True
+
+        def run_icon():
+            try:
+                self.icon.run()
+            finally:
+                self.ready = False
+
+        threading.Thread(target=run_icon, name="aios-tray", daemon=True).start()
         return True
 
-    def show(self):
+    def show(self, path=None):
         if not self.window:
             return
         try:
+            if path:
+                self.window.load_url(f"http://{HOST}:{DEFAULT_PORT}{path}")
             self.window.show()
             self.window.restore()
         except Exception:
@@ -157,6 +171,7 @@ class TrayController:
 
     def exit(self):
         self.exiting = True
+        self.ready = False
         try:
             if self.icon:
                 self.icon.stop()
@@ -171,7 +186,18 @@ class TrayController:
     def on_window_closing(self, *args, **kwargs):
         if self.exiting:
             return True
+        if not self.ready:
+            return True
         threading.Timer(0.05, self.hide).start()
+        if self.icon and not self.close_notice_sent:
+            self.close_notice_sent = True
+            try:
+                self.icon.notify(
+                    "AiOS is still running. Right-click its tray icon to open Settings or exit completely.",
+                    "AiOS minimized to tray",
+                )
+            except Exception:
+                pass
         return False
 
 
