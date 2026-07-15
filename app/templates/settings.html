@@ -35,6 +35,12 @@
       <section class="panel glass {{ 'memory-error' if not email_result.ok else '' }}">
         <p class="eyebrow">{{ "Email updated" if email_result.ok else "Email needs attention" }}</p>
         <h2>{{ email_result.message or "Email intelligence action finished" }}</h2>
+        {% if email_result.suggested_fix %}
+          <div class="error-suggestion">
+            <strong>What to do next</strong>
+            <p>{{ email_result.suggested_fix }}</p>
+          </div>
+        {% endif %}
       </section>
     {% endif %}
 

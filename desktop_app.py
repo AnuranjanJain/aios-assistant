@@ -33,6 +33,7 @@ ALLOWED_START_PATHS = {
     "/planner",
     "/planning-events",
     "/profile",
+    "/projects",
     "/settings",
     "/sources",
     "/wellbeing",

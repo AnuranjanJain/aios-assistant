@@ -21,8 +21,8 @@
         <p>{{ suggested_fix }}</p>
       </div>
       <div class="error-actions">
-        <button type="button" data-error-retry>Retry</button>
-        <button type="button" class="ghost-button" data-error-back>Go Back</button>
+        <button type="button" data-error-back>Go Back</button>
+        <button type="button" class="ghost-button" data-error-retry>Retry</button>
         <a class="secondary-action link-action" href="{{ url_for('main.dashboard') }}">Dashboard</a>
       </div>
       <details class="error-details">

@@ -60,7 +60,7 @@ def get_runtime_paths():
 
 def configure_desktop_environment():
     paths = get_runtime_paths().ensure()
-    defaults = {
+    persistent_paths = {
         "AIOS_DESKTOP": "1",
         "AIOS_DATA_DIR": str(paths.data_dir),
         "DATABASE_URL": f"sqlite:///{(paths.data_dir / 'aios_assistant.db').as_posix()}",
@@ -73,6 +73,8 @@ def configure_desktop_environment():
         "AIOS_WATCH_STATE_PATH": str(paths.data_dir / "watch-state.json"),
         "AIOS_WORKERS_STATE_PATH": str(paths.data_dir / "workers.json"),
     }
-    for key, value in defaults.items():
-        os.environ.setdefault(key, value)
+    # Desktop processes and their workers must always use one durable store.
+    # AIOS_DATA_DIR remains the supported way to select a different location.
+    for key, value in persistent_paths.items():
+        os.environ[key] = value
     return paths

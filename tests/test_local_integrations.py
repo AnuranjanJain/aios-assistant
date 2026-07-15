@@ -60,6 +60,55 @@ class LocalIntegrationTestCase(unittest.TestCase):
         )
         self.assertEqual(desktop_post.status_code, 200)
 
+        webview_post = self.client.post(
+            "/settings",
+            base_url="http://127.0.0.1:5050",
+            headers={
+                "Origin": "null",
+                "Referer": "http://127.0.0.1:5050/settings",
+                "Sec-Fetch-Site": "same-origin",
+            },
+            data={},
+        )
+        self.assertEqual(webview_post.status_code, 200)
+
+        token_page = self.client.get("/settings", base_url="http://127.0.0.1:5050")
+        self.assertEqual(token_page.status_code, 200)
+        form_token = self.client.get_cookie("aios_form_token", domain="127.0.0.1").value
+        opaque_webview_post = self.client.post(
+            "/settings",
+            base_url="http://127.0.0.1:5050",
+            headers={"Origin": "null", "Sec-Fetch-Site": "none"},
+            data={"_local_form_token": form_token},
+        )
+        self.assertEqual(opaque_webview_post.status_code, 200)
+
+        missing_webview_proof = self.client.post(
+            "/settings",
+            base_url="http://127.0.0.1:5050",
+            headers={"Origin": "null"},
+            data={},
+        )
+        self.assertEqual(missing_webview_proof.status_code, 403)
+        self.assertIn("AiOS blocked an unsafe request", missing_webview_proof.get_data(as_text=True))
+        self.assertIn("Go Back", missing_webview_proof.get_data(as_text=True))
+
+        cross_site_webview_post = self.client.post(
+            "/settings",
+            base_url="http://127.0.0.1:5050",
+            headers={
+                "Origin": "null",
+                "Referer": "https://example.com/settings",
+                "Sec-Fetch-Site": "same-origin",
+            },
+            data={},
+        )
+        self.assertEqual(cross_site_webview_post.status_code, 403)
+
+        blocked_api_payload = blocked.get_json()
+        self.assertEqual(blocked_api_payload["error"], "origin_not_allowed")
+        self.assertIn("suggested_fix", blocked_api_payload)
+
         activity = self.client.post(
             "/api/wellbeing/activity",
             headers={"X-AiOS-Token": "local-test-token"},
