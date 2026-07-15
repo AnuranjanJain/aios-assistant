@@ -11,12 +11,10 @@
     </section>
 
     <nav class="settings-section-nav" aria-label="Settings sections">
-      <a href="#readiness">Readiness</a>
-      <a href="#startup">Startup</a>
-      <a href="#intelligence">AI and connectors</a>
-      <a href="#connected-accounts">Google accounts</a>
-      <a href="#diagnostics">Diagnostics</a>
+      <a href="#connected-accounts">Google account</a>
+      <a href="#startup">Startup and tray</a>
       <a href="#privacy">Privacy</a>
+      <a href="#intelligence">Advanced</a>
     </nav>
 
     {% if saved %}
@@ -46,6 +44,55 @@
         <h2>{{ ai_result.message }}</h2>
       </section>
     {% endif %}
+
+    <section id="connected-accounts" class="panel glass settings-section google-account-section">
+      <div class="google-account-intro">
+        <p class="eyebrow">Email intelligence</p>
+        <h2>{{ "Add another Gmail account" if email_accounts else "Connect Gmail to AiOS" }}</h2>
+        <p>Read-only Gmail access lets AiOS find deadlines, follow-ups, and useful work without sending, editing, or deleting email.</p>
+        <a class="google-signin-button {{ 'is-disabled' if not google_client.ready else '' }}" href="{{ url_for('main.connect_google_email_route') if google_client.ready else '#connected-accounts' }}" {% if not google_client.ready %}aria-disabled="true" title="Google sign-in is unavailable in this build"{% endif %}>
+          <span class="google-signin-mark" aria-hidden="true">G</span>
+          {{ "Add another Google account" if email_accounts else "Sign in with Google" }}
+        </a>
+        <small>Google opens in your default browser. Tokens and synced mail remain encrypted on this device.</small>
+        {% if not google_client.ready %}<p class="service-error">{{ google_client.message }}</p>{% endif %}
+      </div>
+
+      {% if email_accounts %}
+        <div class="connected-account-list">
+          {% for account in email_accounts %}
+            <article class="connected-account-row">
+              <div class="connected-account-identity">
+                <span class="connected-account-avatar" aria-hidden="true">{{ account.email[:1]|upper }}</span>
+                <div>
+                  <strong>{{ account.label }}</strong>
+                  <p>{{ account.email }}</p>
+                  {% if account.last_sync_at %}<small>Last sync: {{ account.last_sync_at }}</small>{% endif %}
+                  {% if account.last_error %}<p class="service-error">{{ account.last_error }}</p>{% endif %}
+                </div>
+              </div>
+              <div class="connected-account-controls">
+                <span class="status-pill {{ 'on' if account.sync_enabled else '' }}">{{ "Sync on" if account.sync_enabled else "Paused" }}</span>
+                <form method="post" action="{{ url_for('main.save_settings') }}">
+                  <input type="hidden" name="account_id" value="{{ account.id }}">
+                  <button type="submit" name="settings_action" value="sync_email_account" class="ghost-button">Sync</button>
+                </form>
+                <details class="account-manage-menu">
+                  <summary>Manage</summary>
+                  <form class="settings-form email-account-form" method="post" action="{{ url_for('main.save_settings') }}">
+                    <input type="hidden" name="account_id" value="{{ account.id }}">
+                    <label><span>Account name</span><input name="label" value="{{ account.label }}"></label>
+                    <button type="submit" name="settings_action" value="rename_email_account">Save name</button>
+                    <button type="submit" name="settings_action" value="{{ 'pause_email_account' if account.sync_enabled else 'resume_email_account' }}" class="ghost-button">{{ "Pause sync" if account.sync_enabled else "Resume sync" }}</button>
+                    <button type="submit" name="settings_action" value="remove_email_account" class="ghost-button danger-button">Remove account</button>
+                  </form>
+                </details>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
 
     <section id="readiness" class="panel glass settings-section">
       <div class="panel-heading">
@@ -145,13 +192,15 @@
       </p>
     </section>
 
-    <section id="intelligence" class="panel glass settings-section">
-      <div class="panel-heading">
+    <details id="intelligence" class="panel glass settings-section advanced-settings">
+      <summary class="panel-heading">
         <div>
-          <p class="eyebrow">Config</p>
-          <h2>Connector and AI Settings</h2>
+          <p class="eyebrow">Advanced</p>
+          <h2>Connector and AI settings</h2>
+          <small>Local models, import folders, sync intervals, and API access.</small>
         </div>
-      </div>
+        <span class="advanced-settings-toggle">Show</span>
+      </summary>
       <form class="settings-form" method="post" action="{{ url_for('main.save_settings') }}">
         {% for key, label in keys.items() %}
           <label>
@@ -175,60 +224,7 @@
       <p class="source-note">
         For a 4GB RTX 3050, start with small Ollama models such as `qwen2.5:3b`, `llama3.2:3b`, `gemma2:2b`, or `mistral:7b-instruct-q4_K_M` if memory allows. Keep `AI_PROVIDER=ollama`, `OLLAMA_URL=http://localhost:11434`, and use the rule-based fallback when Ollama is not running.
       </p>
-    </section>
-
-    <section id="connected-accounts" class="panel glass settings-section">
-      <div class="panel-heading">
-        <div>
-          <p class="eyebrow">Email intelligence</p>
-          <h2>Connected Google accounts</h2>
-        </div>
-        <span class="status-pill {{ 'on' if email_accounts else '' }}">{{ email_accounts|length }} accounts</span>
-      </div>
-      <p class="source-note">
-        Gmail OAuth tokens are encrypted locally. Email understanding and planning run through local Ollama or the rule-based fallback.
-      </p>
-      <form class="settings-form email-connect-form" method="post" action="{{ url_for('main.save_settings') }}">
-        <div class="worker-actions">
-          <button class="google-signin-button" type="submit" name="settings_action" value="connect_google_email" {% if not google_client.ready %}disabled title="Google sign-in is unavailable in this build"{% endif %}>
-            <span class="google-signin-mark" aria-hidden="true">G</span>
-            {{ "Add another Google account" if email_accounts else "Continue with Google" }}
-          </button>
-          <button type="submit" name="settings_action" value="sync_all_email" class="ghost-button">Sync All Now</button>
-        </div>
-        <small>AiOS requests read-only Gmail access. It cannot send, edit, or delete email.</small>
-        {% if not google_client.ready %}<p class="service-error">{{ google_client.message }}</p>{% endif %}
-      </form>
-      <div class="pipeline-list">
-        {% for account in email_accounts %}
-          <article class="pipeline-item">
-            <div>
-              <strong>{{ account.label }}</strong>
-              <p>{{ account.email }} - {{ "Sync on" if account.sync_enabled else "Sync paused" }} - {{ account.status }}</p>
-              {% if account.last_sync_at %}<p class="source-note">Last sync: {{ account.last_sync_at }}</p>{% endif %}
-              {% if account.last_error %}<p class="service-error">{{ account.last_error }}</p>{% endif %}
-              <form class="settings-form email-account-form" method="post" action="{{ url_for('main.save_settings') }}">
-                <input type="hidden" name="account_id" value="{{ account.id }}">
-                <label><span>Rename</span><input name="label" value="{{ account.label }}"></label>
-                <div class="worker-actions">
-                  <button type="submit" name="settings_action" value="rename_email_account">Rename</button>
-                  <button type="submit" name="settings_action" value="sync_email_account" class="ghost-button">Sync</button>
-                  {% if account.sync_enabled %}
-                    <button type="submit" name="settings_action" value="pause_email_account" class="ghost-button">Pause</button>
-                  {% else %}
-                    <button type="submit" name="settings_action" value="resume_email_account" class="ghost-button">Resume</button>
-                  {% endif %}
-                  <button type="submit" name="settings_action" value="remove_email_account" class="ghost-button">Remove</button>
-                </div>
-              </form>
-            </div>
-            <span class="status-pill {{ 'on' if account.sync_enabled else '' }}">{{ account.provider }}</span>
-          </article>
-        {% else %}
-          <p class="empty">No Google accounts connected yet. Add one here to start local Gmail intelligence.</p>
-        {% endfor %}
-      </div>
-    </section>
+    </details>
 
     <section id="diagnostics" class="panel glass settings-section" data-desktop-diagnostics>
       <div class="panel-heading">

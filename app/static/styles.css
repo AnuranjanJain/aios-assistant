@@ -344,6 +344,7 @@ form.is-submitting button[type="submit"] {
 
 .dashboard {
   display: grid;
+  align-content: start;
   gap: 18px;
   min-width: 0;
 }
@@ -980,6 +981,113 @@ h2 {
   margin-top: 5px;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.dashboard-detail-grid {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.dashboard-detail-panel {
+  width: 100%;
+  min-width: 0;
+}
+
+.dashboard-detail-panel .panel-heading {
+  align-items: flex-start;
+  margin-bottom: 22px;
+}
+
+.dashboard-detail-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  align-items: stretch;
+  gap: 14px;
+}
+
+.dashboard-detail-list .list-row {
+  min-width: 0;
+  min-height: 92px;
+  gap: 16px;
+  padding: 16px;
+}
+
+.list-row .list-copy {
+  display: grid;
+  align-content: start;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+  max-width: none;
+}
+
+.list-row .list-copy strong {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.list-row .list-copy > small {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.list-meta {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 9px;
+  min-width: 0;
+}
+
+.list-meta > span {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list-meta > span + span::before {
+  width: 3px;
+  height: 3px;
+  flex: 0 0 auto;
+  margin-right: 9px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  opacity: 0.62;
+}
+
+.dashboard-detail-list .reminder-row {
+  align-items: flex-start;
+}
+
+.dashboard-detail-list .reminder-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: auto;
+}
+
+@media (max-width: 620px) {
+  .dashboard-detail-panel {
+    padding: 18px;
+  }
+
+  .dashboard-detail-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-detail-list .reminder-row {
+    flex-direction: column;
+  }
+
+  .dashboard-detail-list .reminder-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .status-dot {

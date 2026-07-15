@@ -83,6 +83,22 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertNotIn(">Lock</button>", html)
         self.assertIn('aria-pressed="false">Overview</button>', html)
 
+    def test_dashboard_detail_tabs_use_full_width_readable_layout(self):
+        html = self.get_text("/?tab=opportunities")
+        template = Path("app/templates/dashboard.html").read_text(encoding="utf-8")
+        self.assertIn('class="data-grid dashboard-detail-grid"', html)
+        self.assertEqual(html.count("panel dashboard-detail-panel"), 3)
+        self.assertEqual(html.count("list dashboard-detail-list"), 3)
+        self.assertIn('class="list-meta"', template)
+
+        css = Path("app/static/styles.css").read_text(encoding="utf-8")
+        self.assertIn(".dashboard-detail-grid", css)
+        self.assertIn("align-content: start", css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", css)
+        self.assertIn("repeat(auto-fit, minmax(min(100%, 360px), 1fr))", css)
+        self.assertIn(".list-row .list-copy", css)
+        self.assertIn(".list-meta > span + span::before", css)
+
     def test_forms_have_accessible_labels_and_loading_script(self):
         checks = {
             "/automation": ["Command", "Build Safe Preview"],
@@ -118,11 +134,11 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertIn("Desktop services started by the app", html)
         self.assertIn("Desktop activity tracker", html)
         self.assertIn("Save Startup", html)
-        self.assertIn("Connected Google accounts", html)
-        self.assertIn("Continue with Google", html)
-        self.assertIn("read-only Gmail access", html)
+        self.assertIn("Connect Gmail to AiOS", html)
+        self.assertIn("Sign in with Google", html)
+        self.assertIn("Read-only Gmail access", html)
         self.assertNotIn("Google Desktop OAuth JSON", html)
-        self.assertIn("Sync All Now", html)
+        self.assertNotIn("Sync All Now", html)
         self.assertIn("GitHub token for private repo activity", html)
         self.assertIn("Email intelligence sync interval", html)
         self.assertIn("Test Ollama", html)
@@ -162,13 +178,21 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertIn("--ds-radius-lg: 16px", design_css)
         self.assertIn("prefers-reduced-motion: reduce", design_css)
         self.assertIn("forced-colors: active", design_css)
+        self.assertIn("[hidden]", design_css)
         self.assertIn(".planning-table th", design_css)
         self.assertIn("--ds-motion-expressive: 420ms", design_css)
         self.assertIn("@keyframes ds-reveal", design_css)
         self.assertIn("@media (hover: hover) and (pointer: fine)", design_css)
+        self.assertIn(".oauth-wait-card", design_css)
+        self.assertIn("@keyframes oauth-wait-progress", design_css)
 
         script = Path("app/static/app.js").read_text(encoding="utf-8")
         self.assertIn("setupRevealAnimations", script)
+        self.assertIn("setupGoogleSignInWait", script)
+        self.assertIn("data-oauth-cancel", script)
+        self.assertIn("setupSidebarScrollPersistence", script)
+        self.assertIn("aios.sidebar.scrollTop", script)
+        self.assertIn('window.addEventListener("pagehide", savePosition)', script)
         self.assertIn("prefers-reduced-motion: reduce", script)
         self.assertIn("IntersectionObserver", script)
 
@@ -214,6 +238,7 @@ class UiModernizationTestCase(unittest.TestCase):
             "career.html",
             "connectors.html",
             "dashboard.html",
+            "google_sign_in.html",
             "memory.html",
             "pipeline.html",
             "planner.html",

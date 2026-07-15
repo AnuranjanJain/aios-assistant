@@ -1,14 +1,19 @@
 import base64
 import hashlib
+import html
 import json
 import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
+import wsgiref.simple_server
+import wsgiref.util
 from datetime import date, datetime, timedelta
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
+from time import monotonic
 
 from flask import current_app
 
@@ -158,7 +163,54 @@ def google_client_status(app_config):
     return result
 
 
-def connect_google_account(app_config, label=""):
+class _GoogleOAuthRedirectApp:
+    def __init__(self):
+        self.last_request_uri = ""
+
+    def __call__(self, environ, start_response):
+        self.last_request_uri = wsgiref.util.request_uri(environ)
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.last_request_uri).query)
+        error = (query.get("error") or [""])[0]
+        succeeded = bool((query.get("code") or [""])[0]) and not error
+        title = "Google account connected" if succeeded else "Google sign-in did not finish"
+        message = (
+            "You can close this browser tab and return to AiOS."
+            if succeeded
+            else "Return to AiOS for the next step. No email access was stored."
+        )
+        body = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(title)}</title><style>
+body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#090b09;color:#f4f7f2;font:16px/1.55 system-ui,sans-serif}}
+main{{width:min(520px,calc(100% - 40px));border:1px solid #293029;border-radius:16px;background:#121512;padding:32px;box-sizing:border-box}}
+span{{display:grid;width:48px;height:48px;place-items:center;border-radius:12px;background:#a7ff3c;color:#10150c;font-weight:800}}
+h1{{margin:22px 0 10px;font-size:28px;line-height:1.25}}p{{margin:0;color:#a7b0a4}}
+</style></head><body><main><span>G</span><h1>{html.escape(title)}</h1><p>{html.escape(message)}</p></main></body></html>"""
+        payload = body.encode("utf-8")
+        start_response(
+            "200 OK",
+            [("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(payload)))],
+        )
+        return [payload]
+
+
+def _google_oauth_error_message(error):
+    if error == "access_denied":
+        return (
+            "Google cancelled or blocked this request. If Google showed Access blocked, this account is not approved "
+            "for the OAuth app yet. Add it as a test user, or publish and verify the OAuth app for universal access."
+        )
+    return "Google did not authorize Gmail access. No email access was stored."
+
+
+def connect_google_account(
+    app_config,
+    label="",
+    on_authorization=None,
+    should_cancel=None,
+    timeout_seconds=180,
+    open_browser=True,
+):
     credentials_path = _google_credentials_path(app_config)
     if not credentials_path.exists():
         return {"ok": False, "message": f"Missing Google OAuth client at {credentials_path}"}
@@ -173,17 +225,57 @@ def connect_google_account(app_config, label=""):
         GMAIL_SCOPES,
         autogenerate_code_verifier=True,
     )
-    credentials = flow.run_local_server(
-        host="127.0.0.1",
-        bind_addr="127.0.0.1",
-        port=0,
-        open_browser=True,
-        prompt="select_account consent",
-        access_type="offline",
-        include_granted_scopes="true",
-        timeout_seconds=300,
-        success_message="AiOS connected Gmail successfully. You can close this tab and return to AiOS.",
+    callback_app = _GoogleOAuthRedirectApp()
+    wsgiref.simple_server.WSGIServer.allow_reuse_address = False
+    callback_server = wsgiref.simple_server.make_server(
+        "127.0.0.1",
+        0,
+        callback_app,
+        handler_class=wsgiref.simple_server.WSGIRequestHandler,
     )
+    try:
+        flow.redirect_uri = f"http://127.0.0.1:{callback_server.server_port}/"
+        authorization_url, _ = flow.authorization_url(
+            prompt="select_account consent",
+            access_type="offline",
+            include_granted_scopes="true",
+        )
+        if callable(on_authorization):
+            on_authorization(authorization_url)
+        if open_browser:
+            webbrowser.open(authorization_url, new=1, autoraise=True)
+
+        deadline = monotonic() + max(30, int(timeout_seconds))
+        while not callback_app.last_request_uri:
+            if callable(should_cancel) and should_cancel():
+                return {"ok": False, "status": "cancelled", "message": "Google sign-in was cancelled."}
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return {
+                    "ok": False,
+                    "status": "timed_out",
+                    "message": (
+                        "Google did not return to AiOS. If Google showed Access blocked, approve this account as a test user "
+                        "or publish and verify the OAuth app, then retry."
+                    ),
+                }
+            callback_server.timeout = min(0.5, remaining)
+            callback_server.handle_request()
+
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(callback_app.last_request_uri).query)
+        oauth_error = (query.get("error") or [""])[0]
+        if oauth_error:
+            return {"ok": False, "status": "failed", "message": _google_oauth_error_message(oauth_error)}
+        if not (query.get("code") or [""])[0]:
+            return {"ok": False, "status": "failed", "message": "Google returned an incomplete sign-in response."}
+        authorization_response = callback_app.last_request_uri.replace("http://", "https://", 1)
+        flow.fetch_token(authorization_response=authorization_response)
+        credentials = flow.credentials
+    finally:
+        callback_server.server_close()
+
+    if callable(should_cancel) and should_cancel():
+        return {"ok": False, "status": "cancelled", "message": "Google sign-in was cancelled."}
     service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
     profile = service.users().getProfile(userId="me").execute()
     email = profile.get("emailAddress", "").strip()

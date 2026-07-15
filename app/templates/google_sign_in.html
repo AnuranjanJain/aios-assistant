@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Connect Google | AiOS Assistant{% endblock %}
+{% block main_class %}dashboard oauth-wait-dashboard{% endblock %}
+{% block content %}
+  <section
+    class="oauth-wait-shell"
+    data-google-sign-in-job="{{ job.id }}"
+    data-status-url="{{ url_for('main.api_google_sign_in_job', job_id=job.id) }}"
+    data-continue-url="{{ url_for('main.api_continue_google_sign_in', job_id=job.id) }}"
+    data-cancel-url="{{ url_for('main.api_cancel_google_sign_in', job_id=job.id) }}"
+    data-finish-url="{{ url_for('main.finish_google_sign_in', job_id=job.id) }}"
+    data-state="{{ job.status }}"
+  >
+    <article class="oauth-wait-card" aria-labelledby="google-sign-in-title">
+      <div class="oauth-wait-visual" aria-hidden="true">
+        <span class="oauth-google-mark">G</span>
+        <i></i><i></i><i></i>
+      </div>
+
+      <div class="oauth-wait-copy">
+        <p class="eyebrow">Secure browser sign-in</p>
+        <h1 id="google-sign-in-title" data-oauth-title>Continue in your browser</h1>
+        <p data-oauth-message role="status" aria-live="polite">{{ job.message }}</p>
+      </div>
+
+      <div class="oauth-wait-progress" data-oauth-progress role="progressbar" aria-label="Waiting for Google sign-in">
+        <span></span>
+      </div>
+
+      <div class="oauth-wait-actions">
+        <button type="button" class="button-primary" data-oauth-continue {% if not job.can_continue %}disabled{% endif %}>
+          Continue in browser
+        </button>
+        <button type="button" class="button-secondary oauth-cancel-button" data-oauth-cancel>
+          Cancel sign-in
+        </button>
+        <a class="button-primary" data-oauth-finish href="{{ url_for('main.finish_google_sign_in', job_id=job.id) }}" hidden>
+          Back to Gmail settings
+        </a>
+      </div>
+
+      <p class="oauth-wait-note">
+        AiOS only receives the Google callback. Your password stays in the browser. If Google shows <strong>Access blocked</strong>,
+        that account must be approved for this OAuth app until public verification is complete.
+      </p>
+    </article>
+  </section>
+{% endblock %}

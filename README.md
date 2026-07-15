@@ -79,6 +79,9 @@ Local APIs exposed to WDYD and other loopback clients:
 ```text
 GET  /api/intelligence/accounts
 POST /api/intelligence/accounts/google/connect
+GET  /api/oauth/google/sign-in/<job-id>
+POST /api/oauth/google/sign-in/<job-id>/continue
+POST /api/oauth/google/sign-in/<job-id>/cancel
 PATCH/DELETE /api/intelligence/accounts/<id>
 POST /api/intelligence/accounts/<id>/sync
 POST /api/intelligence/sync
@@ -92,6 +95,10 @@ PATCH /api/planning-events/<id>
 ```
 
 Email content is never sent to cloud AI providers by this module. Analysis uses Ollama when available and a deterministic local fallback otherwise.
+
+Google sign-in runs as a cancellable background job. AiOS stays responsive,
+shows the browser handoff state, and returns HTTP `202` plus polling URLs to API
+clients instead of blocking a request while the OAuth browser is open.
 
 The command planner is the bridge for real-life planning. It creates one row per event, keeps progress notes local, preserves your manual updates across refreshes, refreshes linked repo activity when possible, and exposes today/week/month agenda summaries plus timed plan blocks for WDYD.
 
@@ -122,9 +129,9 @@ The rule-based fallback still extracts urgent emails, deadlines, and action item
 
 Use **Settings -> Test Ollama** to check the local Ollama server and whether the selected model is installed. AiOS refuses non-loopback Ollama URLs so email/planner content stays local.
 
-Manage Gmail from **Settings -> Connected Google accounts**:
+Manage Gmail from **Settings -> Google account**:
 
-- select **Continue with Google** to connect the first account
+- select **Sign in with Google** to connect the first account
 - select **Add another Google account** for additional accounts
 - rename an account
 - pause or resume sync

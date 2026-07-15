@@ -28,7 +28,6 @@ from app.services.career import career_overview, get_career_engine
 from app.services.api_auth import has_valid_api_token
 from app.services.auth import clear_pin, has_pin, set_pin, verify_pin
 from app.services.connectors import (
-    connect_gmail,
     disconnect_gmail,
     gmail_oauth_status,
     list_connectors,
@@ -38,7 +37,6 @@ from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
 from app.services.daily_assistant import evening_checkin_prompt, generate_morning_briefing, submit_evening_checkin
 from app.services.email_intelligence import (
-    connect_google_account,
     generate_daily_plan as generate_email_daily_plan,
     generate_weekly_plan as generate_email_weekly_plan,
     intelligence_summary,
@@ -76,6 +74,13 @@ from app.services.memory_engine import (
     upsert_entity,
 )
 from app.services.notifications import notification_center, reschedule_notification, snooze_notification
+from app.services.oauth_sign_in import (
+    cancel_google_sign_in,
+    consume_google_sign_in_result,
+    continue_google_sign_in,
+    get_google_sign_in,
+    start_google_sign_in,
+)
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
 from app.services.planning_events import (
@@ -99,6 +104,8 @@ TRUSTED_BROWSER_ORIGINS = {
     "http://localhost:5000",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
+    "http://127.0.0.1:5050",
+    "http://localhost:5050",
     "http://tauri.localhost",
     "https://tauri.localhost",
     "tauri://localhost",
@@ -708,11 +715,8 @@ def run_connector_route(connector_id):
 
 @bp.post("/connectors/google/connect")
 def connect_google_route():
-    try:
-        connect_gmail(get_effective_config(current_app.config))
-    except Exception as exc:
-        return redirect(url_for("main.connectors", oauth_error=str(exc)))
-    return redirect(url_for("main.connectors", google="connected"))
+    job = _start_google_sign_in()
+    return redirect(url_for("main.google_sign_in_wait", job_id=job["id"]))
 
 
 @bp.post("/connectors/google/disconnect")
@@ -729,6 +733,7 @@ def connector_run_get_redirect(connector_id):
 @bp.get("/settings")
 def settings():
     values = get_effective_config(current_app.config)
+    email_result = session.pop("google_connect_result", None)
     return render_template(
         "settings.html",
         keys=SETTING_KEYS,
@@ -738,11 +743,60 @@ def settings():
         startup=startup_overview(),
         startup_result=None,
         ai_result=None,
-        email_result=None,
+        email_result=email_result,
         email_accounts=list_email_accounts(),
         google_client=google_client_status(values),
         readiness=readiness_summary(values),
     )
+
+
+@bp.get("/settings/google/connect")
+def connect_google_email_route():
+    job = _start_google_sign_in()
+    return redirect(url_for("main.google_sign_in_wait", job_id=job["id"]))
+
+
+def _start_google_sign_in(label=""):
+    return start_google_sign_in(
+        current_app._get_current_object(),
+        get_effective_config(current_app.config),
+        label=label,
+    )
+
+
+def _google_sign_in_payload(job):
+    if job is None:
+        return None
+    job_id = job["id"]
+    return {
+        **job,
+        "status_url": url_for("main.api_google_sign_in_job", job_id=job_id),
+        "continue_url": url_for("main.api_continue_google_sign_in", job_id=job_id),
+        "cancel_url": url_for("main.api_cancel_google_sign_in", job_id=job_id),
+        "finish_url": url_for("main.finish_google_sign_in", job_id=job_id),
+    }
+
+
+@bp.get("/settings/google/sign-in/<job_id>")
+def google_sign_in_wait(job_id):
+    job = get_google_sign_in(job_id)
+    if job is None:
+        session["google_connect_result"] = {
+            "ok": False,
+            "message": "This Google sign-in session expired. Please start again.",
+        }
+        return redirect(url_for("main.settings", _anchor="connected-accounts"))
+    return render_template("google_sign_in.html", job=job)
+
+
+@bp.get("/settings/google/sign-in/<job_id>/finish")
+def finish_google_sign_in(job_id):
+    result = consume_google_sign_in_result(job_id)
+    session["google_connect_result"] = result or {
+        "ok": False,
+        "message": "This Google sign-in session expired. Please start again.",
+    }
+    return redirect(url_for("main.settings", _anchor="connected-accounts"))
 
 
 @bp.get("/profile")
@@ -818,12 +872,6 @@ def save_settings():
         apply_settings(request.form)
         db.session.commit()
         ai_result = test_ollama_status(get_effective_config(current_app.config))
-    elif settings_action == "connect_google_email":
-        email_result = connect_google_account(
-            get_effective_config(current_app.config),
-        )
-    elif settings_action == "sync_all_email":
-        email_result = {"ok": True, **run_email_intelligence_cycle(get_effective_config(current_app.config))}
     elif settings_action in {
         "sync_email_account",
         "pause_email_account",
@@ -1498,8 +1546,8 @@ def api_intelligence_accounts():
 @bp.post("/api/intelligence/accounts/google/connect")
 def api_intelligence_google_connect():
     label = (request.get_json(silent=True) or {}).get("label", "")
-    result = connect_google_account(get_effective_config(current_app.config), label=label)
-    return jsonify(result), 200 if result.get("ok") else 400
+    job = _start_google_sign_in(label=label)
+    return jsonify({"ok": True, "sign_in": _google_sign_in_payload(job)}), 202
 
 
 @bp.patch("/api/intelligence/accounts/<int:account_id>")
@@ -1671,12 +1719,32 @@ def api_google_status():
     return jsonify(gmail_oauth_status(get_effective_config(current_app.config), include_profile=True))
 
 
+@bp.get("/api/oauth/google/sign-in/<job_id>")
+def api_google_sign_in_job(job_id):
+    job = get_google_sign_in(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "sign_in_not_found"}), 404
+    return jsonify({"ok": True, "sign_in": _google_sign_in_payload(job)})
+
+
+@bp.post("/api/oauth/google/sign-in/<job_id>/continue")
+def api_continue_google_sign_in(job_id):
+    result = continue_google_sign_in(job_id)
+    return jsonify(result), 200 if result.get("ok") else 409
+
+
+@bp.post("/api/oauth/google/sign-in/<job_id>/cancel")
+def api_cancel_google_sign_in(job_id):
+    job = cancel_google_sign_in(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "sign_in_not_found"}), 404
+    return jsonify({"ok": True, "sign_in": _google_sign_in_payload(job)})
+
+
 @bp.post("/api/oauth/google/connect")
 def api_google_connect():
-    try:
-        return jsonify(connect_gmail(get_effective_config(current_app.config)))
-    except Exception as exc:
-        return jsonify({"connected": False, "message": str(exc)}), 400
+    job = _start_google_sign_in()
+    return jsonify({"ok": True, "sign_in": _google_sign_in_payload(job)}), 202
 
 
 @bp.post("/api/oauth/google/disconnect")

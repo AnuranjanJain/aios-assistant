@@ -371,7 +371,8 @@ class EmailIntelligenceTestCase(unittest.TestCase):
 
         html = self.client.get("/settings").get_data(as_text=True)
         self.assertIn("Add another Google account", html)
-        self.assertIn("Sync All Now", html)
+        self.assertIn("Manage", html)
+        self.assertNotIn("Sync All Now", html)
         self.assertIn("Main Gmail", html)
         self.assertIn("Pause", html)
 
@@ -406,6 +407,34 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         )
         self.assertEqual(remove.status_code, 200)
         self.assertIsNone(db.session.get(ConnectedAccount, account.id))
+
+    def test_google_sign_in_uses_navigation_route_and_returns_to_accounts(self):
+        job = {
+            "id": "sign-in-test",
+            "status": "waiting",
+            "message": "Finish choosing your Google account in the browser.",
+            "can_continue": True,
+            "terminal": False,
+            "created_at": "2026-07-15T00:00:00+00:00",
+            "updated_at": "2026-07-15T00:00:00+00:00",
+        }
+        with mock.patch(
+            "app.routes._start_google_sign_in",
+            return_value=job,
+        ) as start:
+            response = self.client.get("/settings/google/connect")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/settings/google/sign-in/sign-in-test", response.headers["Location"])
+        start.assert_called_once()
+
+        with mock.patch("app.routes.get_google_sign_in", return_value=job):
+            wait = self.client.get("/settings/google/sign-in/sign-in-test")
+        html = wait.get_data(as_text=True)
+        self.assertEqual(wait.status_code, 200)
+        self.assertIn("Continue in your browser", html)
+        self.assertIn("Cancel sign-in", html)
+        self.assertIn('data-google-sign-in-job="sign-in-test"', html)
 
     def test_existing_sqlite_database_gets_email_life_item_columns(self):
         with tempfile.TemporaryDirectory() as legacy_dir:

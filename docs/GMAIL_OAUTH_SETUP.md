@@ -5,10 +5,12 @@ It requests only `gmail.readonly`; it cannot send, edit, or delete email.
 
 ## Connect an account
 
-1. Open **Settings -> Connected Google accounts**.
-2. Select **Continue with Google**.
-3. Choose a Gmail address in the system browser and approve read-only access.
-4. Use **Add another Google account** to connect more mailboxes.
+1. Open **Settings -> Google account**.
+2. Select **Sign in with Google**.
+3. AiOS shows a waiting screen while the system browser opens. Use **Continue
+   in browser** to reopen it or **Cancel sign-in** to stop without storing access.
+4. Choose a Gmail address in the system browser and approve read-only access.
+5. Use **Add another Google account** to connect more mailboxes.
 
 Users do not paste keys, choose credential paths, or import JSON files. The
 installed AiOS release carries its desktop OAuth client configuration.
@@ -44,12 +46,23 @@ Settings. A failure on one account does not stop other connected accounts.
 
 ## Troubleshooting
 
-- `access_denied`: add the Gmail address as an OAuth consent-screen test user.
+- `access_denied` or **Access blocked**: while the Google OAuth app is in Testing,
+  add the Gmail address under **Google Auth Platform -> Audience -> Test users**.
 - `redirect_uri_mismatch`: recreate the credential as a **Desktop app** client.
 - Gmail API disabled: enable Gmail API in the same project as the OAuth client.
 - Refresh token rejected: remove the account in AiOS and connect it again.
 - Browser did not open: retry from the installed desktop app and allow the
   loopback callback on `127.0.0.1`.
+
+## Universal account access
+
+There is no client-side bypass for Google's OAuth audience policy.
+`gmail.readonly` is a restricted Gmail scope. A Testing OAuth app only accepts
+accounts explicitly added as test users. To allow arbitrary Google accounts,
+the release OAuth project must be published for production and complete the
+Google verification steps required for its brand, audience, and restricted
+scope use. AiOS handles the same verified client without requiring any setup
+from end users.
 
 ## Release maintainer setup
 

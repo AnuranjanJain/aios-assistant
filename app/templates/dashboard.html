@@ -212,21 +212,25 @@
         </article>
       </section>
 
-      <section class="data-grid">
-        <article id="opportunities" class="panel" data-dashboard-tab-panel="opportunities">
+      <section class="data-grid dashboard-detail-grid">
+        <article id="opportunities" class="panel dashboard-detail-panel" data-dashboard-tab-panel="opportunities">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Pipeline</p>
               <h2>Tracked Opportunities</h2>
             </div>
           </div>
-          <div class="list" data-live-list="opportunities">
+          <div class="list dashboard-detail-list" data-live-list="opportunities">
             {% for item in opportunities %}
               <article class="list-row">
                 <span class="status-dot"></span>
-                <div>
+                <div class="list-copy">
                   <strong>{{ item.title }}</strong>
-                  <small>{{ item.kind }} - {{ item.status }} - {{ item.organization or "Unknown" }}</small>
+                  <small class="list-meta">
+                    <span>{{ item.kind }}</span>
+                    <span>{{ item.status }}</span>
+                    <span>{{ item.organization or "Unknown" }}</span>
+                  </small>
                 </div>
               </article>
             {% else %}
@@ -235,17 +239,17 @@
           </div>
         </article>
 
-        <article id="reminders" class="panel" data-dashboard-tab-panel="reminders">
+        <article id="reminders" class="panel dashboard-detail-panel" data-dashboard-tab-panel="reminders">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Actions</p>
               <h2>Reminders</h2>
             </div>
           </div>
-          <div class="list" data-live-list="reminders">
+          <div class="list dashboard-detail-list" data-live-list="reminders">
             {% for reminder in reminders %}
               <article class="list-row reminder-row {% if reminder.is_done %}done{% endif %}">
-                <div>
+                <div class="list-copy">
                   <strong>{{ reminder.title }}</strong>
                   <small>{{ reminder.due_at.strftime("%d %b %Y, %I:%M %p") }}</small>
                 </div>
@@ -268,20 +272,23 @@
           </div>
         </article>
 
-        <article id="inbox" class="panel" data-dashboard-tab-panel="inbox">
+        <article id="inbox" class="panel dashboard-detail-panel" data-dashboard-tab-panel="inbox">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Classifier</p>
               <h2>Recent Inbox Intelligence</h2>
             </div>
           </div>
-          <div class="list" data-live-list="inbox_items">
+          <div class="list dashboard-detail-list" data-live-list="inbox_items">
             {% for item in inbox_items %}
               <article class="list-row">
                 <span class="confidence">{{ "%.0f"|format(item.confidence * 100) }}%</span>
-                <div>
+                <div class="list-copy">
                   <strong>{{ item.subject }}</strong>
-                  <small>{{ item.category }} - {{ item.sender or "Manual input" }}</small>
+                  <small class="list-meta">
+                    <span>{{ item.category }}</span>
+                    <span>{{ item.sender or "Manual input" }}</span>
+                  </small>
                 </div>
               </article>
             {% else %}

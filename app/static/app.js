@@ -5,6 +5,7 @@ if ("serviceWorker" in navigator) {
 }
 
 const LIVE_INTERVAL_MS = 8000;
+const SIDEBAR_SCROLL_KEY = "aios.sidebar.scrollTop";
 
 async function refreshLiveDashboard() {
   const liveNodes = document.querySelectorAll(
@@ -96,9 +97,13 @@ function renderOpportunities(item) {
   return `
     <article class="list-row">
       <span class="status-dot"></span>
-      <div>
+      <div class="list-copy">
         <strong>${escapeHtml(item.title)}</strong>
-        <small>${escapeHtml(item.kind)} - ${escapeHtml(item.status)} - ${escapeHtml(item.organization || "Unknown")}</small>
+        <small class="list-meta">
+          <span>${escapeHtml(item.kind)}</span>
+          <span>${escapeHtml(item.status)}</span>
+          <span>${escapeHtml(item.organization || "Unknown")}</span>
+        </small>
       </div>
     </article>
   `;
@@ -111,7 +116,7 @@ function renderReminders(item) {
 
   return `
     <article class="list-row reminder-row ${item.is_done ? "done" : ""}">
-      <div>
+      <div class="list-copy">
         <strong>${escapeHtml(item.title)}</strong>
         <small>${formatTime(item.due_at)}${item.is_read ? " - read" : ""}</small>
       </div>
@@ -136,9 +141,12 @@ function renderInboxItems(item) {
   return `
     <article class="list-row">
       <span class="confidence">${Math.round(Number(item.confidence || 0) * 100)}%</span>
-      <div>
+      <div class="list-copy">
         <strong>${escapeHtml(item.subject)}</strong>
-        <small>${escapeHtml(item.category)} - ${escapeHtml(item.sender || "Manual input")}</small>
+        <small class="list-meta">
+          <span>${escapeHtml(item.category)}</span>
+          <span>${escapeHtml(item.sender || "Manual input")}</span>
+        </small>
       </div>
     </article>
   `;
@@ -198,12 +206,14 @@ window.addEventListener("load", () => {
   refreshLiveDashboard();
   setInterval(refreshLiveDashboard, LIVE_INTERVAL_MS);
   setupDashboardTabs();
+  setupSidebarScrollPersistence();
   enhanceEmptyStates();
   setupSmoothNavigation();
   setupFormBusyStates();
   setupInlineValidation();
   setupMemorySearch();
   setupDesktopExitButton();
+  setupGoogleSignInWait();
   setupErrorActions();
   setupRevealAnimations();
   loadDesktopStatus();
@@ -287,6 +297,45 @@ function setupDashboardTabs() {
     activate(allowed.has(nextParams.get("tab")) ? nextParams.get("tab") : "overview");
   });
   activate(initial);
+}
+
+function setupSidebarScrollPersistence() {
+  const menu = document.querySelector(".workspace-sidebar .menu");
+  if (!menu || menu.dataset.scrollPersistenceReady === "1") {
+    return;
+  }
+  menu.dataset.scrollPersistenceReady = "1";
+
+  let restored = false;
+  try {
+    const saved = Number(window.sessionStorage.getItem(SIDEBAR_SCROLL_KEY));
+    if (Number.isFinite(saved) && saved >= 0) {
+      menu.scrollTop = saved;
+      restored = true;
+    }
+  } catch (_error) {
+    restored = false;
+  }
+
+  if (!restored) {
+    menu.querySelector("a.active")?.scrollIntoView({ block: "nearest" });
+  }
+
+  const savePosition = () => {
+    try {
+      window.sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(menu.scrollTop));
+    } catch (_error) {
+      // The active-item fallback still keeps navigation usable when storage is unavailable.
+    }
+  };
+
+  let animationFrame = 0;
+  menu.addEventListener("scroll", () => {
+    window.cancelAnimationFrame(animationFrame);
+    animationFrame = window.requestAnimationFrame(savePosition);
+  }, { passive: true });
+  menu.querySelectorAll("a").forEach((link) => link.addEventListener("click", savePosition));
+  window.addEventListener("pagehide", savePosition);
 }
 
 function setupSmoothNavigation() {
@@ -556,6 +605,105 @@ function setupDesktopExitButton() {
       showDesktopToast("Unable to exit the desktop app.");
     }
   });
+}
+
+function setupGoogleSignInWait() {
+  const root = document.querySelector("[data-google-sign-in-job]");
+  if (!root) {
+    return;
+  }
+
+  const title = root.querySelector("[data-oauth-title]");
+  const message = root.querySelector("[data-oauth-message]");
+  const continueButton = root.querySelector("[data-oauth-continue]");
+  const cancelButton = root.querySelector("[data-oauth-cancel]");
+  const finishLink = root.querySelector("[data-oauth-finish]");
+  const progress = root.querySelector("[data-oauth-progress]");
+  let terminal = false;
+  let pollTimer = 0;
+
+  const terminalTitles = {
+    succeeded: "Google account connected",
+    failed: "Google sign-in needs attention",
+    cancelled: "Sign-in cancelled",
+    timed_out: "Sign-in timed out"
+  };
+
+  const render = (job) => {
+    if (!job) {
+      return;
+    }
+    root.dataset.state = job.status;
+    message.textContent = job.message || "Waiting for Google sign-in...";
+    continueButton.disabled = !job.can_continue;
+
+    if (!job.terminal) {
+      title.textContent = job.status === "starting" ? "Preparing Google sign-in" : "Continue in your browser";
+      return;
+    }
+
+    terminal = true;
+    window.clearInterval(pollTimer);
+    title.textContent = terminalTitles[job.status] || "Google sign-in finished";
+    continueButton.hidden = true;
+    cancelButton.hidden = true;
+    finishLink.hidden = false;
+    progress.setAttribute("aria-label", title.textContent);
+    progress.setAttribute("aria-valuenow", "100");
+
+    if (job.status === "succeeded") {
+      window.setTimeout(() => window.location.assign(root.dataset.finishUrl), 900);
+    }
+  };
+
+  const poll = async () => {
+    if (terminal) {
+      return;
+    }
+    try {
+      const response = await fetch(root.dataset.statusUrl, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Sign-in status unavailable");
+      }
+      render(payload.sign_in);
+    } catch (_error) {
+      message.textContent = "AiOS could not read the sign-in status. You can cancel and try again.";
+    }
+  };
+
+  continueButton.addEventListener("click", async () => {
+    continueButton.disabled = true;
+    try {
+      const response = await fetch(root.dataset.continueUrl, { method: "POST", cache: "no-store" });
+      const payload = await response.json();
+      message.textContent = payload.message || "Check your browser to continue.";
+      if (!response.ok) {
+        continueButton.disabled = false;
+      }
+    } catch (_error) {
+      message.textContent = "AiOS could not open the browser. Check your default browser and try again.";
+      continueButton.disabled = false;
+    }
+  });
+
+  cancelButton.addEventListener("click", async () => {
+    cancelButton.disabled = true;
+    try {
+      const response = await fetch(root.dataset.cancelUrl, { method: "POST", cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Cancel failed");
+      }
+      render(payload.sign_in);
+    } catch (_error) {
+      cancelButton.disabled = false;
+      message.textContent = "AiOS could not cancel this sign-in. Close the browser window and return to Settings.";
+    }
+  });
+
+  poll();
+  pollTimer = window.setInterval(poll, 1100);
 }
 
 async function loadDesktopStatus() {
