@@ -14,6 +14,7 @@ $installedExe = Join-Path $installDir $exeName
 $desktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "AiOS Assistant.lnk"
 $startMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $startMenuShortcut = Join-Path $startMenuDir "AiOS Assistant.lnk"
+$legacyStartMenuDir = Join-Path $startMenuDir "AiOS Assistant"
 $startupLauncher = Join-Path $startMenuDir "Startup\AiOS Assistant Startup.cmd"
 $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AiOS Assistant Native"
 $oldUninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AiOS Assistant"
@@ -30,6 +31,7 @@ Get-Process aios_assistant, AiOS-Core, AiOS-Assistant -ErrorAction SilentlyConti
 Start-Sleep -Milliseconds 500
 
 Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $legacyStartMenuDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 Get-ChildItem -LiteralPath $sourceDir | Where-Object { $_.Name -ne "install.ps1" } | ForEach-Object {
   Copy-Item -LiteralPath $_.FullName -Destination $installDir -Recurse -Force
