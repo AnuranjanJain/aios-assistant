@@ -455,12 +455,17 @@ def main():
     print(f"AiOS data: {paths.data_dir}")
     print(f"AiOS local URL: {url}")
 
-    if os.getenv("AIOS_HEADLESS", "") == "1":
+    core_only = os.getenv("AIOS_HEADLESS", "") == "1" or "--core-only" in sys.argv
+    if core_only:
+        core_stop_event = threading.Event()
+        app.config["AIOS_EXIT_CALLBACK"] = core_stop_event.set
+        app.config["AIOS_SHOW_CALLBACK"] = lambda _path="/": None
         try:
-            while True:
-                time.sleep(1)
+            while not core_stop_event.wait(1):
+                pass
         except KeyboardInterrupt:
-            shutdown()
+            pass
+        shutdown()
         return
 
     try:

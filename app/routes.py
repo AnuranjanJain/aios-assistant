@@ -1656,8 +1656,21 @@ def api_desktop_status():
             "runtime_descriptor": str(paths.data_dir / "runtime.json"),
             "database": current_app.config.get("SQLALCHEMY_DATABASE_URI", ""),
             "ollama_url": get_effective_config(current_app.config)["OLLAMA_URL"],
+            "startup": startup_overview(),
         }
     )
+
+
+@bp.post("/api/desktop/startup")
+def api_desktop_startup():
+    payload = request.get_json(silent=True) or {}
+    result = save_startup_settings(
+        {
+            "startup_enabled": "1" if payload.get("enabled") else "0",
+            "startup_background": "1" if payload.get("background", True) else "0",
+        }
+    )
+    return jsonify({"ok": True, "startup": startup_overview(), "result": result})
 
 
 @bp.post("/api/desktop/exit")

@@ -24,7 +24,7 @@ def project_root():
 
 def installed_executable_path():
     if sys.platform == "win32":
-        return Path.home() / "AppData" / "Local" / "Programs" / "AiOS Assistant" / "AiOS-Assistant.exe"
+        return Path.home() / "AppData" / "Local" / "Programs" / "AiOS Assistant" / "aios_assistant.exe"
     if sys.platform.startswith("linux"):
         return Path.home() / ".local" / "bin" / "AiOS-Assistant"
     return None

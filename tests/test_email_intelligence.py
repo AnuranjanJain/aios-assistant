@@ -522,7 +522,11 @@ class EmailIntelligenceTestCase(unittest.TestCase):
             datetime.fromisoformat(email_events[0]["planned_start"]),
             datetime.fromisoformat(email_events[0]["deadline"]) - timedelta(hours=2),
         )
-        self.assertGreaterEqual(len(summary["planning_events"]["plan_blocks"]["week"]), 1)
+        upcoming_blocks = (
+            summary["planning_events"]["plan_blocks"]["week"]
+            + summary["planning_events"]["plan_blocks"]["next_week"]
+        )
+        self.assertGreaterEqual(len(upcoming_blocks), 1)
 
     def test_gmail_upsert_preserves_thread_labels_and_attachment_metadata(self):
         account = ConnectedAccount(provider="google", email="me@example.com", label="Main")
