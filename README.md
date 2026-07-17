@@ -12,12 +12,23 @@
 
 <p align="center">
   <img alt="Windows desktop" src="https://img.shields.io/badge/Windows-desktop-75D7FF?style=for-the-badge&labelColor=121512">
+  <img alt="Native client" src="https://img.shields.io/badge/client-native%20Flutter-A7FF3C?style=for-the-badge&labelColor=121512">
+  <img alt="No browser server" src="https://img.shields.io/badge/browser%20server-not%20required-FFD166?style=for-the-badge&labelColor=121512">
   <img alt="Local first" src="https://img.shields.io/badge/local--first-yes-A7FF3C?style=for-the-badge&labelColor=121512">
   <img alt="Google Gmail readonly" src="https://img.shields.io/badge/Gmail-read--only-FFD166?style=for-the-badge&labelColor=121512">
   <img alt="Ollama ready" src="https://img.shields.io/badge/Ollama-ready-72E6A2?style=for-the-badge&labelColor=121512">
 </p>
 
 AiOS is the personal assistant layer for **What Do You Do** and the wider AiOS idea: it runs on your machine, keeps data local, and turns scattered signals into a clean daily workspace.
+
+This `windows-native` branch is the Windows installed-app delivery line. The
+native Flutter client owns the visible experience, while the packaged local core
+owns Gmail, OAuth tokens, workers, SQLite, Ollama, and loopback APIs. A browser is
+opened only for Google's OAuth approval and can be closed immediately afterward.
+
+The Linux/browser implementation is preserved on the
+[`linux-browser`](https://github.com/AnuranjanJain/aios-assistant/tree/linux-browser)
+branch.
 
 <p align="center">
   <img src="docs/screenshots/aios-desktop-shell-tour.gif" alt="AiOS desktop shell tour" width="820">
@@ -62,10 +73,10 @@ They communicate only through loopback APIs. Raw activity and email content stay
 
 ```mermaid
 flowchart LR
-    A["Gmail / files / browser / wellbeing"] --> B["Local Flask API"]
+    A["Gmail / files / wellbeing"] --> B["Packaged AiOS core"]
     B --> C["SQLite memory + activity store"]
     B --> D["Rule engine or Ollama"]
-    C --> E["Desktop dashboard"]
+    C --> E["Native Flutter Windows client"]
     D --> E
     E --> F["Plans, reminders, pipelines, reports"]
 ```
@@ -161,27 +172,14 @@ flowchart TB
 
 Everything important now uses the same shell, top pipeline rail, profile button, and smooth page motion.
 
-## Quick Start
+## Platform Branches
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-copy .env.example .env
-python run.py
-```
+| Branch | Product surface |
+| --- | --- |
+| `windows-native` | Native Flutter client plus packaged local connector core |
+| `linux-browser` | Flask/browser dashboard and Linux packaging |
 
-Open:
-
-```text
-http://127.0.0.1:5000
-```
-
-Run the packaged desktop build:
-
-```powershell
-.\release\AiOS-Assistant.exe
-```
+## Windows Install
 
 Build and install the desktop app:
 
@@ -192,7 +190,12 @@ Build and install the desktop app:
 
 The installer copies `AiOS-Assistant.exe` to `%LOCALAPPDATA%\Programs\AiOS Assistant`, adds Start Menu/Desktop shortcuts, and can enable login startup. The startup launcher opens AiOS in background tray mode; closing the desktop window hides it to the tray until you use **Exit AiOS** from Settings or the tray menu. When the desktop app starts, it owns the background loops for reminders, imports, opportunities, and activity tracking.
 
-Arch/Linux:
+Windows users do not run `python run.py`, Vite, or a permanent browser tab. The
+installed app starts its packaged local core automatically.
+
+Linux development and packaging remain on the `linux-browser` branch.
+
+Arch/Linux on that branch:
 
 ```bash
 ./scripts/build-desktop-arch.sh
