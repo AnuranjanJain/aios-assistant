@@ -30,24 +30,6 @@ The Linux/browser implementation is preserved on the
 [`linux-browser`](https://github.com/AnuranjanJain/aios-assistant/tree/linux-browser)
 branch.
 
-<p align="center">
-  <img src="docs/screenshots/aios-desktop-shell-tour.gif" alt="AiOS desktop shell tour" width="820">
-</p>
-
-## See It In Motion
-
-| Overview | Opportunities |
-| --- | --- |
-| ![AiOS overview](docs/screenshots/aios-desktop-shell-overview.png) | ![AiOS opportunities](docs/screenshots/aios-desktop-shell-opportunities.png) |
-
-| Memory | Profile |
-| --- | --- |
-| ![AiOS memory](docs/screenshots/aios-desktop-shell-memory.png) | ![AiOS profile](docs/screenshots/aios-desktop-shell-profile.png) |
-
-| Planner | Mobile companion |
-| --- | --- |
-| ![AiOS planner](docs/screenshots/aios-desktop-planner.png) | ![AiOS mobile dashboard](docs/screenshots/aios-mobile-dashboard.png) |
-
 ## Two Apps, One Private Loop
 
 | App | Job |
@@ -156,21 +138,24 @@ account selection, and read-only Gmail access. See
 
 Set `EMAIL_SYNC_INTERVAL_MINUTES` in Settings to control continuous background sync. The worker enforces a 2-minute minimum to avoid hammering Gmail.
 
-## Desktop Shell
+## Native Windows Shell
 
 ```mermaid
 flowchart TB
-    S["Shared sidebar shell"] --> O["Overview tabs"]
-    S --> M["Memory"]
-    S --> P["Planner"]
-    S --> A["Automation"]
-    S --> B["Browser Agent"]
-    S --> C["Career Copilot"]
-    S --> X["Sources / Connectors / Workers / Settings"]
-    O --> T["Overview | Opportunities | Reminders | Inbox AI"]
+    W["aios_assistant.exe"] --> O["Overview"]
+    W --> I["Inbox AI"]
+    W --> H["Opportunities"]
+    W --> P["Projects"]
+    W --> C["College / PAT"]
+    W --> G["Google Accounts"]
+    W --> S["Settings / startup / tray / exit"]
+    W --> A["127.0.0.1 paired API"]
+    A --> K["AiOS-Core.exe"]
 ```
 
-Everything important now uses the same shell, top pipeline rail, profile button, and smooth page motion.
+The Flutter shell renders real local data and starts the adjacent core
+automatically. Close and minimize move the window to the tray; explicit Exit
+stops both processes.
 
 ## Platform Branches
 
@@ -184,11 +169,16 @@ Everything important now uses the same shell, top pipeline rail, profile button,
 Build and install the desktop app:
 
 ```powershell
-.\scripts\build-desktop.ps1
-.\scripts\install-desktop.ps1 -EnableStartup
+.\scripts\build-windows-native.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\native_app\windows\install\install.ps1
 ```
 
-The installer copies `AiOS-Assistant.exe` to `%LOCALAPPDATA%\Programs\AiOS Assistant`, adds Start Menu/Desktop shortcuts, and can enable login startup. The startup launcher opens AiOS in background tray mode; closing the desktop window hides it to the tray until you use **Exit AiOS** from Settings or the tray menu. When the desktop app starts, it owns the background loops for reminders, imports, opportunities, and activity tracking.
+The installer copies `aios_assistant.exe`, `AiOS-Core.exe`, Flutter DLLs, and
+the Flutter data directory to `%LOCALAPPDATA%\Programs\AiOS Assistant`. It adds
+Start Menu and Desktop shortcuts, so Windows Search can launch the app. Enable
+background login startup from the native Settings page. Closing the desktop
+window hides it to the tray until you choose **Exit AiOS** from Settings or the
+tray menu.
 
 Windows users do not run `python run.py`, Vite, or a permanent browser tab. The
 installed app starts its packaged local core automatically.
@@ -224,11 +214,20 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 
 ```text
 app/
-  routes.py              Desktop pages, API endpoints, OAuth routes
+  routes.py              Local API and OAuth endpoints
   models.py              SQLite models
   services/              Memory, planner, email intelligence, connectors, workers, settings
-  templates/             Shared desktop shell and pages
-  static/                CSS, JS, manifest, icons
+  templates/             Linux/browser client templates
+  static/                Linux/browser assets and packaged core resources
+
+native_app/              Flutter Windows client
+  lib/src/               native shell, controller, API and core manager
+  windows/runner/        Win32 window, tray and lifecycle channel
+  windows/install/       per-user installer and uninstaller
+
+aios_core.spec           headless Windows core package
+scripts/build-windows-native.ps1
+                         builds the core, Flutter client and release ZIP
 
 automation_agent/        Local file and office automation tools
 browser_agent/           Browser research and job tracking planner
@@ -239,24 +238,17 @@ packaging/               Desktop release helpers
 tests/                   Regression and integration tests
 ```
 
-## Main Pages
+## Native Pages
 
 | Page | Purpose |
 | --- | --- |
-| `/` | Desktop overview with tabbed Overview, Opportunities, Reminders, Inbox AI |
-| `/gmail` | Gmail intelligence feed |
-| `/hackathons` | Hackathon corner |
-| `/jobs` | Placement and job tracker |
-| `/wellbeing` | What Do You Do / activity signals |
-| `/memory` | Persistent personal memory |
-| `/planner` | Goal planner |
-| `/automation` | Desktop automation preview and approval |
-| `/browser-agent` | Browser research and job search agent |
-| `/career` | Career Copilot |
-| `/profile` | Name, role, current focus, profile photo |
-| `/connectors` | Gmail and import connectors |
-| `/workers` | Desktop background service status |
-| `/settings` | Local config, PIN lock, desktop startup |
+| Overview | Today's focus, reminders, mail and activity signals |
+| Inbox AI | Local email summaries and urgent actions |
+| Opportunities | Grouped jobs, hackathons, achievements and deadlines |
+| Projects | Repository, working-folder, progress and next-action context |
+| College | PAT class schedule, preparation and recent college mail |
+| Accounts | One-click multi-account Google sign-in and sync |
+| Settings | Core health, theme, Windows startup, tray and exit |
 
 ## Safety Notes
 
@@ -272,7 +264,10 @@ tests/                   Regression and integration tests
 ```powershell
 python -m pytest -q
 python -m pip_audit -r requirements.txt
-python -m PyInstaller --clean --noconfirm desktop_app.spec
+python -m PyInstaller --clean --noconfirm aios_core.spec
+cd native_app
+C:\Users\anura\development\flutter\bin\flutter.bat analyze
+C:\Users\anura\development\flutter\bin\flutter.bat test
 ```
 
 ## Deep Dives

@@ -7,15 +7,15 @@ This document explains how AiOS Assistant should work as both a standalone app a
 AiOS Assistant has one local agent core and multiple user-facing surfaces.
 
 ```text
-                         Smartphone / PWA
-                               |
-Browser plugin  ---->  Local Flask API  <----  Web dashboard
-                               |
-                       Agent services layer
-                               |
-              SQLite/PostgreSQL + background scheduler
-                               |
-                         Ollama local LLM
+Windows Flutter client ----> loopback pairing <---- WDYD Windows app
+                                  |
+                           Headless AiOS Core
+                                  |
+                    Agent services + background workers
+                                  |
+                         SQLite + Ollama local LLM
+
+Linux browser client ------> same Flask service model
 ```
 
 The local backend is the source of truth. It owns the database, AI classification, reminders, planning logic, and integration rules.
@@ -228,24 +228,20 @@ The PWA starts on `/mobile` and can be installed from supported mobile browsers.
 
 ### 6. Desktop App
 
-The desktop app is a cross-platform native wrapper around the same Flask backend.
+Windows uses a native Flutter client and a separate headless local core. Linux
+keeps the Flask/browser client on the `linux-browser` branch.
 
 ```text
-desktop_app.py
+aios_assistant.exe (Flutter)
         |
-configures OS-native data and config directories
+discovers or starts adjacent AiOS-Core.exe
         |
-starts Flask on an available 127.0.0.1 port
+pairing token on an available 127.0.0.1 port
         |
-opens a native pywebview window on Windows or Linux
+SQLite, Gmail OAuth, Ollama and workers
         |
-starts reminder service thread
-        |
-starts watch-folder import service thread
-        |
-starts opportunity monitor service thread
-        |
-starts desktop activity tracker thread
+Flutter renders Overview, Inbox, Opportunities, Projects, College,
+Accounts and Settings without an embedded browser
 ```
 
 Desktop persistence:
@@ -261,20 +257,21 @@ Linux / Arch
   cache:  $XDG_CACHE_HOME/aios-assistant
 ```
 
-`desktop_app.spec` creates one executable per target OS. Windows builds must be
-produced on Windows and Arch builds on Arch. The packaged runtime includes
-templates, static assets, connector dependencies, and hidden worker entrypoints.
+`aios_core.spec` packages the Windows service core. Flutter produces the native
+client and its DLL/data directory. `scripts/build-windows-native.ps1` assembles
+both into one installable release. The older `desktop_app.spec` remains only on
+the Linux/browser migration line.
 
 Windows installation is per-user:
 
 ```text
-scripts/install-desktop.ps1
+native_app/windows/install/install.ps1
         |
-copies AiOS-Assistant.exe to %LOCALAPPDATA%\Programs\AiOS Assistant
+copies aios_assistant.exe + AiOS-Core.exe to %LOCALAPPDATA%\Programs\AiOS Assistant
         |
 creates Start Menu and Desktop shortcuts
         |
-optionally creates a background Startup launcher in the user's Startup folder
+native Settings can create a background Startup launcher
 ```
 
 The native desktop shell keeps a tray icon alive. Close/minimize hides the
@@ -289,10 +286,10 @@ login startup with `--enable-startup`.
 
 Current live behavior:
 
-- browser UI polls `GET /api/live` every 15 seconds
-- dashboard/mobile stats update without a full page refresh
+- native Flutter UI polls local summary APIs every 12 seconds
+- Linux/browser stats update without a full page refresh on its branch
 - `local_worker.py` checks reminders every 30 seconds
-- `desktop_app.py` starts reminders, import watching, opportunity scanning, and activity tracking automatically
+- `AiOS-Core.exe` starts reminders, import watching, opportunity scanning, email intelligence, and activity tracking automatically
 - desktop notifications use `plyer` when available and terminal output as a fallback
 - reminders are marked read after notification so the same reminder is not repeatedly sent
 
@@ -641,7 +638,7 @@ Implemented:
 - browser extension MVP for page/job/hackathon/wellbeing capture
 - PWA manifest and service worker
 - phone-first `/mobile` dashboard
-- desktop webview launcher
+- native Flutter Windows launcher with a headless local core
 - live dashboard polling
 - local reminder worker
 - desktop notification foundation

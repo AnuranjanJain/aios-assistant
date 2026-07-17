@@ -5,7 +5,7 @@ It requests only `gmail.readonly`; it cannot send, edit, or delete email.
 
 ## Connect an account
 
-1. Open **Settings -> Google account**.
+1. Open **Accounts** in the native Windows app.
 2. Select **Sign in with Google**.
 3. AiOS shows a waiting screen while the system browser opens. Use **Continue
    in browser** to reopen it or **Cancel sign-in** to stop without storing access.
@@ -70,5 +70,5 @@ End users never perform this step. A release maintainer enables Gmail API,
 configures the Google OAuth consent screen, and creates a **Desktop app** OAuth
 client. Place its downloaded file at
 `%APPDATA%\AiOS Assistant\credentials\google_client_secret.json` before running
-`scripts/build-desktop.ps1`; the build embeds it in the executable. For source
+`scripts/build-windows-native.ps1`; the build embeds it in `AiOS-Core.exe`. For source
 development only, `GMAIL_CREDENTIALS_PATH` may point to an equivalent file.

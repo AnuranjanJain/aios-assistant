@@ -1,34 +1,35 @@
 # Desktop Installation
 
-AiOS Assistant is installed as a local desktop app. The web routes are still used internally by the native shell, but the user-facing app is the packaged executable.
+AiOS Assistant is a native Flutter Windows app backed by an adjacent headless
+local core. It does not render the Flask website inside a desktop window.
 
 ## Windows
 
 Build the executable:
 
 ```powershell
-.\scripts\build-desktop.ps1
+.\scripts\build-windows-native.ps1
 ```
 
 Install it for the current user:
 
 ```powershell
-.\scripts\install-desktop.ps1 -EnableStartup
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\native_app\windows\install\install.ps1
 ```
 
 This creates:
 
 ```text
-%LOCALAPPDATA%\Programs\AiOS Assistant\AiOS-Assistant.exe
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\AiOS Assistant\AiOS Assistant.lnk
+%LOCALAPPDATA%\Programs\AiOS Assistant\aios_assistant.exe
+%LOCALAPPDATA%\Programs\AiOS Assistant\AiOS-Core.exe
+%APPDATA%\Microsoft\Windows\Start Menu\Programs\AiOS Assistant.lnk
 %USERPROFILE%\Desktop\AiOS Assistant.lnk
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\AiOS Assistant Startup.cmd
 ```
 
-The startup launcher starts the installed executable once in background tray
-mode. Closing the native window hides AiOS to the tray; use **Exit AiOS** in
-Settings or the tray menu to fully quit. The executable owns the background
-services:
+Enable **Open on Windows startup** from Settings to create a background tray
+launcher. Closing or minimizing hides AiOS to the tray; use **Exit AiOS** in
+Settings or the tray menu to stop the Flutter client and local core. The core
+owns the background services:
 
 - reminder service
 - import watcher
@@ -65,7 +66,7 @@ Linux config:  $XDG_CONFIG_HOME/aios-assistant
 
 Credentials, Gmail tokens, SQLite databases, logs, imports, and memory vectors stay local to those runtime folders.
 
-For Gmail, select **Sign in with Google** under **Settings -> Google
-accounts**, then approve read-only access. No keys or JSON files are required.
+For Gmail, open **Accounts** and select **Sign in with Google**, then approve
+read-only access in the system browser. No keys or JSON files are required.
 Connect each mailbox separately. See
 [Gmail OAuth Setup](GMAIL_OAUTH_SETUP.md).
