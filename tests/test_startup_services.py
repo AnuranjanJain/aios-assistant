@@ -29,7 +29,7 @@ class StartupServicesTestCase(unittest.TestCase):
 
     def test_launcher_starts_desktop_app_once(self):
         launcher = startup.build_windows_launcher()
-        self.assertTrue("AiOS-Assistant.exe" in launcher or "desktop_app.py" in launcher)
+        self.assertTrue("aios_assistant.exe" in launcher.lower() or "desktop_app.py" in launcher)
         self.assertNotIn("--worker", launcher)
 
     def test_install_and_remove_startup_entry(self):
