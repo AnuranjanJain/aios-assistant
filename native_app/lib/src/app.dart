@@ -45,7 +45,19 @@ class _AiosAppState extends State<AiosApp> {
       theme: ThemeData(
         colorScheme: scheme,
         useMaterial3: true,
-        scaffoldBackgroundColor: scheme.surface,
+        fontFamily: 'Segoe UI',
+        scaffoldBackgroundColor: controller.darkMode
+            ? const Color(0xFF090B09)
+            : const Color(0xFFF3F5F0),
+        textTheme: ThemeData(brightness: brightness).textTheme.apply(
+          fontFamily: 'Segoe UI',
+          bodyColor: controller.darkMode
+              ? const Color(0xFFF4F7F2)
+              : const Color(0xFF171B16),
+          displayColor: controller.darkMode
+              ? const Color(0xFFF4F7F2)
+              : const Color(0xFF171B16),
+        ),
         cardTheme: CardThemeData(
           elevation: 0,
           margin: EdgeInsets.zero,

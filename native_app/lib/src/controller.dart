@@ -27,7 +27,9 @@ class AiosController extends ChangeNotifier {
   Map<String, dynamic> accounts = const {};
   Map<String, dynamic> projects = const {};
   Map<String, dynamic> college = const {};
+  final Map<String, Map<String, dynamic>> pageData = {};
   List<dynamic> workers = const [];
+  bool pageLoading = false;
   Map<String, dynamic>? signIn;
   Timer? _refreshTimer;
   Timer? _signInTimer;
@@ -42,6 +44,7 @@ class AiosController extends ChangeNotifier {
     try {
       await core.ensureRunning();
       await refresh();
+      await refreshPageData(activePage, silent: true);
       _refreshTimer = Timer.periodic(
         const Duration(seconds: 12),
         (_) => unawaited(refresh(silent: true)),
@@ -53,6 +56,25 @@ class AiosController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> refreshPageData(String page, {bool silent = false}) async {
+    final endpoint = _pageEndpoints[page];
+    if (endpoint == null) return;
+    if (!silent) {
+      pageLoading = true;
+      notifyListeners();
+    }
+    try {
+      pageData[page] = await api.get(endpoint);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      pageLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Map<String, dynamic> dataFor(String page) => pageData[page] ?? const {};
 
   Future<void> refresh({bool silent = false}) async {
     if (!silent) {
@@ -150,6 +172,22 @@ class AiosController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> continueGoogleSignIn() async {
+    final id = signIn?['id']?.toString();
+    if (id == null || id.isEmpty) {
+      await connectGoogle();
+      return;
+    }
+    try {
+      final result = await api.post('/api/oauth/google/sign-in/$id/continue');
+      signIn = result['sign_in'] as Map<String, dynamic>? ?? signIn;
+      message = signIn?['message']?.toString() ?? 'Continue in your browser.';
+    } catch (error) {
+      message = _friendly(error);
+    }
+    notifyListeners();
+  }
+
   Future<void> syncAccount(int id) async {
     syncing = true;
     notifyListeners();
@@ -196,8 +234,10 @@ class AiosController extends ChangeNotifier {
   }
 
   void selectPage(String page) {
+    if (page == activePage) return;
     activePage = page;
     notifyListeners();
+    unawaited(refreshPageData(page));
   }
 
   void toggleTheme() {
@@ -229,6 +269,18 @@ class AiosController extends ChangeNotifier {
     final root = Platform.environment['LOCALAPPDATA'] ?? Directory.current.path;
     return File('$root\\AiOS Assistant\\native-settings.json');
   }
+
+  static const _pageEndpoints = <String, String>{
+    'memory': '/api/memory',
+    'planner': '/api/planner',
+    'command-planner': '/api/planning-events',
+    'automation': '/api/automation',
+    'browser-agent': '/api/browser-agent',
+    'career': '/api/career',
+    'connectors': '/api/connectors',
+    'notifications': '/api/notifications',
+    'analytics': '/api/analytics',
+  };
 
   String _friendly(Object error) => error.toString().replaceFirst(
     RegExp(r'^(Exception|StateError|FormatException): '),
