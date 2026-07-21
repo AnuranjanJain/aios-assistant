@@ -14,18 +14,7 @@ class AiosShell extends StatefulWidget {
     (id: 'opportunities', label: 'Opportunities', icon: Icons.work_outline),
     (id: 'reminders', label: 'Reminders', icon: Icons.notifications_none),
     (id: 'inbox', label: 'Inbox AI', icon: Icons.mail_outline),
-    (id: 'projects', label: 'Projects', icon: Icons.account_tree_outlined),
-    (id: 'wellbeing', label: 'Wellbeing', icon: Icons.favorite_border),
     (id: 'memory', label: 'Memory', icon: Icons.storage_outlined),
-    (id: 'planner', label: 'Planner', icon: Icons.calendar_today_outlined),
-    (
-      id: 'command-planner',
-      label: 'Command Planner',
-      icon: Icons.event_note_outlined,
-    ),
-    (id: 'automation', label: 'Automation', icon: Icons.terminal_rounded),
-    (id: 'browser-agent', label: 'Browser Agent', icon: Icons.public),
-    (id: 'career', label: 'Career Copilot', icon: Icons.school_outlined),
     (id: 'sources', label: 'Sources', icon: Icons.power_outlined),
     (id: 'connectors', label: 'Connectors', icon: Icons.link_rounded),
     (id: 'workers', label: 'Workers', icon: Icons.memory_outlined),
@@ -50,11 +39,13 @@ class _AiosShellState extends State<AiosShell> {
     final width = MediaQuery.sizeOf(context).width;
     final compactSidebar = width < 1040;
     final showSchedule = width >= 1120;
+    final outerPadding = width < 900 ? 12.0 : 20.0;
+    final shellGap = width < 900 ? 12.0 : 20.0;
     return Scaffold(
       backgroundColor: _Palette.of(context).background,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(outerPadding),
           child: Row(
             children: [
               _Sidebar(
@@ -62,7 +53,7 @@ class _AiosShellState extends State<AiosShell> {
                 scrollController: _sidebarScroll,
                 compact: compactSidebar,
               ),
-              const SizedBox(width: 20),
+              SizedBox(width: shellGap),
               Expanded(
                 child: Column(
                   children: [
@@ -216,20 +207,16 @@ class _Brand extends StatelessWidget {
         width: 46,
         height: 46,
         decoration: BoxDecoration(
-          color: _Palette.primary,
-          shape: BoxShape.circle,
+          borderRadius: BorderRadius.circular(13),
           boxShadow: const [
             BoxShadow(color: Color(0x1FA7FF3C), spreadRadius: 7, blurRadius: 2),
           ],
         ),
-        alignment: Alignment.center,
-        child: const Text(
-          'A',
-          style: TextStyle(
-            color: Color(0xFF10150C),
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-          ),
+        clipBehavior: Clip.antiAlias,
+        child: Image.asset(
+          'assets/aios-logo-512.png',
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
         ),
       ),
       if (!compact) ...[
@@ -486,7 +473,7 @@ class _TopBar extends StatelessWidget {
                     ),
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: const Text(
-                      'Your Schedule',
+                      'Local AI',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w900,
@@ -548,10 +535,10 @@ class _TopRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final entries = <({String id, String label, IconData icon})>[
       (id: 'sources', label: 'Gmail', icon: Icons.mail_outline),
-      (id: 'opportunities', label: 'Hackathons', icon: Icons.work_outline),
-      (id: 'command-planner', label: 'Plan', icon: Icons.event_note_outlined),
-      (id: 'career', label: 'Jobs', icon: Icons.school_outlined),
-      (id: 'wellbeing', label: 'Wellbeing', icon: Icons.favorite_border),
+      (id: 'opportunities', label: 'Pipeline', icon: Icons.work_outline),
+      (id: 'reminders', label: 'Reminders', icon: Icons.notifications_none),
+      (id: 'memory', label: 'Memory', icon: Icons.storage_outlined),
+      (id: 'inbox', label: 'Inbox AI', icon: Icons.auto_awesome_outlined),
     ];
     return Container(
       height: 52,
@@ -562,9 +549,7 @@ class _TopRail extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       child: Row(
         children: entries.map((entry) {
-          final active =
-              controller.activePage == entry.id ||
-              (entry.id == 'sources' && controller.activePage == 'inbox');
+          final active = controller.activePage == entry.id;
           return Expanded(
             child: _RailItem(
               label: entry.label,
@@ -695,14 +680,7 @@ class _ActivePage extends StatelessWidget {
       'opportunities' => _OpportunitiesPage(controller: controller),
       'reminders' => _RemindersPage(controller: controller),
       'inbox' => _InboxPage(controller: controller),
-      'projects' => _ProjectsPage(controller: controller),
-      'wellbeing' => _WellbeingPage(controller: controller),
       'memory' => _MemoryPage(controller: controller),
-      'planner' => _PlannerPage(controller: controller),
-      'command-planner' => _CommandPlannerPage(controller: controller),
-      'automation' => _AutomationPage(controller: controller),
-      'browser-agent' => _BrowserAgentPage(controller: controller),
-      'career' => _CareerPage(controller: controller),
       'sources' => _SourcesPage(controller: controller),
       'connectors' => _ConnectorsPage(controller: controller),
       'workers' => _WorkersPage(controller: controller),
@@ -739,16 +717,16 @@ class _OverviewPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stats = _map(controller.live['stats']);
-    final plan = _map(controller.live['plan']);
+    final intelligence = _map(controller.live['intelligence']);
+    final today = _map(intelligence['today']);
     final opportunities = [
       ..._maps(controller.live['achievements']),
       ..._maps(controller.live['opportunities']),
     ];
     final reminders = _maps(controller.live['reminders']);
-    final activities = _maps(controller.live['activities']);
     final summary = _string(
-      plan['summary'],
-      fallback: 'Your local assistant is building today\'s plan.',
+      today['summary'],
+      fallback: 'Gmail, reminders, and memory are ready on this device.',
     );
 
     return Column(
@@ -759,7 +737,11 @@ class _OverviewPage extends StatelessWidget {
           child: _Hero(controller: controller, summary: summary),
         ),
         const SizedBox(height: 12),
-        _MetricGrid(stats: stats),
+        _MetricGrid(
+          stats: stats,
+          intelligence: intelligence,
+          connectedAccounts: _maps(controller.accounts['accounts']).length,
+        ),
         const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -771,7 +753,8 @@ class _OverviewPage extends StatelessWidget {
             );
             final agent = _AgentSummary(
               summary: summary,
-              latestActivity: activities.isEmpty ? const {} : activities.first,
+              latestInbox:
+                  _maps(controller.live['inbox']).firstOrNull ?? const {},
             );
             if (!wide) {
               return Column(
@@ -861,8 +844,14 @@ class _Hero extends StatelessWidget {
 }
 
 class _MetricGrid extends StatelessWidget {
-  const _MetricGrid({required this.stats});
+  const _MetricGrid({
+    required this.stats,
+    required this.intelligence,
+    required this.connectedAccounts,
+  });
   final Map<String, dynamic> stats;
+  final Map<String, dynamic> intelligence;
+  final int connectedAccounts;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -877,11 +866,11 @@ class _MetricGrid extends StatelessWidget {
         ),
         ('Reminders', '${stats['active_reminders'] ?? 0}', 'open action items'),
         (
-          'AI Confidence',
-          '${stats['avg_confidence'] ?? 0}%',
-          'recent inbox average',
+          'Unread Mail',
+          '${intelligence['unread_emails'] ?? 0}',
+          'across connected inboxes',
         ),
-        ('Wellbeing', '${stats['wellbeing_minutes'] ?? 0}', 'minutes observed'),
+        ('Accounts', '$connectedAccounts', 'private Gmail sources'),
       ];
       return Wrap(
         spacing: 16,
@@ -1093,9 +1082,9 @@ class _TaskCard extends StatelessWidget {
 }
 
 class _AgentSummary extends StatelessWidget {
-  const _AgentSummary({required this.summary, required this.latestActivity});
+  const _AgentSummary({required this.summary, required this.latestInbox});
   final String summary;
-  final Map<String, dynamic> latestActivity;
+  final Map<String, dynamic> latestInbox;
 
   @override
   Widget build(BuildContext context) {
@@ -1144,17 +1133,20 @@ class _AgentSummary extends StatelessWidget {
           const SizedBox(height: 12),
           const _Eyebrow('SUMMARY'),
           const Text(
-            'Today at a glance',
+            'Inbox at a glance',
             style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 12),
-          _SummaryCard(label: 'Focus plan', value: summary),
+          _SummaryCard(label: 'Email intelligence', value: summary),
           const SizedBox(height: 10),
           _SummaryCard(
-            label: 'Latest signal',
+            label: 'Latest message',
             value: _string(
-              latestActivity['agent_summary'],
-              fallback: 'Connect What Do You Do for live context.',
+              latestInbox['summary'],
+              fallback: _string(
+                latestInbox['subject'],
+                fallback: 'Sync Gmail to build local inbox intelligence.',
+              ),
             ),
           ),
         ],
@@ -1205,10 +1197,10 @@ class _OverviewDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final plan = _map(controller.live['plan']);
-    final blocks = _strings(plan['focus_blocks']);
     final graph = _maps(_map(controller.live['stats'])['opportunity_graph']);
-    final activities = _maps(controller.live['activities']);
+    final intelligence = _map(controller.live['intelligence']);
+    final suggestions = _maps(intelligence['suggestions']);
+    final connectorRuns = _maps(controller.live['connector_runs']);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth >= 900
@@ -1223,19 +1215,21 @@ class _OverviewDetails extends StatelessWidget {
             SizedBox(
               width: width,
               child: _Panel(
-                eyebrow: 'TODAY',
-                title: 'Focus Plan',
-                child: blocks.isEmpty
-                    ? const _Empty('No focus blocks yet.')
+                eyebrow: 'LOCAL AI',
+                title: 'Smart Suggestions',
+                child: suggestions.isEmpty
+                    ? const _Empty('No inbox suggestions need attention.')
                     : Column(
-                        children: blocks
+                        children: suggestions
                             .take(5)
-                            .toList()
-                            .indexed
                             .map(
-                              (entry) => _CompactRow(
-                                leading: '${entry.$1 + 1}',
-                                title: entry.$2,
+                              (item) => _CompactRow(
+                                leading: 'AI',
+                                title: _string(
+                                  item['title'],
+                                  fallback: _string(item['summary']),
+                                ),
+                                subtitle: _string(item['reason']),
                               ),
                             )
                             .toList(),
@@ -1267,21 +1261,30 @@ class _OverviewDetails extends StatelessWidget {
             SizedBox(
               width: width,
               child: _Panel(
-                eyebrow: 'WHAT DO YOU DO',
-                title: 'Activity Feed',
-                child: activities.isEmpty
-                    ? const _Empty('Activity signals will appear here.')
+                eyebrow: 'PIPELINE HEALTH',
+                title: 'Recent Connector Runs',
+                child: connectorRuns.isEmpty
+                    ? const _Empty('Connector runs will appear after sync.')
                     : Column(
-                        children: activities
+                        children: connectorRuns
                             .take(5)
                             .map(
                               (item) => _CompactRow(
-                                leading: '${item['duration_minutes'] ?? 0}m',
-                                title: _string(
-                                  item['app_name'],
-                                  fallback: _string(item['category']),
+                                leading: _string(
+                                  item['status'],
+                                  fallback: 'run',
                                 ),
-                                subtitle: _string(item['agent_summary']),
+                                title: _string(
+                                  item['connector'],
+                                  fallback: _string(
+                                    item['name'],
+                                    fallback: 'Local connector',
+                                  ),
+                                ),
+                                subtitle: _string(
+                                  item['message'],
+                                  fallback: _friendlyDate(item['finished_at']),
+                                ),
                               ),
                             )
                             .toList(),
@@ -1295,50 +1298,184 @@ class _OverviewDetails extends StatelessWidget {
   }
 }
 
-class _OpportunitiesPage extends StatelessWidget {
+class _OpportunitiesPage extends StatefulWidget {
   const _OpportunitiesPage({required this.controller});
   final AiosController controller;
 
   @override
+  State<_OpportunitiesPage> createState() => _OpportunitiesPageState();
+}
+
+class _OpportunitiesPageState extends State<_OpportunitiesPage> {
+  final _search = TextEditingController();
+  String _filter = 'all';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final achievements = _maps(controller.live['achievements']);
-    final deadlines = _maps(controller.live['deadline_highlights']);
-    final opportunities = _maps(controller.live['opportunities']);
+    final controller = widget.controller;
+    final data = controller.dataFor('opportunities');
+    final opportunities = data.containsKey('items')
+        ? _maps(data['items'])
+        : _maps(controller.live['opportunities']);
+    final stats = _map(data['stats']);
+    final query = _search.text.trim().toLowerCase();
+    final visible = opportunities.where((item) {
+      final searchable = [
+        item['title'],
+        item['organization'],
+        item['program'],
+        item['status'],
+        item['kind'],
+        item['source'],
+        item['notes'],
+      ].map(_string).join(' ').toLowerCase();
+      if (query.isNotEmpty && !searchable.contains(query)) return false;
+      return switch (_filter) {
+        'action' => item['needs_action'] == true,
+        'deadline' =>
+          item['days_left'] is num &&
+              (item['days_left'] as num) >= 0 &&
+              (item['days_left'] as num) <= 7,
+        'wins' => item['is_achievement'] == true,
+        _ => true,
+      };
+    }).toList();
+
     return _PageColumn(
       children: [
         _Panel(
-          eyebrow: 'PIPELINE',
-          title: 'Tracked Opportunities',
+          eyebrow: 'OPPORTUNITY COMMAND CENTER',
+          title: 'Know what deserves your attention.',
+          action: _ActionButton(
+            label: controller.syncing ? 'Scanning...' : 'Run scan',
+            icon: Icons.refresh_rounded,
+            onTap: controller.syncing ? null : controller.syncAll,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (achievements.isNotEmpty) ...[
-                const _SectionLabel(
-                  title: 'Achievements',
-                  subtitle: 'Selections and milestones detected from Gmail',
+              Text(
+                'Selections, applications, assessments, interviews, and build deadlines from your locally synced mail.',
+                style: TextStyle(
+                  color: _Palette.of(context).muted,
+                  height: 1.45,
                 ),
-                const SizedBox(height: 10),
-                ...achievements.map((item) => _AchievementCard(item: item)),
-                const SizedBox(height: 18),
-              ],
-              if (deadlines.isNotEmpty) ...[
-                const _SectionLabel(
-                  title: 'Build timeline',
-                  subtitle: 'Submission windows detected from recent mail',
-                ),
-                const SizedBox(height: 10),
-                ...deadlines.map((item) => _DeadlineCard(item: item)),
-                const SizedBox(height: 18),
-              ],
-              if (opportunities.isEmpty)
-                const _Empty('No tracked opportunity.')
+              ),
+              const SizedBox(height: 18),
+              _ActionMetricStrip(
+                metrics: [
+                  (
+                    label: 'Tracked',
+                    value: '${stats['total'] ?? opportunities.length}',
+                    caption: 'recent signals',
+                    icon: Icons.work_outline,
+                    color: _Palette.info,
+                  ),
+                  (
+                    label: 'Act now',
+                    value:
+                        '${stats['action_needed'] ?? opportunities.where((item) => item['needs_action'] == true).length}',
+                    caption: 'next steps',
+                    icon: Icons.bolt_rounded,
+                    color: _Palette.warning,
+                  ),
+                  (
+                    label: 'Due soon',
+                    value: '${stats['due_soon'] ?? 0}',
+                    caption: 'within 7 days',
+                    icon: Icons.event_busy_outlined,
+                    color: _Palette.danger,
+                  ),
+                  (
+                    label: 'Wins',
+                    value: '${stats['achievements'] ?? 0}',
+                    caption: 'selected or shortlisted',
+                    icon: Icons.emoji_events_outlined,
+                    color: _Palette.success,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final filters = Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _ActionFilterButton(
+                        label: 'All',
+                        selected: _filter == 'all',
+                        onTap: () => setState(() => _filter = 'all'),
+                      ),
+                      _ActionFilterButton(
+                        label: 'Act now',
+                        selected: _filter == 'action',
+                        onTap: () => setState(() => _filter = 'action'),
+                      ),
+                      _ActionFilterButton(
+                        label: 'Deadlines',
+                        selected: _filter == 'deadline',
+                        onTap: () => setState(() => _filter = 'deadline'),
+                      ),
+                      _ActionFilterButton(
+                        label: 'Wins',
+                        selected: _filter == 'wins',
+                        onTap: () => setState(() => _filter = 'wins'),
+                      ),
+                    ],
+                  );
+                  final search = SizedBox(
+                    width: constraints.maxWidth < 780
+                        ? constraints.maxWidth
+                        : 360,
+                    child: _WorkspaceSearch(
+                      controller: _search,
+                      hint: 'Search company, program, stage or source',
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  );
+                  if (constraints.maxWidth < 780) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [filters, const SizedBox(height: 12), search],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: filters),
+                      const SizedBox(width: 16),
+                      search,
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+              _SectionLabel(
+                title:
+                    '${visible.length} ${visible.length == 1 ? 'opportunity' : 'opportunities'}',
+                subtitle: _filter == 'all'
+                    ? 'Newest activity first'
+                    : 'Filtered to the signals that match this lane',
+              ),
+              const SizedBox(height: 12),
+              if (visible.isEmpty)
+                const _Empty('No opportunity matches this search or filter.')
               else
-                ...opportunities.indexed.map(
+                ...visible.indexed.map(
                   (entry) => _Reveal(
                     index: entry.$1,
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: _OpportunityRow(item: entry.$2),
+                      child: _OpportunityRow(
+                        item: entry.$2,
+                        onOpen: () => _showOpportunity(context, entry.$2),
+                      ),
                     ),
                   ),
                 ),
@@ -1348,117 +1485,118 @@ class _OpportunitiesPage extends StatelessWidget {
       ],
     );
   }
-}
 
-class _AchievementCard extends StatelessWidget {
-  const _AchievementCard({required this.item});
-  final Map<String, dynamic> item;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: _HoverSurface(
-      color: _Palette.of(context).surfaceRaised,
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: const BoxDecoration(
-              color: Color(0x2672E6A2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.check_rounded, color: _Palette.success),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _string(item['status'], fallback: 'Achievement'),
-                  style: const TextStyle(
-                    color: _Palette.primary,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  _string(item['title']),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _DeadlineCard extends StatelessWidget {
-  const _DeadlineCard({required this.item});
-  final Map<String, dynamic> item;
-
-  @override
-  Widget build(BuildContext context) {
-    final days = item['days_left'];
-    final urgent = days is num && days <= 3;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: _HoverSurface(
-        color: _Palette.of(context).surfaceRaised,
-        borderColor: urgent ? _Palette.warning : null,
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: urgent
-                    ? const Color(0x24FFD166)
-                    : const Color(0x1FA7FF3C),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                days?.toString() ?? '?',
-                style: TextStyle(
-                  color: urgent ? _Palette.warning : _Palette.primary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
+  void _showOpportunity(BuildContext context, Map<String, dynamic> item) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680, maxHeight: 720),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const _Eyebrow('OPPORTUNITY DETAILS'),
+                            Text(
+                              _string(
+                                item['program'],
+                                fallback: _string(
+                                  item['organization'],
+                                  fallback: 'Opportunity',
+                                ),
+                              ),
+                              style: const TextStyle(
+                                fontSize: 25,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _string(item['title']),
+                              style: TextStyle(
+                                color: _Palette.of(context).muted,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close details',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _SignalPill(
+                        _string(item['status'], fallback: 'Tracking'),
+                        _opportunityTone(item),
+                      ),
+                      _MetaPill(_string(item['kind'], fallback: 'opportunity')),
+                      if (_string(item['deadline_message']).isNotEmpty)
+                        _SignalPill(
+                          _string(item['deadline_message']),
+                          _Palette.warning,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  const _SectionLabel(
+                    title: 'Next move',
+                    subtitle:
+                        'The clearest action AiOS can infer from this signal',
+                  ),
+                  const SizedBox(height: 8),
                   Text(
                     _string(
-                      item['deadline_message'],
-                      fallback: 'Upcoming deadline',
+                      item['next_action'],
+                      fallback:
+                          'Review the latest update and decide the next step.',
                     ),
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      height: 1.5,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 22),
+                  const _SectionLabel(
+                    title: 'Local summary',
+                    subtitle:
+                        'Derived from synchronized mail; raw content stays on this device',
+                  ),
+                  const SizedBox(height: 8),
                   Text(
-                    _string(item['title']),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _Palette.of(context).muted,
-                      fontSize: 12,
+                    _string(
+                      item['notes'],
+                      fallback: 'No summary is available yet.',
                     ),
+                    style: const TextStyle(height: 1.55),
                   ),
+                  const SizedBox(height: 20),
+                  _KeyValue(
+                    'Source',
+                    _string(item['source'], fallback: 'Local intelligence'),
+                  ),
+                  _KeyValue('Updated', _friendlyDate(item['updated_at'])),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1466,98 +1604,423 @@ class _DeadlineCard extends StatelessWidget {
 }
 
 class _OpportunityRow extends StatelessWidget {
-  const _OpportunityRow({required this.item});
+  const _OpportunityRow({required this.item, required this.onOpen});
   final Map<String, dynamic> item;
+  final VoidCallback onOpen;
 
   @override
-  Widget build(BuildContext context) => _HoverSurface(
-    color: _Palette.of(context).surfaceRaised,
-    padding: const EdgeInsets.all(16),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _StatusDot(),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
+  Widget build(BuildContext context) {
+    final title = _string(
+      item['program'],
+      fallback: _string(item['organization'], fallback: 'Opportunity'),
+    );
+    return _HoverSurface(
+      color: _Palette.of(context).surfaceRaised,
+      borderColor: item['needs_action'] == true
+          ? _opportunityTone(item).withValues(alpha: 0.5)
+          : null,
+      padding: const EdgeInsets.all(16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final content = Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _string(item['title'], fallback: 'Opportunity'),
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${_string(item['kind'])} - ${_string(item['status'])} - ${_string(item['organization'])}',
-                style: TextStyle(
-                  color: _Palette.of(context).muted,
-                  fontSize: 12,
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: _opportunityTone(item).withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  _opportunityIcon(item),
+                  color: _opportunityTone(item),
+                  size: 21,
                 ),
               ),
-              if (_string(item['deadline_message']).isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _string(item['deadline_message']),
-                  style: const TextStyle(
-                    color: _Palette.warning,
-                    fontWeight: FontWeight.w700,
-                  ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _SignalPill(
+                          _string(item['status'], fallback: 'Tracking'),
+                          _opportunityTone(item),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      _string(item['title']),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _Palette.of(context).muted,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 7,
+                      children: [
+                        _MetaPill(
+                          _string(item['kind'], fallback: 'opportunity'),
+                        ),
+                        if (_string(item['source']).isNotEmpty)
+                          _MetaPill(_string(item['source'])),
+                        if (item['days_left'] is num)
+                          _SignalPill(
+                            _shortDeadline(item),
+                            _deadlineTone(item),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _string(
+                        item['next_action'],
+                        fallback:
+                            'Review the latest update and decide the next step.',
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        height: 1.45,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-              if (_string(item['notes']).isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _string(item['notes']),
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(height: 1.5),
-                ),
-              ],
+              ),
             ],
-          ),
-        ),
-      ],
-    ),
-  );
+          );
+          final details = _ActionButton(
+            label: 'Details',
+            icon: Icons.arrow_forward_rounded,
+            onTap: onOpen,
+          );
+          if (constraints.maxWidth < 690) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                content,
+                const SizedBox(height: 14),
+                Align(alignment: Alignment.centerRight, child: details),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: content),
+              const SizedBox(width: 18),
+              details,
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
-class _RemindersPage extends StatelessWidget {
+class _RemindersPage extends StatefulWidget {
   const _RemindersPage({required this.controller});
   final AiosController controller;
 
   @override
+  State<_RemindersPage> createState() => _RemindersPageState();
+}
+
+class _RemindersPageState extends State<_RemindersPage> {
+  String _filter = 'open';
+
+  @override
   Widget build(BuildContext context) {
-    final reminders = _maps(controller.live['reminders']);
+    final controller = widget.controller;
+    final data = controller.dataFor('reminders');
+    final reminders = data.containsKey('items')
+        ? _maps(data['items'])
+        : _maps(controller.live['reminders']);
+    final stats = _map(data['stats']);
+    final visible = reminders
+        .where(
+          (item) => switch (_filter) {
+            'unread' => item['is_read'] != true,
+            'overdue' => item['urgency'] == 'overdue',
+            _ => true,
+          },
+        )
+        .toList();
     return _PageColumn(
       children: [
         _Panel(
-          eyebrow: 'LATEST 100 EMAILS',
-          title: 'Today\'s tasks',
-          child: reminders.isEmpty
-              ? const _Empty('No email tasks are due today.')
-              : Column(
-                  children: reminders.indexed
-                      .map(
-                        (entry) => _Reveal(
-                          index: entry.$1,
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _ListRow(
-                              icon: Icons.notifications_none,
-                              title: _string(
-                                entry.$2['title'],
-                                fallback: 'Reminder',
-                              ),
-                              subtitle: _friendlyDate(entry.$2['due_at']),
-                              meta: _string(entry.$2['priority']),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
+          eyebrow: 'ACTION CENTER · LATEST 100 EMAILS PER ACCOUNT',
+          title: 'Clear reminders, not vague alerts.',
+          action: _ActionButton(
+            label: controller.syncing ? 'Scanning...' : 'Refresh tasks',
+            icon: Icons.refresh_rounded,
+            onTap: controller.syncing ? null : controller.syncAll,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Each card explains what is due, why it matters now, and which Gmail account produced the task.',
+                style: TextStyle(
+                  color: _Palette.of(context).muted,
+                  height: 1.45,
                 ),
+              ),
+              const SizedBox(height: 18),
+              _ActionMetricStrip(
+                metrics: [
+                  (
+                    label: 'Open',
+                    value: '${stats['open'] ?? reminders.length}',
+                    caption: 'tasks due now',
+                    icon: Icons.task_alt_outlined,
+                    color: _Palette.info,
+                  ),
+                  (
+                    label: 'Overdue',
+                    value:
+                        '${stats['overdue'] ?? reminders.where((item) => item['urgency'] == 'overdue').length}',
+                    caption: 'need a decision',
+                    icon: Icons.warning_amber_rounded,
+                    color: _Palette.danger,
+                  ),
+                  (
+                    label: 'Unread',
+                    value:
+                        '${stats['unread'] ?? reminders.where((item) => item['is_read'] != true).length}',
+                    caption: 'unacknowledged',
+                    icon: Icons.mark_email_unread_outlined,
+                    color: _Palette.warning,
+                  ),
+                  (
+                    label: 'Completed',
+                    value: '${stats['completed_today'] ?? 0}',
+                    caption: 'today',
+                    icon: Icons.done_all_rounded,
+                    color: _Palette.success,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ActionFilterButton(
+                    label: 'Open',
+                    selected: _filter == 'open',
+                    onTap: () => setState(() => _filter = 'open'),
+                  ),
+                  _ActionFilterButton(
+                    label: 'Unread',
+                    selected: _filter == 'unread',
+                    onTap: () => setState(() => _filter = 'unread'),
+                  ),
+                  _ActionFilterButton(
+                    label: 'Overdue',
+                    selected: _filter == 'overdue',
+                    onTap: () => setState(() => _filter = 'overdue'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              _SectionLabel(
+                title:
+                    '${visible.length} ${visible.length == 1 ? 'task' : 'tasks'} in this lane',
+                subtitle:
+                    'Mark read acknowledges an alert. Complete task closes the source email task and planner row.',
+              ),
+              const SizedBox(height: 12),
+              if (visible.isEmpty)
+                const _Empty('Nothing needs attention in this lane.')
+              else
+                ...visible.indexed.map(
+                  (entry) => _Reveal(
+                    index: entry.$1,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _ReminderRow(
+                        item: entry.$2,
+                        controller: controller,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
+    );
+  }
+}
+
+class _ReminderRow extends StatelessWidget {
+  const _ReminderRow({required this.item, required this.controller});
+
+  final Map<String, dynamic> item;
+  final AiosController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = (item['id'] as num?)?.toInt();
+    final busy = id != null && controller.isActionBusy('reminder:$id');
+    final tone = _reminderTone(item);
+    return _HoverSurface(
+      color: _Palette.of(context).surfaceRaised,
+      borderColor: tone.withValues(alpha: 0.48),
+      padding: const EdgeInsets.all(15),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stackActions = constraints.maxWidth < 660;
+          final actions = Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (item['is_read'] != true)
+                _ActionButton(
+                  label: 'Mark read',
+                  icon: Icons.mark_email_read_outlined,
+                  onTap: id == null || busy
+                      ? null
+                      : () => controller.updateReminder(id, done: false),
+                ),
+              if (item['is_read'] == true)
+                const _SignalPill('Read', _Palette.success),
+              _ActionButton(
+                label: busy ? 'Saving...' : 'Complete task',
+                icon: Icons.check_rounded,
+                primary: true,
+                onTap: id == null || busy
+                    ? null
+                    : () => controller.updateReminder(id, done: true),
+              ),
+            ],
+          );
+          final details = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(_reminderIcon(item), size: 19, color: tone),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _string(item['title'], fallback: 'Reminder'),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 7,
+                      children: [
+                        _SignalPill(
+                          _string(
+                            item['due_label'],
+                            fallback: _friendlyDate(item['due_at']),
+                          ),
+                          tone,
+                        ),
+                        _MetaPill(
+                          _string(item['priority'], fallback: 'normal'),
+                        ),
+                        _MetaPill(_string(item['source'], fallback: 'Local')),
+                      ],
+                    ),
+                    if (_string(item['email_subject']).isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _string(item['email_subject']),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                    if (_string(item['context']).isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _string(item['context']),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _Palette.of(context).muted,
+                          fontSize: 11,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    Text(
+                      _string(
+                        item['why'],
+                        fallback:
+                            'Review this task and decide the next action.',
+                      ),
+                      style: TextStyle(
+                        color: tone,
+                        fontSize: 12,
+                        height: 1.4,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+          if (stackActions) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [details, const SizedBox(height: 12), actions],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: details),
+              const SizedBox(width: 16),
+              actions,
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -1574,6 +2037,11 @@ class _InboxPage extends StatelessWidget {
         _Panel(
           eyebrow: 'CLASSIFIER',
           title: 'Recent Inbox Intelligence',
+          action: _ActionButton(
+            label: controller.syncing ? 'Syncing...' : 'Sync inbox',
+            icon: Icons.sync_rounded,
+            onTap: controller.syncing ? null : controller.syncAll,
+          ),
           child: items.isEmpty
               ? const _Empty('Classified emails will appear here.')
               : Column(
@@ -1669,465 +2137,426 @@ class _InboxPage extends StatelessWidget {
   }
 }
 
-class _ProjectsPage extends StatelessWidget {
-  const _ProjectsPage({required this.controller});
+class _MemoryPage extends StatefulWidget {
+  const _MemoryPage({required this.controller});
   final AiosController controller;
 
   @override
-  Widget build(BuildContext context) {
-    final projects = _maps(controller.projects['projects']);
-    return _WorkspacePage(
-      eyebrow: 'CONNECTED WORK',
-      title: 'Projects',
-      subtitle:
-          'Repositories, local workspaces, milestones, and next actions in one view.',
-      child: projects.isEmpty
-          ? const _Panel(
-              title: 'Project context',
-              child: _Empty('No project context yet.'),
-            )
-          : Column(
-              children: projects.indexed
+  State<_MemoryPage> createState() => _MemoryPageState();
+}
+
+class _MemoryPageState extends State<_MemoryPage> {
+  final _query = TextEditingController();
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  Future<void> _showMemoryForm({
+    required String title,
+    required List<({String key, String label, bool multiline})> fields,
+    required Future<bool> Function(Map<String, String>) onSave,
+  }) async {
+    final values = {
+      for (final field in fields) field.key: TextEditingController(),
+    };
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _Palette.of(context).surface,
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: fields
                   .map(
-                    (entry) => _Reveal(
-                      index: entry.$1,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: _ProjectCard(item: entry.$2),
+                    (field) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: TextField(
+                        controller: values[field.key],
+                        minLines: field.multiline ? 3 : 1,
+                        maxLines: field.multiline ? 6 : 1,
+                        decoration: InputDecoration(
+                          labelText: field.label,
+                          border: const OutlineInputBorder(),
+                        ),
                       ),
                     ),
                   )
                   .toList(),
             ),
-    );
-  }
-}
-
-class _ProjectCard extends StatelessWidget {
-  const _ProjectCard({required this.item});
-  final Map<String, dynamic> item;
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = (item['progress'] as num?)?.toDouble() ?? 0;
-    return _Panel(
-      eyebrow: _string(
-        item['status'],
-        fallback: 'ACTIVE PROJECT',
-      ).toUpperCase(),
-      title: _string(item['title'], fallback: 'Project'),
-      action: Text(
-        '${progress.round()}%',
-        style: const TextStyle(
-          color: _Palette.primary,
-          fontSize: 18,
-          fontWeight: FontWeight.w900,
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _AnimatedProgress(value: progress / 100),
-          const SizedBox(height: 14),
-          Text(
-            _string(item['next_action'], fallback: 'Choose the next action.'),
-            style: const TextStyle(fontWeight: FontWeight.w800),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
           ),
-          if (_string(item['repository']).isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              _string(item['repository']),
-              style: TextStyle(color: _Palette.of(context).muted),
-            ),
-          ],
-          if (_string(item['working_directory']).isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              _string(item['working_directory']),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: _Palette.of(context).muted, fontSize: 12),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _WellbeingPage extends StatelessWidget {
-  const _WellbeingPage({required this.controller});
-  final AiosController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final stats = _map(controller.live['stats']);
-    final graph = _maps(stats['wellbeing_graph']);
-    final activities = _maps(controller.live['activities']);
-    return _WorkspacePage(
-      eyebrow: 'LOCAL WELLBEING',
-      title: 'Wellbeing',
-      subtitle:
-          'Private activity signals from What Do You Do, summarized on this device.',
-      child: Column(
-        children: [
-          _Panel(
-            eyebrow: 'TODAY',
-            title: '${stats['wellbeing_minutes'] ?? 0} minutes observed',
-            child: graph.isEmpty
-                ? const _Empty(
-                    'Wellbeing signals appear after local activity is observed.',
-                  )
-                : Column(
-                    children: graph
-                        .map(
-                          (item) => _ProgressRow(
-                            label: _string(item['label']),
-                            value: (item['percent'] as num?)?.toDouble() ?? 0,
-                            trailing: '${item['minutes'] ?? 0}m',
-                          ),
-                        )
-                        .toList(),
-                  ),
-          ),
-          const SizedBox(height: 16),
-          _Panel(
-            eyebrow: 'RECENT SIGNALS',
-            title: 'Activity context',
-            child: activities.isEmpty
-                ? const _Empty('No activity context yet.')
-                : Column(
-                    children: activities
-                        .map(
-                          (item) => _ListRow(
-                            icon: Icons.bolt_outlined,
-                            title: _string(
-                              item['app_name'],
-                              fallback: _string(item['category']),
-                            ),
-                            subtitle: _string(item['agent_summary']),
-                            meta: '${item['duration_minutes'] ?? 0}m',
-                          ),
-                        )
-                        .toList(),
-                  ),
+          FilledButton(
+            onPressed: widget.controller.memoryBusy
+                ? null
+                : () async {
+                    final payload = {
+                      for (final entry in values.entries)
+                        entry.key: entry.value.text.trim(),
+                    };
+                    final saved = await onSave(payload);
+                    if (saved && dialogContext.mounted) {
+                      Navigator.pop(dialogContext);
+                    }
+                  },
+            child: const Text('Save locally'),
           ),
         ],
       ),
     );
+    for (final controller in values.values) {
+      controller.dispose();
+    }
   }
-}
-
-class _MemoryPage extends StatelessWidget {
-  const _MemoryPage({required this.controller});
-  final AiosController controller;
 
   @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     final data = controller.dataFor('memory');
     final counts = _map(data['counts']);
+    final projects = _maps(data['projects']);
     final entities = _maps(data['entities']);
+    final recentFacts = _maps(data['recent_facts']);
     return _WorkspacePage(
-      eyebrow: 'PERSISTENT CONTEXT',
-      title: 'Memory',
+      eyebrow: 'PERSISTENT PERSONAL MEMORY',
+      title: 'Continue where you stopped.',
       subtitle:
-          'Entities, relationships, and checkpoints retained locally across sessions.',
+          'Ask what you were doing, restore project context, and save checkpoints without losing history.',
+      actions: [
+        _ActionButton(
+          label: 'New entity',
+          onTap: () => _showMemoryForm(
+            title: 'Create memory entity',
+            fields: const [
+              (key: 'name', label: 'Name', multiline: false),
+              (
+                key: 'entity_type',
+                label: 'Type (project, goal, skill)',
+                multiline: false,
+              ),
+              (key: 'status', label: 'Status', multiline: false),
+              (key: 'summary', label: 'Summary', multiline: true),
+            ],
+            onSave: (value) => controller.createMemoryEntity(
+              entityType: value['entity_type']!.isEmpty
+                  ? 'project'
+                  : value['entity_type']!,
+              name: value['name']!,
+              status: value['status']!.isEmpty ? 'active' : value['status']!,
+              summary: value['summary']!,
+            ),
+          ),
+        ),
+        _ActionButton(
+          label: 'Save note',
+          onTap: () => _showMemoryForm(
+            title: 'Remember a note',
+            fields: const [
+              (
+                key: 'entity_name',
+                label: 'Related entity (optional)',
+                multiline: false,
+              ),
+              (key: 'entity_type', label: 'Entity type', multiline: false),
+              (
+                key: 'content',
+                label: 'What should AiOS remember?',
+                multiline: true,
+              ),
+            ],
+            onSave: (value) => controller.saveMemoryNote(
+              entityName: value['entity_name']!,
+              entityType: value['entity_type']!.isEmpty
+                  ? 'project'
+                  : value['entity_type']!,
+              content: value['content']!,
+            ),
+          ),
+        ),
+        _ActionButton(
+          label: 'Save checkpoint',
+          primary: true,
+          onTap: () => _showMemoryForm(
+            title: 'Save project checkpoint',
+            fields: const [
+              (key: 'project_name', label: 'Project name', multiline: false),
+              (key: 'summary', label: 'Where you stopped', multiline: true),
+              (
+                key: 'open_files',
+                label: 'Open files (comma or line separated)',
+                multiline: true,
+              ),
+              (key: 'active_tasks', label: 'Active tasks', multiline: true),
+              (key: 'next_actions', label: 'Next actions', multiline: true),
+              (key: 'notes', label: 'Notes', multiline: true),
+            ],
+            onSave: (value) => controller.saveMemoryCheckpoint(
+              projectName: value['project_name']!,
+              summary: value['summary']!,
+              openFiles: value['open_files']!,
+              activeTasks: value['active_tasks']!,
+              nextActions: value['next_actions']!,
+              notes: value['notes']!,
+            ),
+          ),
+        ),
+      ],
       child: Column(
         children: [
+          _Panel(
+            eyebrow: 'ASK LOCAL MEMORY',
+            title: 'What were you doing?',
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _query,
+                    onSubmitted: controller.askMemory,
+                    decoration: const InputDecoration(
+                      hintText: 'What was I doing yesterday?',
+                      prefixIcon: Icon(Icons.search_rounded),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _ActionButton(
+                  label: controller.memoryBusy ? 'Searching...' : 'Ask Memory',
+                  primary: true,
+                  onTap: controller.memoryBusy
+                      ? null
+                      : () => controller.askMemory(_query.text),
+                ),
+              ],
+            ),
+          ),
+          if (controller.memoryAnswer != null) ...[
+            const SizedBox(height: 16),
+            _MemoryAnswer(answer: controller.memoryAnswer!),
+          ],
+          const SizedBox(height: 16),
           _SmallMetricRow(
             values: [
-              ('Entities', '${counts['entities'] ?? 0}'),
-              ('Facts', '${counts['facts'] ?? 0}'),
               ('Projects', '${counts['projects'] ?? 0}'),
+              ('Entities', '${counts['entities'] ?? 0}'),
+              ('Memories', '${counts['facts'] ?? 0}'),
               ('Relations', '${counts['relations'] ?? 0}'),
             ],
           ),
           const SizedBox(height: 16),
-          _Panel(
-            eyebrow: 'KNOWLEDGE GRAPH',
-            title: 'Remembered entities',
-            child: entities.isEmpty
-                ? const _Empty('No memory entities yet.')
-                : Column(
-                    children: entities
-                        .map(
-                          (item) => _ListRow(
-                            icon: Icons.hub_outlined,
-                            title: _string(item['name'], fallback: 'Entity'),
-                            subtitle: _string(item['summary']),
-                            meta: _string(item['entity_type']),
-                          ),
-                        )
-                        .toList(),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlannerPage extends StatelessWidget {
-  const _PlannerPage({required this.controller});
-  final AiosController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final data = controller.dataFor('planner');
-    final counts = _map(data['counts']);
-    final plans = _maps(data['plans']);
-    return _WorkspacePage(
-      eyebrow: 'GOAL PLANNING',
-      title: 'Planner',
-      subtitle:
-          'Turn goals into focused tasks and keep progress visible without losing history.',
-      child: Column(
-        children: [
-          _SmallMetricRow(
-            values: [
-              ('Plans', '${counts['plans'] ?? 0}'),
-              ('Active tasks', '${counts['active_tasks'] ?? 0}'),
-              ('Completed', '${counts['completed_tasks'] ?? 0}'),
-              ('Minutes', '${counts['minutes'] ?? 0}'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _Panel(
-            eyebrow: 'ACTIVE PLANS',
-            title: 'Goal workspace',
-            child: plans.isEmpty
-                ? const _Empty('No goal plan has been created yet.')
-                : Column(
-                    children: plans
-                        .map(
-                          (item) => _ListRow(
-                            icon: Icons.flag_outlined,
-                            title: _string(item['title'], fallback: 'Plan'),
-                            subtitle: _string(item['summary']),
-                            meta: _string(item['status']),
-                          ),
-                        )
-                        .toList(),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CommandPlannerPage extends StatelessWidget {
-  const _CommandPlannerPage({required this.controller});
-  final AiosController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final data = controller.dataFor('command-planner');
-    final agenda = _map(data['agenda']);
-    final items = [
-      ..._maps(agenda['today']),
-      ..._maps(agenda['week']),
-      ..._maps(agenda['month']),
-    ];
-    final unique = <dynamic, Map<String, dynamic>>{};
-    for (final item in items) {
-      unique[item['id'] ?? item['title']] = item;
-    }
-    return _WorkspacePage(
-      eyebrow: 'DAILY AI ASSISTANT',
-      title: 'Command Planner',
-      subtitle:
-          'Deadlines, risks, and next actions selected from your connected life graph.',
-      child: _Panel(
-        eyebrow: 'AGENDA',
-        title: 'Upcoming work',
-        child: unique.isEmpty
-            ? const _Empty('No planning events yet.')
-            : Column(
-                children: unique.values
-                    .take(24)
-                    .map(
-                      (item) => _ListRow(
-                        icon: Icons.event_note_outlined,
-                        title: _string(
-                          item['title'],
-                          fallback: 'Planning event',
-                        ),
-                        subtitle: _string(
-                          item['next_question'],
-                          fallback: _string(item['work_left']),
-                        ),
-                        meta: _friendlyDate(item['deadline']),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 820;
+              final projectPanel = _Panel(
+                eyebrow: 'RESTORE CONTEXT',
+                title: 'Active projects',
+                child: projects.isEmpty
+                    ? const _Empty('Save a checkpoint to resume work quickly.')
+                    : Column(
+                        children: projects
+                            .take(12)
+                            .map((item) => _MemoryProjectCard(item: item))
+                            .toList(),
                       ),
-                    )
-                    .toList(),
-              ),
-      ),
-    );
-  }
-}
-
-class _AutomationPage extends StatelessWidget {
-  const _AutomationPage({required this.controller});
-  final AiosController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final data = controller.dataFor('automation');
-    final counts = _map(data['counts']);
-    final capabilities = _map(data['capabilities']);
-    final plans = _maps(data['plans']);
-    return _WorkspacePage(
-      eyebrow: 'LOCAL ACTIONS',
-      title: 'Automation',
-      subtitle:
-          'Audited file and workspace actions that stay inside approved local roots.',
-      child: Column(
-        children: [
-          _SmallMetricRow(
-            values: [
-              ('Plans', '${counts['plans'] ?? 0}'),
-              ('Actions', '${counts['actions'] ?? 0}'),
-              ('Completed', '${counts['completed'] ?? 0}'),
-              ('Failed', '${counts['failed'] ?? 0}'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _Panel(
-            eyebrow: 'CAPABILITIES',
-            title: 'Local execution boundary',
-            child: Column(
-              children: [
-                _KeyValue(
-                  'Local only',
-                  '${capabilities['local_only'] == true}',
-                ),
-                _KeyValue(
-                  'Desktop control',
-                  '${capabilities['desktop_control_enabled'] == true}',
-                ),
-                _KeyValue(
-                  'Audit database',
-                  _string(capabilities['audit_database']),
-                ),
-                if (plans.isEmpty)
-                  const _Empty('No automation plan is queued.'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BrowserAgentPage extends StatelessWidget {
-  const _BrowserAgentPage({required this.controller});
-  final AiosController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final data = controller.dataFor('browser-agent');
-    final counts = _map(data['counts']);
-    final capabilities = _map(data['capabilities']);
-    final opportunities = _maps(data['opportunities']);
-    return _WorkspacePage(
-      eyebrow: 'ASSISTED BROWSING',
-      title: 'Browser Agent',
-      subtitle:
-          'Prepare browsing work locally while keeping final submissions under your control.',
-      child: Column(
-        children: [
-          _SmallMetricRow(
-            values: [
-              ('Plans', '${counts['plans'] ?? 0}'),
-              ('Opportunities', '${counts['opportunities'] ?? 0}'),
-              ('High match', '${counts['high_match'] ?? 0}'),
-              ('Awaiting', '${counts['awaiting'] ?? 0}'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _Panel(
-            eyebrow: 'CONTROL',
-            title: 'Browser boundary',
-            child: Column(
-              children: [
-                _KeyValue(
-                  'Playwright',
-                  '${capabilities['playwright_installed'] == true}',
-                ),
-                _KeyValue(
-                  'Submission enabled',
-                  '${capabilities['submission_enabled'] == true}',
-                ),
-                if (opportunities.isEmpty)
-                  const _Empty('No browser opportunity is queued.'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CareerPage extends StatelessWidget {
-  const _CareerPage({required this.controller});
-  final AiosController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final data = controller.dataFor('career');
-    final counts = _map(data['counts']);
-    final applications = _maps(data['applications']);
-    final projects = _maps(data['projects']);
-    return _WorkspacePage(
-      eyebrow: 'CAREER GRAPH',
-      title: 'Career Copilot',
-      subtitle:
-          'Applications, projects, skills, and evidence connected in one local career view.',
-      child: Column(
-        children: [
-          _SmallMetricRow(
-            values: [
-              ('Applications', '${counts['applications'] ?? 0}'),
-              ('Projects', '${counts['projects'] ?? 0}'),
-              ('Repositories', '${counts['repositories'] ?? 0}'),
-              ('Strong matches', '${counts['strong_matches'] ?? 0}'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _Panel(
-            eyebrow: 'PIPELINE',
-            title: 'Career evidence',
-            child: applications.isEmpty && projects.isEmpty
-                ? const _Empty(
-                    'Career evidence will appear after sources are connected.',
-                  )
-                : Column(
-                    children: [...applications, ...projects]
-                        .take(15)
-                        .map(
-                          (item) => _ListRow(
-                            icon: Icons.school_outlined,
-                            title: _string(
-                              item['title'],
-                              fallback: _string(
-                                item['name'],
-                                fallback: 'Career item',
-                              ),
-                            ),
-                            subtitle: _string(
-                              item['summary'],
-                              fallback: _string(item['description']),
-                            ),
-                            meta: _string(item['status']),
+              );
+              final contextPanels = Column(
+                children: [
+                  _Panel(
+                    eyebrow: 'KNOWLEDGE GRAPH',
+                    title: 'Connected context',
+                    child: entities.isEmpty
+                        ? const _Empty('No connected entities yet.')
+                        : Column(
+                            children: entities
+                                .take(12)
+                                .map(
+                                  (item) => _ListRow(
+                                    icon: Icons.hub_outlined,
+                                    title: _string(
+                                      item['name'],
+                                      fallback: 'Entity',
+                                    ),
+                                    subtitle: _string(item['summary']),
+                                    meta: _string(item['entity_type']),
+                                  ),
+                                )
+                                .toList(),
                           ),
-                        )
-                        .toList(),
                   ),
+                  const SizedBox(height: 16),
+                  _Panel(
+                    eyebrow: 'RECENT',
+                    title: 'Saved memories',
+                    child: recentFacts.isEmpty
+                        ? const _Empty('Notes you save will stay here.')
+                        : Column(
+                            children: recentFacts
+                                .take(8)
+                                .map(
+                                  (item) => _ListRow(
+                                    icon: Icons.notes_rounded,
+                                    title: _string(
+                                      item['content'],
+                                      fallback: 'Memory',
+                                    ),
+                                    subtitle: _string(item['source']),
+                                    meta: _string(item['fact_type']),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                  ),
+                ],
+              );
+              if (!wide) {
+                return Column(
+                  children: [
+                    projectPanel,
+                    const SizedBox(height: 16),
+                    contextPanels,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 6, child: projectPanel),
+                  const SizedBox(width: 16),
+                  Expanded(flex: 5, child: contextPanels),
+                ],
+              );
+            },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MemoryAnswer extends StatelessWidget {
+  const _MemoryAnswer({required this.answer});
+  final Map<String, dynamic> answer;
+
+  @override
+  Widget build(BuildContext context) {
+    final results = _maps(answer['results']);
+    return _Panel(
+      eyebrow: 'RECALLED LOCALLY',
+      title: _string(answer['answer'], fallback: 'Memory result'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_string(answer['suggestion']).isNotEmpty)
+            Text(
+              _string(answer['suggestion']),
+              style: TextStyle(color: _Palette.of(context).muted),
+            ),
+          if (results.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...results.take(5).map((result) {
+              final entity = _map(result['entity']);
+              final fact = _map(result['fact']);
+              return _ListRow(
+                icon: Icons.auto_awesome_outlined,
+                title: _string(
+                  entity['name'],
+                  fallback: _string(
+                    fact['content'],
+                    fallback: 'Related memory',
+                  ),
+                ),
+                subtitle: _string(
+                  fact['content'],
+                  fallback: _string(entity['summary']),
+                ),
+                meta: _string(result['kind']),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MemoryProjectCard extends StatelessWidget {
+  const _MemoryProjectCard({required this.item});
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final checkpoint = _map(item['latest_checkpoint']);
+    final nextActions = _strings(checkpoint['next_actions']);
+    final activeTasks = _strings(checkpoint['active_tasks']);
+    final openFiles = _strings(checkpoint['open_files']);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: _HoverSurface(
+        color: _Palette.of(context).surfaceRaised,
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _string(item['name'], fallback: 'Project'),
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                _MetaPill(_string(item['status'], fallback: 'active')),
+              ],
+            ),
+            const SizedBox(height: 7),
+            Text(
+              _string(
+                checkpoint['summary'],
+                fallback: _string(
+                  item['summary'],
+                  fallback: 'No checkpoint summary yet.',
+                ),
+              ),
+              style: TextStyle(color: _Palette.of(context).muted, height: 1.45),
+            ),
+            if (nextActions.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Next: ${nextActions.join(' | ')}',
+                style: const TextStyle(
+                  color: _Palette.primary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+            if (activeTasks.isNotEmpty) ...[
+              const SizedBox(height: 7),
+              Text('Active: ${activeTasks.join(' | ')}'),
+            ],
+            if (openFiles.isNotEmpty) ...[
+              const SizedBox(height: 7),
+              Text(
+                'Files: ${openFiles.join(' | ')}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: _Palette.of(context).muted,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -2151,6 +2580,7 @@ class _SourcesPage extends StatelessWidget {
           label: controller.signIn == null
               ? 'Login with Google'
               : 'Signing in...',
+          icon: Icons.login_rounded,
           primary: true,
           onTap: controller.signIn == null ? controller.connectGoogle : null,
         ),
@@ -2185,21 +2615,6 @@ class _SourcesPage extends StatelessWidget {
                         )
                         .toList(),
                   ),
-          ),
-          const SizedBox(height: 16),
-          _Panel(
-            eyebrow: 'COLLEGE SIGNAL',
-            title: _string(
-              controller.college['headline'],
-              fallback: 'PAT schedule',
-            ),
-            child: Text(
-              _string(
-                controller.college['latest_summary'],
-                fallback: 'No recent PAT mail was detected.',
-              ),
-              style: const TextStyle(height: 1.55),
-            ),
           ),
         ],
       ),
@@ -2237,17 +2652,20 @@ class _SignInPanel extends StatelessWidget {
             style: TextStyle(color: _Palette.of(context).muted),
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
             children: [
               _ActionButton(
                 label: 'Continue in browser',
+                icon: Icons.open_in_browser_rounded,
                 primary: true,
                 onTap: controller.continueGoogleSignIn,
               ),
-              const SizedBox(width: 10),
               _ActionButton(
                 label: 'Cancel sign in',
+                icon: Icons.close_rounded,
                 onTap: controller.cancelGoogleSignIn,
               ),
             ],
@@ -2266,71 +2684,209 @@ class _AccountRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final id = (item['id'] as num?)?.toInt();
+    final busy = id != null && controller.isActionBusy('account:$id');
+    final syncEnabled = item['sync_enabled'] != false;
+    final label = _string(item['label']);
+    final email = _string(item['email'], fallback: 'Google account');
+    final customLabel =
+        label.isNotEmpty && label.toLowerCase() != email.toLowerCase()
+        ? label
+        : '';
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: _HoverSurface(
         color: _Palette.of(context).surfaceRaised,
         padding: const EdgeInsets.all(15),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: const BoxDecoration(
-                color: Color(0x1FA7FF3C),
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.mail_outline, color: _Palette.primary),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _string(
-                      item['email'],
-                      fallback: _string(
-                        item['label'],
-                        fallback: 'Google account',
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final stackActions = constraints.maxWidth < 720;
+            final identity = Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: const BoxDecoration(
+                    color: Color(0x1FA7FF3C),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.mail_outline,
+                    color: _Palette.primary,
+                  ),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        customLabel.isEmpty ? email : customLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
-                    ),
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                      if (customLabel.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: _Palette.of(context).muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 3),
+                      Text(
+                        _string(
+                          item['last_sync_at'],
+                          fallback: 'Connected locally',
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _Palette.of(context).muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _string(
-                      item['last_sync_at'],
-                      fallback: 'Connected locally',
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _Palette.of(context).muted,
-                      fontSize: 12,
-                    ),
+                ),
+              ],
+            );
+            final controls = Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _MetaPill(syncEnabled ? 'Sync on' : 'Paused'),
+                IconButton(
+                  tooltip: 'Rename account',
+                  onPressed: id == null || busy
+                      ? null
+                      : () => _renameAccount(context, item, controller),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                IconButton(
+                  tooltip: syncEnabled ? 'Pause sync' : 'Resume sync',
+                  onPressed: id == null || busy
+                      ? null
+                      : () => controller.updateAccount(
+                          id,
+                          syncEnabled: !syncEnabled,
+                        ),
+                  icon: Icon(
+                    syncEnabled
+                        ? Icons.pause_circle_outline
+                        : Icons.play_circle_outline,
                   ),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: 'Sync account',
-              onPressed: id == null || controller.syncing
-                  ? null
-                  : () => controller.syncAccount(id),
-              icon: const Icon(Icons.sync),
-            ),
-            IconButton(
-              tooltip: 'Disconnect account',
-              onPressed: id == null ? null : () => controller.removeAccount(id),
-              icon: const Icon(Icons.link_off_outlined),
-            ),
-          ],
+                ),
+                IconButton(
+                  tooltip: 'Sync account',
+                  onPressed: id == null || controller.syncing || busy
+                      ? null
+                      : () => controller.syncAccount(id),
+                  icon: const Icon(Icons.sync),
+                ),
+                IconButton(
+                  tooltip: 'Disconnect account',
+                  onPressed: id == null || busy
+                      ? null
+                      : () => _confirmAccountRemoval(
+                          context,
+                          id,
+                          email,
+                          controller,
+                        ),
+                  icon: const Icon(Icons.link_off_outlined),
+                ),
+              ],
+            );
+            if (stackActions) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [identity, const SizedBox(height: 12), controls],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: identity),
+                const SizedBox(width: 14),
+                controls,
+              ],
+            );
+          },
         ),
       ),
     );
   }
+}
+
+Future<void> _renameAccount(
+  BuildContext context,
+  Map<String, dynamic> item,
+  AiosController controller,
+) async {
+  final id = (item['id'] as num?)?.toInt();
+  if (id == null) return;
+  final field = TextEditingController(text: _string(item['label']));
+  final label = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Rename Gmail account'),
+      content: TextField(
+        controller: field,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Account name',
+          hintText: 'College, Personal, Work...',
+        ),
+        onSubmitted: (value) => Navigator.pop(context, value.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, field.text.trim()),
+          child: const Text('Save name'),
+        ),
+      ],
+    ),
+  );
+  field.dispose();
+  if (label != null) await controller.updateAccount(id, label: label);
+}
+
+Future<void> _confirmAccountRemoval(
+  BuildContext context,
+  int id,
+  String email,
+  AiosController controller,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Disconnect Gmail account?'),
+      content: Text(
+        '$email will stop syncing. Locally analyzed history stays on this device.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Keep connected'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Disconnect'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true) await controller.removeAccount(id);
 }
 
 class _ConnectorsPage extends StatelessWidget {
@@ -2348,6 +2904,7 @@ class _ConnectorsPage extends StatelessWidget {
       actions: [
         _ActionButton(
           label: controller.syncing ? 'Syncing...' : 'Sync Gmail',
+          icon: Icons.sync_rounded,
           primary: true,
           onTap: controller.syncing ? null : controller.syncAll,
         ),
@@ -2360,15 +2917,33 @@ class _ConnectorsPage extends StatelessWidget {
             : Column(
                 children: connectors
                     .map(
-                      (item) => _ListRow(
+                      (item) => _ServiceActionRow(
                         icon: item['configured'] == true
                             ? Icons.check_circle_outline
                             : Icons.info_outline,
                         title: _string(item['name'], fallback: 'Connector'),
-                        subtitle: _string(item['description']),
+                        subtitle: [
+                          _string(item['description']),
+                          _string(item['setup']),
+                        ].where((value) => value.isNotEmpty).join('\n'),
                         meta: item['configured'] == true
                             ? 'Configured'
                             : 'Needs setup',
+                        actionLabel:
+                            controller.isActionBusy(
+                              'connector:${_string(item['id'])}',
+                            )
+                            ? 'Running...'
+                            : 'Run',
+                        actionIcon: Icons.play_arrow_rounded,
+                        onAction:
+                            _string(item['id']).isEmpty ||
+                                controller.isActionBusy(
+                                  'connector:${_string(item['id'])}',
+                                )
+                            ? null
+                            : () =>
+                                  controller.runConnector(_string(item['id'])),
                       ),
                     )
                     .toList(),
@@ -2397,13 +2972,28 @@ class _WorkersPage extends StatelessWidget {
           : Column(
               children: controller.workers.map((raw) {
                 final item = _map(raw);
-                return _ListRow(
+                final id = _string(item['id']);
+                final running = item['running'] == true;
+                final busy = controller.isActionBusy('worker:$id');
+                return _ServiceActionRow(
                   icon: item['running'] == true
                       ? Icons.play_circle_outline
                       : Icons.pause_circle_outline,
                   title: _string(item['name'], fallback: 'Worker'),
                   subtitle: _string(item['description']),
-                  meta: item['running'] == true ? 'Running' : 'Stopped',
+                  meta: running ? 'Running' : 'Stopped',
+                  actionLabel: busy
+                      ? 'Updating...'
+                      : running
+                      ? 'Stop'
+                      : 'Start',
+                  actionIcon: running
+                      ? Icons.stop_circle_outlined
+                      : Icons.play_arrow_rounded,
+                  onAction: id.isEmpty || busy
+                      ? null
+                      : () =>
+                            controller.setWorkerRunning(id, running: !running),
                 );
               }).toList(),
             ),
@@ -2464,7 +3054,21 @@ class _SettingsPage extends StatelessWidget {
                   title: 'Open on Windows startup',
                   subtitle: 'Start quietly in the system tray after sign-in.',
                   value: startup['enabled'] == true,
-                  onChanged: (value) => controller.setStartup(enabled: value),
+                  onChanged: (value) => controller.setStartup(
+                    enabled: value,
+                    background: startup['background'] != false,
+                  ),
+                ),
+                _SettingToggle(
+                  icon: Icons.visibility_off_outlined,
+                  title: 'Start minimized in tray',
+                  subtitle:
+                      'Keep the workspace hidden when AiOS starts with Windows.',
+                  value: startup['background'] != false,
+                  onChanged: (value) => controller.setStartup(
+                    enabled: startup['enabled'] == true,
+                    background: value,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -2472,6 +3076,7 @@ class _SettingsPage extends StatelessWidget {
                     Expanded(
                       child: _ActionButton(
                         label: 'Hide to tray',
+                        icon: Icons.keyboard_arrow_down_rounded,
                         onTap: controller.hideToTray,
                       ),
                     ),
@@ -2479,6 +3084,7 @@ class _SettingsPage extends StatelessWidget {
                     Expanded(
                       child: _ActionButton(
                         label: 'Exit AiOS',
+                        icon: Icons.power_settings_new_rounded,
                         danger: true,
                         onTap: controller.exitApp,
                       ),
@@ -2509,47 +3115,66 @@ class _WorkspacePage extends StatelessWidget {
   final List<Widget> actions;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(2, 10, 2, 20),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _Eyebrow(eyebrow),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 40,
-                      height: 1.1,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: _Palette.of(context).muted,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final stackHeader = constraints.maxWidth < 760;
+      final copy = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Eyebrow(eyebrow),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: stackHeader ? 34 : 40,
+              height: 1.1,
+              fontWeight: FontWeight.w900,
             ),
-            if (actions.isNotEmpty) ...[
-              const SizedBox(width: 18),
-              Wrap(spacing: 10, runSpacing: 10, children: actions),
-            ],
-          ],
-        ),
-      ),
-      child,
-    ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: TextStyle(color: _Palette.of(context).muted, height: 1.5),
+          ),
+        ],
+      );
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(2, 10, 2, 20),
+            child: stackHeader
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      copy,
+                      if (actions.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Wrap(spacing: 10, runSpacing: 10, children: actions),
+                      ],
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(child: copy),
+                      if (actions.isNotEmpty) ...[
+                        const SizedBox(width: 18),
+                        Flexible(
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: actions,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+          ),
+          child,
+        ],
+      );
+    },
   );
 }
 
@@ -2558,15 +3183,9 @@ class _PageColumn extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Align(
-    alignment: Alignment.topLeft,
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 760),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: children,
-      ),
-    ),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: children,
   );
 }
 
@@ -2588,26 +3207,41 @@ class _Panel extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final heading = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (eyebrow.isNotEmpty) _Eyebrow(eyebrow),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            );
+            if (action == null) return heading;
+            if (constraints.maxWidth < 560) {
+              return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (eyebrow.isNotEmpty) _Eyebrow(eyebrow),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
+                  heading,
+                  const SizedBox(height: 12),
+                  Align(alignment: Alignment.centerLeft, child: action),
                 ],
-              ),
-            ),
-            if (action != null) ...[const SizedBox(width: 12), action!],
-          ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: heading),
+                const SizedBox(width: 12),
+                action!,
+              ],
+            );
+          },
         ),
         const SizedBox(height: 16),
         child,
@@ -2725,46 +3359,156 @@ class _ListRow extends StatelessWidget {
     child: _HoverSurface(
       color: _Palette.of(context).surfaceRaised,
       padding: const EdgeInsets.all(15),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: _Palette.of(context).surfaceHover,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            alignment: Alignment.center,
-            child: Icon(icon, size: 19, color: _Palette.primary),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 520;
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 5),
                 Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-                if (subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 5),
-                  Text(
-                    subtitle,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _Palette.of(context).muted,
-                      fontSize: 12,
-                      height: 1.5,
-                    ),
+                  subtitle,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _Palette.of(context).muted,
+                    fontSize: 12,
+                    height: 1.5,
                   ),
-                ],
+                ),
               ],
-            ),
-          ),
-          if (meta.isNotEmpty) ...[const SizedBox(width: 12), _MetaPill(meta)],
-        ],
+              if (compact && meta.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _MetaPill(meta),
+              ],
+            ],
+          );
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: _Palette.of(context).surfaceHover,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, size: 19, color: _Palette.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: copy),
+              if (!compact && meta.isNotEmpty) ...[
+                const SizedBox(width: 12),
+                _MetaPill(meta),
+              ],
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+
+class _ServiceActionRow extends StatelessWidget {
+  const _ServiceActionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.meta,
+    required this.actionLabel,
+    required this.actionIcon,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String meta;
+  final String actionLabel;
+  final IconData actionIcon;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: _HoverSurface(
+      color: _Palette.of(context).surfaceRaised,
+      padding: const EdgeInsets.all(15),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stackActions = constraints.maxWidth < 640;
+          final details = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: _Palette.of(context).surfaceHover,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, size: 19, color: _Palette.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        subtitle,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _Palette.of(context).muted,
+                          fontSize: 12,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          );
+          final actions = Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _MetaPill(meta),
+              _ActionButton(
+                label: actionLabel,
+                icon: actionIcon,
+                primary: onAction != null,
+                onTap: onAction,
+              ),
+            ],
+          );
+          if (stackActions) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [details, const SizedBox(height: 12), actions],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: details),
+              const SizedBox(width: 16),
+              actions,
+            ],
+          );
+        },
       ),
     ),
   );
@@ -2914,14 +3658,20 @@ class _SmallMetricRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final width = (constraints.maxWidth - 48) / 4;
+      final columns = constraints.maxWidth >= 840
+          ? 4
+          : constraints.maxWidth >= 420
+          ? 2
+          : 1;
+      final spacing = 16.0 * (columns - 1);
+      final width = (constraints.maxWidth - spacing) / columns;
       return Wrap(
         spacing: 16,
         runSpacing: 16,
         children: values.indexed
             .map(
               (entry) => SizedBox(
-                width: width.clamp(150, constraints.maxWidth),
+                width: width,
                 child: _Reveal(
                   index: entry.$1,
                   child: _HoverSurface(
@@ -3001,23 +3751,26 @@ class _SettingToggle extends StatelessWidget {
   final ValueChanged<bool> onChanged;
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 10),
-    decoration: BoxDecoration(
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Material(
       color: _Palette.of(context).surfaceRaised,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: _Palette.of(context).border),
-    ),
-    child: SwitchListTile(
-      value: value,
-      onChanged: onChanged,
-      activeTrackColor: _Palette.primary,
-      activeThumbColor: const Color(0xFF10150C),
-      secondary: Icon(icon),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(color: _Palette.of(context).muted, fontSize: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: _Palette.of(context).border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SwitchListTile(
+        value: value,
+        onChanged: onChanged,
+        activeTrackColor: _Palette.primary,
+        activeThumbColor: const Color(0xFF10150C),
+        secondary: Icon(icon),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(color: _Palette.of(context).muted, fontSize: 12),
+        ),
       ),
     ),
   );
@@ -3059,11 +3812,13 @@ class _ActionButton extends StatelessWidget {
     required this.onTap,
     this.primary = false,
     this.danger = false,
+    this.icon,
   });
   final String label;
   final VoidCallback? onTap;
   final bool primary;
   final bool danger;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -3095,11 +3850,27 @@ class _ActionButton extends StatelessWidget {
                     : palette.border,
               ),
             ),
-            alignment: Alignment.center,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              label,
-              style: TextStyle(color: foreground, fontWeight: FontWeight.w900),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 17, color: foreground),
+                  const SizedBox(width: 8),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -3190,6 +3961,273 @@ class _MetaPill extends StatelessWidget {
     ),
   );
 }
+
+class _SignalPill extends StatelessWidget {
+  const _SignalPill(this.label, this.color);
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(maxWidth: 320),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      border: Border.all(color: color.withValues(alpha: 0.42)),
+      borderRadius: BorderRadius.circular(9),
+    ),
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: _Palette.of(context).text,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ActionMetricStrip extends StatelessWidget {
+  const _ActionMetricStrip({required this.metrics});
+  final List<
+    ({String label, String value, String caption, IconData icon, Color color})
+  >
+  metrics;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth >= 760 ? 4 : 2;
+      final width = (constraints.maxWidth - ((columns - 1) * 10)) / columns;
+      return Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: metrics
+            .map(
+              (metric) => SizedBox(
+                width: width,
+                child: Container(
+                  height: 88,
+                  padding: const EdgeInsets.all(13),
+                  decoration: BoxDecoration(
+                    color: _Palette.of(context).surfaceRaised,
+                    border: Border.all(color: _Palette.of(context).border),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: metric.color.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(metric.icon, color: metric.color, size: 19),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              metric.value,
+                              style: const TextStyle(
+                                fontSize: 23,
+                                height: 1,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              metric.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              metric.caption,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _Palette.of(context).muted,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      );
+    },
+  );
+}
+
+class _ActionFilterButton extends StatelessWidget {
+  const _ActionFilterButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: selected ? _Palette.primary : _Palette.of(context).surfaceRaised,
+    borderRadius: BorderRadius.circular(10),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        height: 40,
+        constraints: const BoxConstraints(minWidth: 76),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: selected ? _Palette.primary : _Palette.of(context).border,
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected
+                ? const Color(0xFF10150C)
+                : _Palette.of(context).text,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _WorkspaceSearch extends StatelessWidget {
+  const _WorkspaceSearch({
+    required this.controller,
+    required this.hint,
+    required this.onChanged,
+  });
+  final TextEditingController controller;
+  final String hint;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => TextField(
+    controller: controller,
+    onChanged: onChanged,
+    decoration: InputDecoration(
+      hintText: hint,
+      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+      suffixIcon: controller.text.isEmpty
+          ? null
+          : IconButton(
+              tooltip: 'Clear search',
+              icon: const Icon(Icons.close_rounded, size: 18),
+              onPressed: () {
+                controller.clear();
+                onChanged('');
+              },
+            ),
+      filled: true,
+      fillColor: _Palette.of(context).surfaceRaised,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: _Palette.of(context).border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: _Palette.of(context).border),
+      ),
+    ),
+  );
+}
+
+Color _opportunityTone(Map<String, dynamic> item) =>
+    switch (_string(item['urgency'])) {
+      'overdue' => _Palette.danger,
+      'urgent' => _Palette.warning,
+      'action' => _Palette.info,
+      _ when item['is_achievement'] == true => _Palette.success,
+      _ => _Palette.primary,
+    };
+
+Color _deadlineTone(Map<String, dynamic> item) {
+  final days = (item['days_left'] as num?)?.toInt();
+  if (days == null) return _Palette.info;
+  if (days < 0) return _Palette.danger;
+  if (days <= 3) return _Palette.warning;
+  return _Palette.info;
+}
+
+String _shortDeadline(Map<String, dynamic> item) {
+  final days = (item['days_left'] as num?)?.toInt();
+  if (days == null) return 'No deadline';
+  if (days < 0) return '${days.abs()}d overdue';
+  if (days == 0) return 'Due today';
+  return '${days}d left';
+}
+
+IconData _opportunityIcon(Map<String, dynamic> item) {
+  final status = _string(item['status']).toLowerCase();
+  final kind = _string(item['kind']).toLowerCase();
+  if (item['is_achievement'] == true) {
+    return Icons.emoji_events_outlined;
+  }
+  if (status.contains('interview')) {
+    return Icons.record_voice_over_outlined;
+  }
+  if (status.contains('assessment') || status.contains('round')) {
+    return Icons.assignment_outlined;
+  }
+  if (kind.contains('hackathon') || kind.contains('competition')) {
+    return Icons.code_rounded;
+  }
+  return Icons.work_outline;
+}
+
+Color _reminderTone(Map<String, dynamic> item) =>
+    switch (_string(item['urgency'])) {
+      'overdue' => _Palette.danger,
+      'today' => _Palette.warning,
+      _ => _Palette.info,
+    };
+
+IconData _reminderIcon(Map<String, dynamic> item) =>
+    switch (_string(item['urgency'])) {
+      'overdue' => Icons.priority_high_rounded,
+      'today' => Icons.schedule_rounded,
+      _ => Icons.notifications_none,
+    };
 
 class _Eyebrow extends StatelessWidget {
   const _Eyebrow(this.text);
