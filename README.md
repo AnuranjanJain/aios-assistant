@@ -69,6 +69,8 @@ AiOS is the integration and planning brain for WDYD v2. It owns Google OAuth, Gm
 Local APIs exposed to WDYD and other loopback clients:
 
 ```text
+GET  /api/local/pairing
+GET  /api/wdyd/snapshot
 GET  /api/intelligence/accounts
 POST /api/intelligence/accounts/google/connect
 GET  /api/oauth/google/sign-in/<job-id>
@@ -85,6 +87,12 @@ GET  /api/planning-events
 POST /api/planning-events
 PATCH /api/planning-events/<id>
 ```
+
+`/api/wdyd/snapshot` is the versioned, read-only desktop bridge. It combines
+approved planner, reminder, opportunity, application, PAT, project, worker and
+readiness summaries into one request. It never includes Gmail bodies, refresh
+tokens or credentials. Older WDYD clients can continue using the individual
+endpoints.
 
 Email content is never sent to cloud AI providers by this module. Analysis uses Ollama when available and a deterministic local fallback otherwise.
 

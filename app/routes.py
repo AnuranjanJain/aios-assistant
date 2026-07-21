@@ -2,6 +2,7 @@ from datetime import date, datetime, time
 from hmac import compare_digest
 from pathlib import Path
 import secrets
+from threading import Lock
 from time import monotonic
 from urllib.parse import urlsplit
 import json
@@ -108,6 +109,9 @@ from app.services.workers import list_worker_status, start_worker, stop_worker
 
 bp = Blueprint("main", __name__)
 _EMAIL_VIEW_REFRESH_AT = 0.0
+_WDYD_SNAPSHOT_CACHE = {}
+_WDYD_SNAPSHOT_CACHE_LOCK = Lock()
+WDYD_SNAPSHOT_CACHE_SECONDS = 60
 TRUSTED_BROWSER_ORIGINS = {
     "http://127.0.0.1:5000",
     "http://localhost:5000",
@@ -1221,6 +1225,7 @@ def api_complete_reminder(reminder_id):
     reminder.is_read = True
     _complete_linked_email_work(reminder)
     db.session.commit()
+    _invalidate_wdyd_snapshot()
     return jsonify(
         {
             "ok": True,
@@ -1235,6 +1240,7 @@ def api_mark_reminder_read(reminder_id):
     reminder = Reminder.query.get_or_404(reminder_id)
     reminder.is_read = True
     db.session.commit()
+    _invalidate_wdyd_snapshot()
     return jsonify(
         {
             "ok": True,
@@ -1470,6 +1476,10 @@ def api_ingest_message():
 
 @bp.get("/api/hackathons")
 def api_hackathons():
+    return jsonify(_hackathons_payload())
+
+
+def _hackathons_payload():
     hackathons = (
         Opportunity.query.filter_by(kind="hackathon")
         .order_by(Opportunity.updated_at.desc())
@@ -1483,14 +1493,12 @@ def api_hackathons():
         .limit(8)
         .all()
     )
-    return jsonify(
-        {
-            "hackathons": [serialize_hackathon(item) for item in hackathons],
-            "connectors": [serialize_connector_run(item) for item in connector_runs],
-            "unread_updates": HackathonUpdate.query.filter_by(is_read=False).count(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    )
+    return {
+        "hackathons": [serialize_hackathon(item) for item in hackathons],
+        "connectors": [serialize_connector_run(item) for item in connector_runs],
+        "unread_updates": HackathonUpdate.query.filter_by(is_read=False).count(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @bp.post("/api/hackathons/capture")
@@ -1549,6 +1557,10 @@ def api_mark_hackathon_update_read(update_id):
 
 @bp.get("/api/placements")
 def api_placements():
+    return jsonify(_placements_payload())
+
+
+def _placements_payload():
     placements = [
         item
         for item in Opportunity.query.filter_by(kind="job").order_by(Opportunity.updated_at.desc()).all()
@@ -1562,18 +1574,16 @@ def api_placements():
         .limit(8)
         .all()
     )
-    return jsonify(
-        {
-            "placements": [serialize_placement(item) for item in placements],
-            "connectors": [serialize_connector_run(item) for item in connector_runs],
-            "unread_updates": sum(
-                1
-                for item in PlacementUpdate.query.join(Opportunity).filter(Opportunity.kind == "job").all()
-                if not item.is_read and not is_neopat_opportunity(item.opportunity)
-            ),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    )
+    return {
+        "placements": [serialize_placement(item) for item in placements],
+        "connectors": [serialize_connector_run(item) for item in connector_runs],
+        "unread_updates": sum(
+            1
+            for item in PlacementUpdate.query.join(Opportunity).filter(Opportunity.kind == "job").all()
+            if not item.is_read and not is_neopat_opportunity(item.opportunity)
+        ),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @bp.get("/api/applications")
@@ -1583,6 +1593,10 @@ def api_applications():
 
 @bp.get("/api/neopat")
 def api_neopat():
+    return jsonify(_neopat_payload())
+
+
+def _neopat_payload():
     neopat_items = [
         item
         for item in Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
@@ -1594,18 +1608,16 @@ def api_neopat():
         .limit(8)
         .all()
     )
-    return jsonify(
-        {
-            "placements": [serialize_placement(item) for item in neopat_items],
-            "connectors": [serialize_connector_run(item) for item in connector_runs],
-            "unread_updates": sum(
-                1
-                for item in PlacementUpdate.query.join(Opportunity).all()
-                if not item.is_read and (item.opportunity.kind == "neopat" or is_neopat_opportunity(item.opportunity))
-            ),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    )
+    return {
+        "placements": [serialize_placement(item) for item in neopat_items],
+        "connectors": [serialize_connector_run(item) for item in connector_runs],
+        "unread_updates": sum(
+            1
+            for item in PlacementUpdate.query.join(Opportunity).all()
+            if not item.is_read and (item.opportunity.kind == "neopat" or is_neopat_opportunity(item.opportunity))
+        ),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @bp.post("/api/placements/capture")
@@ -1714,50 +1726,53 @@ def api_today():
 
 @bp.get("/api/live")
 def api_live():
+    return jsonify(_live_api_payload())
+
+
+def _live_api_payload():
     context = build_dashboard_context()
     latest_opportunity = context["opportunities"][0] if context["opportunities"] else None
     latest_activity = context["activity_events"][0] if context["activity_events"] else None
     latest_connector = context["connector_runs"][0] if context["connector_runs"] else None
 
-    return jsonify(
-        {
-            "plan": context["plan"],
-            "stats": context["stats"],
-            "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
-            "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
-            "reminders": [serialize_reminder(item) for item in context["reminders"][:20]],
-            "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:20]],
-            "achievements": context["achievements"][:6],
-            "deadline_highlights": context["deadline_highlights"],
-            "activities": [serialize_activity(item) for item in context["activity_events"][:5]],
-            "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:20]],
-            "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
-            "latest_connector": serialize_connector_run(latest_connector) if latest_connector else None,
-            # WDYD polls this route. Read the latest persisted plan here; sync
-            # jobs and the dedicated planning endpoint perform source refreshes.
-            "intelligence": intelligence_summary(refresh_planner=False),
-            "readiness": readiness_summary(get_effective_config(current_app.config)),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    )
+    return {
+        "plan": context["plan"],
+        "stats": context["stats"],
+        "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
+        "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
+        "reminders": [serialize_reminder(item) for item in context["reminders"][:20]],
+        "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:20]],
+        "achievements": context["achievements"][:6],
+        "deadline_highlights": context["deadline_highlights"],
+        "activities": [serialize_activity(item) for item in context["activity_events"][:5]],
+        "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:20]],
+        "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
+        "latest_connector": serialize_connector_run(latest_connector) if latest_connector else None,
+        # WDYD reads persisted planning data here. Explicit sync jobs own source refreshes.
+        "intelligence": intelligence_summary(refresh_planner=False),
+        "readiness": readiness_summary(get_effective_config(current_app.config)),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @bp.get("/api/desktop/status")
 def api_desktop_status():
+    return jsonify(_desktop_status_payload())
+
+
+def _desktop_status_payload():
     paths = get_runtime_paths()
-    return jsonify(
-        {
-            "desktop": bool(current_app.config.get("AIOS_DESKTOP")),
-            "platform": __import__("sys").platform,
-            "data_dir": str(paths.data_dir),
-            "config_dir": str(paths.config_dir),
-            "imports_dir": str(paths.imports_dir),
-            "runtime_descriptor": str(paths.data_dir / "runtime.json"),
-            "database": current_app.config.get("SQLALCHEMY_DATABASE_URI", ""),
-            "ollama_url": get_effective_config(current_app.config)["OLLAMA_URL"],
-            "startup": startup_overview(),
-        }
-    )
+    return {
+        "desktop": bool(current_app.config.get("AIOS_DESKTOP")),
+        "platform": __import__("sys").platform,
+        "data_dir": str(paths.data_dir),
+        "config_dir": str(paths.config_dir),
+        "imports_dir": str(paths.imports_dir),
+        "runtime_descriptor": str(paths.data_dir / "runtime.json"),
+        "database": current_app.config.get("SQLALCHEMY_DATABASE_URI", ""),
+        "ollama_url": get_effective_config(current_app.config)["OLLAMA_URL"],
+        "startup": startup_overview(),
+    }
 
 
 @bp.post("/api/desktop/startup")
@@ -1862,18 +1877,24 @@ def api_intelligence_update_account(account_id):
         label=payload.get("label") if "label" in payload else None,
         sync_enabled=payload.get("sync_enabled") if "sync_enabled" in payload else None,
     )
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 404
 
 
 @bp.delete("/api/intelligence/accounts/<int:account_id>")
 def api_intelligence_remove_account(account_id):
     result = remove_email_account(account_id)
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 404
 
 
 @bp.post("/api/intelligence/accounts/<int:account_id>/sync")
 def api_intelligence_sync_account(account_id):
     result = sync_account_intelligence(account_id, get_effective_config(current_app.config))
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 400
 
 
@@ -1886,12 +1907,16 @@ def api_projects_context():
 def api_create_project():
     payload = request.get_json(silent=True) or {}
     result = create_project(payload.get("title"), payload.get("repository"), payload.get("working_directory"))
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 201 if result.get("ok") else 400
 
 
 @bp.patch("/api/projects/<int:project_id>")
 def api_update_project(project_id):
     result = update_project(project_id, request.get_json(silent=True) or {})
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 404
 
 
@@ -1900,9 +1925,48 @@ def api_college_pat():
     return jsonify({"ok": True, **pat_college_summary()})
 
 
+@bp.get("/api/wdyd/snapshot")
+def api_wdyd_snapshot():
+    cache_key = current_app.config.get("SQLALCHEMY_DATABASE_URI", "default")
+    now = monotonic()
+    with _WDYD_SNAPSHOT_CACHE_LOCK:
+        cached = _WDYD_SNAPSHOT_CACHE.get(cache_key)
+        cache_hit = bool(cached and now - cached["at"] < WDYD_SNAPSHOT_CACHE_SECONDS)
+        if cache_hit:
+            payload = cached["payload"]
+        else:
+            payload = {
+                "ok": True,
+                "service": "aios-assistant",
+                "schema_version": 1,
+                "generated_at": datetime.utcnow().isoformat(),
+                "live": _live_api_payload(),
+                "desktop": _desktop_status_payload(),
+                "workers": {"items": list_worker_status()},
+                "hackathons": _hackathons_payload(),
+                "placements": _placements_payload(),
+                "applications": application_overview(active_limit=100),
+                "neopat": _neopat_payload(),
+                "projects": {"ok": True, **project_context()},
+                "college": {"ok": True, **pat_college_summary()},
+            }
+            _WDYD_SNAPSHOT_CACHE[cache_key] = {"at": now, "payload": payload}
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-AiOS-Snapshot-Cache"] = "hit" if cache_hit else "miss"
+    return response
+
+
+def _invalidate_wdyd_snapshot():
+    cache_key = current_app.config.get("SQLALCHEMY_DATABASE_URI", "default")
+    with _WDYD_SNAPSHOT_CACHE_LOCK:
+        _WDYD_SNAPSHOT_CACHE.pop(cache_key, None)
+
+
 @bp.post("/api/intelligence/sync")
 def api_intelligence_sync():
     result = run_email_intelligence_cycle(get_effective_config(current_app.config))
+    _invalidate_wdyd_snapshot()
     return jsonify({"ok": True, **result})
 
 
@@ -2017,12 +2081,16 @@ def api_planning_events():
 @bp.post("/api/planning-events")
 def api_create_planning_event():
     result = create_manual_event(request.get_json(silent=True) or {})
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 400
 
 
 @bp.patch("/api/planning-events/<int:event_id>")
 def api_update_planning_event(event_id):
     result = update_event_progress(event_id, request.get_json(silent=True) or {})
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 404
 
 
@@ -2037,6 +2105,8 @@ def api_local_pairing():
             "service": "aios-assistant",
             "base_url": request.host_url.rstrip("/"),
             "api_token": token,
+            "capabilities": {"wdyd_snapshot": 1},
+            "snapshot_path": "/api/wdyd/snapshot",
         }
     )
 

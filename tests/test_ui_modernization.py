@@ -153,6 +153,63 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.get_json()["ok"])
 
+    def test_wdyd_snapshot_is_versioned_and_keeps_raw_email_private(self):
+        pairing = self.client.get("/api/local/pairing")
+        self.assertEqual(pairing.status_code, 200)
+        pairing_payload = pairing.get_json()
+        self.assertEqual(pairing_payload["capabilities"]["wdyd_snapshot"], 1)
+        self.assertEqual(pairing_payload["snapshot_path"], "/api/wdyd/snapshot")
+
+        response = self.client.get(
+            "/api/wdyd/snapshot",
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["service"], "aios-assistant")
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["X-AiOS-Snapshot-Cache"], "miss")
+        self.assertEqual(
+            set(payload),
+            {
+                "applications",
+                "college",
+                "desktop",
+                "generated_at",
+                "hackathons",
+                "live",
+                "neopat",
+                "ok",
+                "placements",
+                "projects",
+                "schema_version",
+                "service",
+                "workers",
+            },
+        )
+        self.assertNotIn("body_plain", response.get_data(as_text=True))
+        self.assertNotIn("refresh_token", response.get_data(as_text=True))
+
+        cached = self.client.get(
+            "/api/wdyd/snapshot",
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(cached.headers["X-AiOS-Snapshot-Cache"], "hit")
+        self.assertEqual(cached.get_json()["generated_at"], payload["generated_at"])
+
+        created = self.client.post(
+            "/api/planning-events",
+            json={"title": "Prepare project walkthrough", "event_type": "task"},
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(created.status_code, 200)
+        refreshed = self.client.get(
+            "/api/wdyd/snapshot",
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(refreshed.headers["X-AiOS-Snapshot-Cache"], "miss")
+
     def test_native_reminder_actions_return_json_and_persist(self):
         with self.app.app_context():
             from app.models import ConnectedAccount, EmailMessage, EmailTask, Opportunity, PlanningEvent, Reminder, db

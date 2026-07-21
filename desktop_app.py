@@ -394,6 +394,8 @@ def main():
             "api_token": api_token,
             "pid": os.getpid(),
             "started_at": datetime.now(timezone.utc).isoformat(),
+            "capabilities": {"wdyd_snapshot": 1},
+            "snapshot_path": "/api/wdyd/snapshot",
         },
     )
     runtime_descriptor.write()

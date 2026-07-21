@@ -39,6 +39,12 @@ surfaces. It consumes AiOS intelligence through loopback APIs and never stores
 Gmail tokens or raw email content. AiOS owns Gmail, opportunities, reminders,
 durable memory, connectors, and their background workers.
 
+The Windows bridge discovers AiOS from its local `runtime.json` descriptor and
+uses `GET /api/wdyd/snapshot`, a token-protected versioned contract containing
+only approved summaries. WDYD persists that sanitized response as a last-good
+snapshot so useful data remains visible during a short AiOS restart. Legacy
+per-feature endpoints remain available as a compatibility fallback.
+
 The native AiOS navigation intentionally does not expose Projects, Wellbeing,
 Planner, Automation, Browser Agent, or Career Copilot. The first three belong to
 WDYD. The final three remain incubating source modules for possible standalone
@@ -294,7 +300,7 @@ login startup with `--enable-startup`.
 
 Current live behavior:
 
-- native Flutter UI polls local summary APIs every 12 seconds
+- WDYD retries the AiOS bridge every 3 seconds while reconnecting and every 15 seconds when healthy
 - Linux/browser stats update without a full page refresh on its branch
 - `local_worker.py` checks reminders every 30 seconds
 - `AiOS-Core.exe` starts reminders, import watching, opportunity scanning, and email intelligence automatically
