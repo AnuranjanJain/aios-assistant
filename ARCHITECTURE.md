@@ -34,7 +34,15 @@ AiOS owns the agent-grade integration layer:
 - follow-up, waiting-on, and deadline suggestions
 - future connectors such as Outlook, Slack, Notion, GitHub, Linear, and Calendar
 
-What Do You Do stays the activity/wellbeing surface. It consumes AiOS intelligence through loopback APIs and never stores Gmail tokens or raw email content.
+What Do You Do owns the activity, project, wellbeing, college/PAT, and planning
+surfaces. It consumes AiOS intelligence through loopback APIs and never stores
+Gmail tokens or raw email content. AiOS owns Gmail, opportunities, reminders,
+durable memory, connectors, and their background workers.
+
+The native AiOS navigation intentionally does not expose Projects, Wellbeing,
+Planner, Automation, Browser Agent, or Career Copilot. The first three belong to
+WDYD. The final three remain incubating source modules for possible standalone
+apps and are not part of the current AiOS product surface.
 
 ## Main Components
 
@@ -240,8 +248,8 @@ pairing token on an available 127.0.0.1 port
         |
 SQLite, Gmail OAuth, Ollama and workers
         |
-Flutter renders Overview, Inbox, Opportunities, Projects, College,
-Accounts and Settings without an embedded browser
+Flutter renders Overview, Inbox AI, Opportunities, Reminders, Memory,
+Sources, Connectors, Workers and Settings without an embedded browser
 ```
 
 Desktop persistence:
@@ -289,7 +297,8 @@ Current live behavior:
 - native Flutter UI polls local summary APIs every 12 seconds
 - Linux/browser stats update without a full page refresh on its branch
 - `local_worker.py` checks reminders every 30 seconds
-- `AiOS-Core.exe` starts reminders, import watching, opportunity scanning, email intelligence, and activity tracking automatically
+- `AiOS-Core.exe` starts reminders, import watching, opportunity scanning, and email intelligence automatically
+- WDYD is the only Windows desktop activity collector; AiOS does not duplicate that worker
 - desktop notifications use `plyer` when available and terminal output as a fallback
 - reminders are marked read after notification so the same reminder is not repeatedly sent
 
@@ -405,7 +414,7 @@ can start/stop standalone Python worker processes in browser/dev mode
 Managed workers:
 
 - reminder worker
-- desktop activity worker
+- WDYD activity ingestion endpoint (the collector runs in the WDYD process)
 - watch import worker
 - opportunity monitor
 
@@ -457,10 +466,10 @@ Current connectors:
 - Reminder connector: checks reminders and triggers local notifications.
 - Job portal connector: imports saved `.json` and `.csv` exports, plus extension live capture.
 
-### Desktop Activity Flow
+### Desktop Activity Flow (Owned by WDYD)
 
 ```text
-desktop_activity_worker.py
+WDYD in-process collector
         |
 active window title
         |
@@ -468,8 +477,11 @@ category heuristic
         |
 ActivityEvent
         |
-dashboard/mobile live update
+WDYD dashboard/mobile live update
 ```
+
+AiOS may retain the loopback ingestion endpoint for cross-app context, but it
+does not start or display a second desktop activity tracker.
 
 ### Job Page Flow
 

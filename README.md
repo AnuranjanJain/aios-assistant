@@ -7,7 +7,7 @@
 <h3 align="center">Your local AI life operating system</h3>
 
 <p align="center">
-  Memory, Gmail, projects, learning and daily plans in one private workspace.
+  Gmail intelligence, opportunities, reminders, and durable memory in one private workspace.
 </p>
 
 <p align="center">
@@ -34,19 +34,17 @@ branch.
 
 | App | Job |
 | --- | --- |
-| **[What Do You Do](https://github.com/AnuranjanJain/what-do-you-do)** | Observes activity and answers where the day went. |
-| **AiOS Assistant** | Connects mail, projects and memory, then decides what should happen next. |
+| **[What Do You Do](https://github.com/AnuranjanJain/what-do-you-do)** | Owns activity, projects, wellbeing, college/PAT, and daily planning. |
+| **AiOS Assistant** | Owns Gmail intelligence, opportunities, reminders, memory, connectors, and background sync. |
 
 They communicate only through loopback APIs. Raw activity and email content stay on the device.
 
 ## What It Does
 
-- Remembers projects, goals, learning paths, notes, and next actions.
-- Tracks hackathons, job updates, Gmail signals, reminders, and wellbeing events.
+- Remembers projects, goals, learning paths, notes, checkpoints, and next actions.
+- Tracks hackathons, job updates, Gmail signals, and reminders.
 - Owns Email Intelligence: multi-account Gmail OAuth, encrypted local tokens, local email sync, AI understanding, semantic search, and daily/weekly planning.
-- Turns hackathons, repos, email tasks, learning videos, and goals into one planning board with work done, work left, deadlines, and next questions.
-- Runs local desktop automation previews before touching files.
-- Plans goals into daily, weekly, or monthly roadmaps.
+- Exposes planning and project intelligence to WDYD over a paired loopback API.
 - Connects with Gmail OAuth and local import folders.
 - Keeps AI local-first with Ollama support and rule-based fallback.
 - Ships as an installable Windows desktop app plus Arch/Linux packaging.
@@ -55,12 +53,13 @@ They communicate only through loopback APIs. Raw activity and email content stay
 
 ```mermaid
 flowchart LR
-    A["Gmail / files / wellbeing"] --> B["Packaged AiOS core"]
-    B --> C["SQLite memory + activity store"]
+    A["Gmail / local imports"] --> B["Packaged AiOS core"]
+    B --> C["SQLite email + memory store"]
     B --> D["Rule engine or Ollama"]
     C --> E["Native Flutter Windows client"]
     D --> E
-    E --> F["Plans, reminders, pipelines, reports"]
+    E --> F["Inbox AI, reminders, opportunities, memory"]
+    B --> G["Paired WDYD app"]
 ```
 
 ## Email Intelligence
@@ -145,9 +144,10 @@ flowchart TB
     W["aios_assistant.exe"] --> O["Overview"]
     W --> I["Inbox AI"]
     W --> H["Opportunities"]
-    W --> P["Projects"]
-    W --> C["College / PAT"]
-    W --> G["Google Accounts"]
+    W --> M["Memory"]
+    W --> R["Reminders"]
+    W --> G["Gmail Sources"]
+    W --> C["Connectors / Workers"]
     W --> S["Settings / startup / tray / exit"]
     W --> A["127.0.0.1 paired API"]
     A --> K["AiOS-Core.exe"]
@@ -229,9 +229,9 @@ aios_core.spec           headless Windows core package
 scripts/build-windows-native.ps1
                          builds the core, Flutter client and release ZIP
 
-automation_agent/        Local file and office automation tools
-browser_agent/           Browser research and job tracking planner
-career_agent/            GitHub, resume, roadmap, and job match logic
+automation_agent/        Incubating standalone module; not shown in AiOS
+browser_agent/           Incubating standalone module; not shown in AiOS
+career_agent/            Incubating standalone module; not shown in AiOS
 docs/                    Architecture, QA, screenshots, module specs
 extension/               Browser/plugin companion surface
 packaging/               Desktop release helpers
@@ -242,12 +242,14 @@ tests/                   Regression and integration tests
 
 | Page | Purpose |
 | --- | --- |
-| Overview | Today's focus, reminders, mail and activity signals |
+| Overview | Gmail intelligence, reminders, and opportunity signals |
 | Inbox AI | Local email summaries and urgent actions |
 | Opportunities | Grouped jobs, hackathons, achievements and deadlines |
-| Projects | Repository, working-folder, progress and next-action context |
-| College | PAT class schedule, preparation and recent college mail |
-| Accounts | One-click multi-account Google sign-in and sync |
+| Reminders | Due and upcoming actions extracted locally |
+| Memory | Search, entities, notes, project checkpoints, and next actions |
+| Sources | One-click multi-account Google sign-in and sync |
+| Connectors | Local pipeline health and manual sync |
+| Workers | Background email, reminder, import, and opportunity services |
 | Settings | Core health, theme, Windows startup, tray and exit |
 
 ## Safety Notes
@@ -255,7 +257,7 @@ tests/                   Regression and integration tests
 - Credentials stay out of git: `credentials/`, `.env`, `instance/`, `release/`, `dist/`, and `build/` are ignored.
 - Gmail tokens live locally.
 - OAuth refresh tokens are encrypted before storage.
-- Destructive automation uses previews and approval.
+- Activity collection belongs to WDYD; AiOS does not run a second desktop tracker.
 - Local API pairing is loopback-only and token protected.
 - Cloud AI is optional; local-first is the default design.
 

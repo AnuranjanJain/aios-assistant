@@ -34,7 +34,10 @@ owns the background services:
 - reminder service
 - import watcher
 - opportunity monitor
-- desktop activity tracker
+- email intelligence worker
+
+Desktop activity tracking is owned by the installed WDYD app. AiOS does not
+start a duplicate collector, which keeps CPU and memory use lower.
 
 ## Arch / Linux
 
