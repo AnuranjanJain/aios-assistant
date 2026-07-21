@@ -4,10 +4,11 @@ import re
 from datetime import date, datetime, time, timedelta
 from email.utils import parseaddr
 
-from app.models import EmailMessage, EmailTask, InboxItem, Opportunity, Reminder, db
+from app.models import ConnectedAccount, EmailMessage, EmailTask, InboxItem, Opportunity, Reminder, db
 
 
 OPPORTUNITY_CATEGORIES = {"hackathon", "internship"}
+EMAIL_SCAN_LIMIT_PER_ACCOUNT = 100
 
 
 def _json(value):
@@ -150,9 +151,31 @@ def _deadline_from_email(email):
     return None
 
 
-def materialize_email_views(limit=100):
-    limit = min(100, max(1, int(limit or 100)))
-    emails = EmailMessage.query.order_by(EmailMessage.sent_at.desc()).limit(limit).all()
+def latest_emails_per_account(limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT):
+    limit = min(EMAIL_SCAN_LIMIT_PER_ACCOUNT, max(1, int(limit or EMAIL_SCAN_LIMIT_PER_ACCOUNT)))
+    accounts = ConnectedAccount.query.filter_by(provider="google").order_by(ConnectedAccount.id.asc()).all()
+    emails = []
+    for account in accounts:
+        emails.extend(
+            EmailMessage.query.filter_by(account_id=account.id)
+            .order_by(EmailMessage.sent_at.desc(), EmailMessage.id.desc())
+            .limit(limit)
+            .all()
+        )
+    return sorted(
+        emails,
+        key=lambda item: (item.sent_at or datetime.min, item.id or 0),
+        reverse=True,
+    )
+
+
+def latest_email_ids_per_account(limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT):
+    return [email.id for email in latest_emails_per_account(limit) if email.id is not None]
+
+
+def materialize_email_views(limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT):
+    limit = min(EMAIL_SCAN_LIMIT_PER_ACCOUNT, max(1, int(limit or EMAIL_SCAN_LIMIT_PER_ACCOUNT)))
+    emails = latest_emails_per_account(limit)
     counts = {"inbox": 0, "opportunities": 0, "reminders": 0, "today_reminders": 0}
     for email in emails:
         insight = email.insight
@@ -228,6 +251,8 @@ def materialize_email_views(limit=100):
                 "email_id": task.email_id,
                 "subject": task.email.subject,
                 "sender": task.email.sender,
+                "account_email": task.email.account.email if task.email.account else "",
+                "summary": (insight.summary if insight else task.email.snippet or "")[:500],
                 "message": f"From Gmail: {task.email.subject}",
             },
             ensure_ascii=True,
@@ -241,7 +266,14 @@ def materialize_email_views(limit=100):
         db.session.delete(reminder)
 
     db.session.commit()
-    return {"ok": True, **counts, "processed": len(emails), "emails_scanned": len(emails)}
+    return {
+        "ok": True,
+        **counts,
+        "processed": len(emails),
+        "emails_scanned": len(emails),
+        "accounts_scanned": len({email.account_id for email in emails}),
+        "per_account_limit": limit,
+    }
 
 
 def _first_task_due_at(email):

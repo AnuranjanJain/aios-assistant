@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from app import create_app
@@ -151,6 +152,99 @@ class UiModernizationTestCase(unittest.TestCase):
         response = self.client.post("/api/desktop/show", json={"path": "/"})
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.get_json()["ok"])
+
+    def test_native_reminder_actions_return_json_and_persist(self):
+        with self.app.app_context():
+            from app.models import ConnectedAccount, EmailMessage, EmailTask, Opportunity, PlanningEvent, Reminder, db
+
+            account = ConnectedAccount(email="student@example.com")
+            db.session.add(account)
+            db.session.flush()
+            email = EmailMessage(
+                account_id=account.id,
+                provider_message_id="reminder-action-1",
+                sender="Recruiter <jobs@example.com>",
+                subject="Interview confirmation needed",
+                snippet="Please confirm the interview slot.",
+                sent_at=datetime.now(),
+            )
+            db.session.add(email)
+            db.session.flush()
+            task = EmailTask(
+                email_id=email.id,
+                title="Confirm the interview slot",
+                priority="high",
+                due_at=datetime.now() - timedelta(days=1),
+            )
+            db.session.add(task)
+            db.session.flush()
+            reminder = Reminder(
+                title=task.title,
+                due_at=task.due_at,
+                notification_type="email_action",
+                source_key=f"email-task:{task.id}",
+                metadata_json='{"account_email":"student@example.com","sender":"jobs@example.com","subject":"Interview confirmation needed"}',
+            )
+            event = PlanningEvent(
+                event_type="email",
+                source="gmail",
+                source_key=f"email_task:{task.id}",
+                title=task.title,
+                status="open",
+            )
+            opportunity = Opportunity(
+                source_key="gmail:1:reminder-action-1",
+                email_message_id=email.id,
+                kind="internship",
+                title="Interview confirmation needed",
+                organization="Example Labs",
+                status="Interview scheduled",
+                source="Gmail: student@example.com",
+                deadline=datetime.now() + timedelta(days=2),
+                notes="You reached the interview stage.\nPrepare two project examples.",
+            )
+            db.session.add_all([reminder, event, opportunity])
+            db.session.commit()
+            reminder_id = reminder.id
+
+        headers = {"X-AiOS-Token": "local-test-token"}
+        reminder_overview = self.client.get("/api/reminders/overview", headers=headers)
+        self.assertEqual(reminder_overview.status_code, 200)
+        reminder_payload = reminder_overview.get_json()
+        self.assertEqual(reminder_payload["stats"]["overdue"], 1)
+        self.assertEqual(reminder_payload["items"][0]["email_account"], "student@example.com")
+        self.assertIn("Overdue", reminder_payload["items"][0]["due_label"])
+
+        opportunity_overview = self.client.get("/api/opportunities/overview", headers=headers)
+        self.assertEqual(opportunity_overview.status_code, 200)
+        opportunity_payload = opportunity_overview.get_json()
+        self.assertEqual(opportunity_payload["stats"]["action_needed"], 1)
+        self.assertEqual(opportunity_payload["items"][0]["program"], "Example Labs")
+        self.assertIn("interview", opportunity_payload["items"][0]["next_action"].lower())
+
+        read_response = self.client.post(
+            f"/api/reminders/{reminder_id}/read", headers=headers
+        )
+        self.assertEqual(read_response.status_code, 200)
+        self.assertTrue(read_response.get_json()["reminder"]["is_read"])
+
+        done_response = self.client.post(
+            f"/api/reminders/{reminder_id}/done", headers=headers
+        )
+        self.assertEqual(done_response.status_code, 200)
+        self.assertTrue(done_response.get_json()["reminder"]["is_done"])
+
+        with self.app.app_context():
+            from app.models import EmailTask, PlanningEvent, Reminder
+
+            saved = db.session.get(Reminder, reminder_id)
+            self.assertTrue(saved.is_read)
+            self.assertTrue(saved.is_done)
+            self.assertEqual(EmailTask.query.one().status, "done")
+            self.assertEqual(PlanningEvent.query.one().status, "done")
+
+        reminder_overview = self.client.get("/api/reminders/overview", headers=headers)
+        self.assertEqual(reminder_overview.get_json()["stats"]["open"], 0)
 
     def test_login_uses_accessible_shared_controls(self):
         html = self.get_text("/login")

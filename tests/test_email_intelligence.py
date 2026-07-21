@@ -25,6 +25,7 @@ from app.models import (
     MemoryFact,
     Opportunity,
     OAuthToken,
+    PlacementUpdate,
     PlanTask,
     GoalPlan,
     PlanningEvent,
@@ -46,7 +47,9 @@ from app.services.email_intelligence import (
     upsert_email_insight,
 )
 from app.services.college_intelligence import pat_college_summary
-from app.services.email_views import materialize_email_views
+from app.services.email_views import latest_email_ids_per_account, materialize_email_views
+from app.services.application_intelligence import application_overview
+from app.routes import build_dashboard_context
 from app.services.project_context import create_project, project_context, update_project
 from app.services.github_intelligence import update_all_repositories, update_repository
 from app.services.learning_intelligence import evening_questions, learning_summary, record_learning_progress, upsert_learning_item
@@ -289,6 +292,98 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(result["emails_scanned"], 100)
         self.assertEqual([item.title for item in reminders], ["Do this today"])
         self.assertEqual(reminders[0].due_at.date(), date.today())
+
+    def test_latest_one_hundred_emails_are_scanned_for_each_connected_account(self):
+        first = ConnectedAccount(provider="google", email="first@example.com", label="First")
+        second = ConnectedAccount(provider="google", email="second@example.com", label="Second")
+        db.session.add_all([first, second])
+        db.session.flush()
+        anchor = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+        newest = []
+        oldest = []
+        for account in (first, second):
+            rows = []
+            for index in range(101):
+                email = EmailMessage(
+                    account=account,
+                    provider_message_id=f"{account.id}-mail-{index}",
+                    sender=account.email,
+                    subject=f"{account.label} mail {index}",
+                    snippet="A local email update.",
+                    sent_at=anchor - timedelta(minutes=index),
+                )
+                rows.append(email)
+                db.session.add(email)
+            newest.append(rows[0])
+            oldest.append(rows[-1])
+        db.session.flush()
+        for index, email in enumerate(newest):
+            db.session.add(
+                EmailTask(
+                    email=email,
+                    title=f"Account task {index}",
+                    priority="urgent",
+                )
+            )
+        for index, email in enumerate(oldest):
+            db.session.add(
+                EmailTask(
+                    email=email,
+                    title=f"Old excluded task {index}",
+                    priority="urgent",
+                )
+            )
+        db.session.commit()
+
+        result = materialize_email_views(limit=100)
+        reminder_titles = {
+            item.title
+            for item in Reminder.query.filter(
+                Reminder.notification_type == "email_action"
+            ).all()
+        }
+
+        self.assertEqual(result["emails_scanned"], 200)
+        self.assertEqual(result["accounts_scanned"], 2)
+        self.assertEqual(result["per_account_limit"], 100)
+        self.assertEqual(len(latest_email_ids_per_account()), 200)
+        self.assertEqual(reminder_titles, {"Account task 0", "Account task 1"})
+
+    def test_dashboard_reminders_and_stats_only_use_recent_email_actions(self):
+        account = ConnectedAccount(provider="google", email="scope@example.com", label="Scope")
+        email = EmailMessage(
+            account=account,
+            provider_message_id="scope-message",
+            sender="team@example.com",
+            subject="Submit the project update",
+            snippet="Please submit today.",
+            sent_at=datetime.now(),
+        )
+        db.session.add_all([account, email])
+        db.session.flush()
+        db.session.add(
+            EmailTask(
+                email=email,
+                title="Submit project update",
+                priority="urgent",
+            )
+        )
+        db.session.add(
+            Reminder(
+                source_key="daily-review:test",
+                title="Daily Review",
+                due_at=datetime.now(),
+                notification_type="daily_review",
+            )
+        )
+        db.session.commit()
+        materialize_email_views(limit=100)
+
+        with self.app.test_request_context("/"):
+            context = build_dashboard_context()
+
+        self.assertEqual([item.title for item in context["reminders"]], ["Submit project update"])
+        self.assertEqual(context["stats"]["active_reminders"], 1)
 
     def test_pat_college_summary_extracts_today_class_and_requirements(self):
         account = ConnectedAccount(provider="google", email="college@example.com", label="College")
@@ -1791,6 +1886,103 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         set_setting("EMAIL_SYNC_INTERVAL_MINUTES", "7")
         db.session.commit()
         self.assertEqual(sync_interval_seconds(self.app), 420)
+
+    def test_application_overview_keeps_latest_100_and_archives_the_rest(self):
+        account = ConnectedAccount(provider="google", email="career@example.com", label="Career")
+        db.session.add(account)
+        db.session.flush()
+        now = datetime.now()
+        for index in range(102):
+            email = EmailMessage(
+                account=account,
+                provider_message_id=f"application-{index}",
+                sender="jobs-noreply@linkedin.com",
+                subject=f"Thank you for applying to Company {index}",
+                snippet="Your application was received.",
+                body_text="We received your application through LinkedIn Jobs.",
+                sent_at=now - timedelta(days=index),
+            )
+            db.session.add(email)
+            db.session.flush()
+            opportunity = Opportunity(
+                source_key=f"gmail:{account.id}:{email.provider_message_id}",
+                email_message_id=email.id,
+                kind="job",
+                title=f"Software Intern {index}",
+                organization=f"Company {index}",
+                status="Applied",
+                source="Gmail",
+                created_at=email.sent_at,
+                updated_at=email.sent_at,
+            )
+            db.session.add(opportunity)
+        db.session.commit()
+
+        result = application_overview()
+
+        self.assertEqual(len(result["active"]), 100)
+        self.assertEqual(len(result["archive"]), 2)
+        self.assertEqual(result["stats"]["emails_scanned"], 102)
+        self.assertEqual(result["active"][0]["platform"], "LinkedIn")
+        self.assertEqual(result["active"][0]["source_email"]["account_email"], "career@example.com")
+        self.assertTrue(result["archive"][0]["archived"])
+
+        response = self.client.get(
+            "/api/applications",
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()["active"]), 100)
+
+    def test_planner_prioritizes_hiring_steps_and_low_progress_projects(self):
+        account = ConnectedAccount(provider="google", email="jobs@example.com", label="Jobs")
+        email = EmailMessage(
+            account=account,
+            provider_message_id="assessment-today",
+            sender="recruiting@linkedin.com",
+            subject="Online assessment for Backend Intern",
+            snippet="Complete the online assessment tomorrow.",
+            body_text="Your application moved to the next round. Complete the online test tomorrow.",
+            sent_at=datetime.now(),
+        )
+        db.session.add_all([account, email])
+        db.session.flush()
+        db.session.add(
+            Opportunity(
+                source_key="gmail:assessment-today",
+                email_message_id=email.id,
+                kind="job",
+                title="Backend Intern",
+                organization="NeuralStack",
+                status="OA Received",
+                source="Gmail",
+                deadline=datetime.combine(date.today() + timedelta(days=1), time(17)),
+            )
+        )
+        db.session.add(
+            LifeItem(
+                source_key="project:flightiq",
+                title="FlightIQ",
+                category="project",
+                status="open",
+                progress=20,
+                deadline=datetime.combine(date.today() + timedelta(days=2), time(18)),
+                working_directory=self.temp_dir.name,
+                next_action="Finish dashboard and submission video.",
+            )
+        )
+        db.session.commit()
+
+        board = planning_board()
+        week = board["plan_blocks"]["week"]
+
+        application = next(block for block in week if block["event_type"] == "application")
+        project = next(block for block in week if block["event_type"] == "repo")
+        self.assertIn("hiring step", application["reason"])
+        self.assertIn("gmail", application["source_signals"])
+        self.assertEqual(project["progress"], 20)
+        self.assertIn("local_workspace", project["source_signals"])
+        self.assertTrue(board["briefing"]["at_risk"])
 
 
 if __name__ == "__main__":

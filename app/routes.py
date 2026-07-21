@@ -14,10 +14,12 @@ from werkzeug.utils import secure_filename
 from app.models import (
     ActivityEvent,
     ConnectorRun,
+    EmailTask,
     HackathonUpdate,
     InboxItem,
     Opportunity,
     PlacementUpdate,
+    PlanningEvent,
     Reminder,
     db,
 )
@@ -87,6 +89,7 @@ from app.services.oauth_sign_in import (
 )
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
+from app.services.application_intelligence import application_overview
 from app.services.planning_events import (
     create_manual_event,
     planning_board,
@@ -1091,14 +1094,47 @@ def build_dashboard_context():
             _EMAIL_VIEW_REFRESH_AT = now
         except Exception:
             db.session.rollback()
-    opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
+    from app.services.email_views import latest_email_ids_per_account
+
+    active_email_ids = latest_email_ids_per_account(limit=100)
+    opportunities = (
+        Opportunity.query.filter(Opportunity.email_message_id.in_(active_email_ids))
+        .order_by(Opportunity.updated_at.desc())
+        .all()
+        if active_email_ids
+        else []
+    )
     end_of_today = datetime.combine(date.today(), time.max)
+    active_task_keys = (
+        [
+            f"email-task:{task_id}"
+            for (task_id,) in db.session.query(EmailTask.id)
+            .filter(EmailTask.email_id.in_(active_email_ids))
+            .all()
+        ]
+        if active_email_ids
+        else []
+    )
     reminders = (
-        Reminder.query.filter(Reminder.is_done.is_(False), Reminder.due_at <= end_of_today)
+        Reminder.query.filter(
+            Reminder.source_key.in_(active_task_keys),
+            Reminder.notification_type == "email_action",
+            Reminder.is_done.is_(False),
+            Reminder.due_at <= end_of_today,
+        )
         .order_by(Reminder.due_at.asc())
         .all()
+        if active_task_keys
+        else []
     )
-    inbox_items = InboxItem.query.order_by(InboxItem.occurred_at.desc(), InboxItem.created_at.desc()).limit(20).all()
+    inbox_items = (
+        InboxItem.query.filter(InboxItem.email_message_id.in_(active_email_ids))
+        .order_by(InboxItem.occurred_at.desc(), InboxItem.created_at.desc())
+        .limit(20)
+        .all()
+        if active_email_ids
+        else []
+    )
     activity_events = ActivityEvent.query.order_by(ActivityEvent.created_at.desc()).limit(5).all()
     connector_runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(5).all()
     plan = build_daily_plan(opportunities, reminders)
@@ -1176,6 +1212,62 @@ def mark_reminder_read(reminder_id):
     reminder.is_read = True
     db.session.commit()
     return redirect(request.referrer or url_for("main.dashboard"))
+
+
+@bp.post("/api/reminders/<int:reminder_id>/done")
+def api_complete_reminder(reminder_id):
+    reminder = Reminder.query.get_or_404(reminder_id)
+    reminder.is_done = True
+    reminder.is_read = True
+    _complete_linked_email_work(reminder)
+    db.session.commit()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Reminder completed.",
+            "reminder": serialize_reminder(reminder),
+        }
+    )
+
+
+@bp.post("/api/reminders/<int:reminder_id>/read")
+def api_mark_reminder_read(reminder_id):
+    reminder = Reminder.query.get_or_404(reminder_id)
+    reminder.is_read = True
+    db.session.commit()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Reminder marked as read.",
+            "reminder": serialize_reminder(reminder),
+        }
+    )
+
+
+@bp.get("/api/reminders/overview")
+def api_reminders_overview():
+    context = build_dashboard_context()
+    items = [serialize_reminder(item) for item in context["reminders"]]
+    today = date.today()
+    completed_today = Reminder.query.filter(
+        Reminder.is_done.is_(True),
+        Reminder.due_at >= datetime.combine(today, time.min),
+        Reminder.due_at <= datetime.combine(today, time.max),
+    ).count()
+    return jsonify(
+        {
+            "ok": True,
+            "items": items,
+            "stats": {
+                "open": len(items),
+                "overdue": sum(item["urgency"] == "overdue" for item in items),
+                "due_today": sum(item["urgency"] == "today" for item in items),
+                "unread": sum(not item["is_read"] for item in items),
+                "completed_today": completed_today,
+            },
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    )
 
 
 @bp.post("/seed")
@@ -1484,6 +1576,11 @@ def api_placements():
     )
 
 
+@bp.get("/api/applications")
+def api_applications():
+    return jsonify(application_overview(active_limit=100))
+
+
 @bp.get("/api/neopat")
 def api_neopat():
     neopat_items = [
@@ -1628,15 +1725,17 @@ def api_live():
             "stats": context["stats"],
             "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
             "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
-            "reminders": [serialize_reminder(item) for item in context["reminders"][:5]],
-            "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:6]],
+            "reminders": [serialize_reminder(item) for item in context["reminders"][:20]],
+            "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:20]],
             "achievements": context["achievements"][:6],
             "deadline_highlights": context["deadline_highlights"],
             "activities": [serialize_activity(item) for item in context["activity_events"][:5]],
-            "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:6]],
+            "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:20]],
             "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
             "latest_connector": serialize_connector_run(latest_connector) if latest_connector else None,
-            "intelligence": intelligence_summary(),
+            # WDYD polls this route. Read the latest persisted plan here; sync
+            # jobs and the dedicated planning endpoint perform source refreshes.
+            "intelligence": intelligence_summary(refresh_planner=False),
             "readiness": readiness_summary(get_effective_config(current_app.config)),
             "updated_at": datetime.utcnow().isoformat(),
         }
@@ -1696,6 +1795,45 @@ def api_desktop_show():
 def api_opportunities():
     opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
     return jsonify([serialize_opportunity(item) for item in opportunities])
+
+
+@bp.get("/api/opportunities/overview")
+def api_opportunities_overview():
+    context = build_dashboard_context()
+    items = [serialize_opportunity(item) for item in context["opportunities"]][:100]
+    categories = {}
+    for item in items:
+        label = (item["kind"] or "other").replace("_", " ").title()
+        categories[label] = categories.get(label, 0) + 1
+    return jsonify(
+        {
+            "ok": True,
+            "items": items,
+            "achievements": [item for item in items if item["is_achievement"]],
+            "deadlines": [
+                item
+                for item in sorted(
+                    items,
+                    key=lambda value: value["days_left"] if value["days_left"] is not None else 999999,
+                )
+                if item["days_left"] is not None and item["days_left"] >= 0
+            ][:8],
+            "stats": {
+                "total": len(items),
+                "action_needed": sum(item["needs_action"] for item in items),
+                "due_soon": sum(
+                    item["days_left"] is not None and 0 <= item["days_left"] <= 7
+                    for item in items
+                ),
+                "achievements": sum(item["is_achievement"] for item in items),
+            },
+            "categories": [
+                {"label": label, "count": count}
+                for label, count in sorted(categories.items(), key=lambda entry: (-entry[1], entry[0]))
+            ],
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    )
 
 
 @bp.get("/api/connectors")
@@ -2017,6 +2155,32 @@ def serialize_opportunity(item):
             deadline_message = f"{program} was due {abs(days_left)} day{'s' if abs(days_left) != 1 else ''} ago. Review the submission status."
     else:
         deadline_message = ""
+    status_key = (item.status or "tracked").strip().lower()
+    needs_action = any(
+        token in status_key
+        for token in ("action", "assessment", "interview", "selected", "shortlisted", "finalist", "offer")
+    ) or (days_left is not None and 0 <= days_left <= 7)
+    if days_left is not None and days_left < 0:
+        urgency = "overdue"
+    elif days_left is not None and days_left <= 3:
+        urgency = "urgent"
+    elif needs_action:
+        urgency = "action"
+    else:
+        urgency = "tracking"
+    if "interview" in status_key:
+        next_action = "Confirm the interview slot and prepare role-specific examples."
+    elif "assessment" in status_key or "round" in status_key:
+        next_action = "Open the instructions, reserve a focused work block, and complete the next round."
+    elif is_achievement:
+        next_action = "Review the selection details and confirm the next required step."
+    elif days_left is not None and days_left <= 7:
+        next_action = "Protect build time now and verify the submission checklist before the deadline."
+    elif "applied" in status_key:
+        next_action = "Track the response window and prepare a concise follow-up."
+    else:
+        next_action = "Review the latest update and decide whether to apply, prepare, or archive it."
+    summary_lines = [line.strip() for line in (item.notes or "").splitlines() if line.strip()][:4]
     return {
         "id": item.id,
         "source_key": item.source_key,
@@ -2031,12 +2195,43 @@ def serialize_opportunity(item):
         "deadline_message": deadline_message,
         "program": program,
         "is_achievement": is_achievement,
+        "needs_action": needs_action,
+        "urgency": urgency,
+        "next_action": next_action,
+        "summary_lines": summary_lines,
         "notes": item.notes,
         "updated_at": item.updated_at.isoformat(),
     }
 
 
 def serialize_reminder(item):
+    try:
+        metadata = json.loads(item.metadata_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+    now = datetime.now()
+    due_day = item.due_at.date()
+    days = (due_day - now.date()).days
+    if days < 0:
+        urgency = "overdue"
+        due_label = f"Overdue by {abs(days)} day{'s' if abs(days) != 1 else ''}"
+    elif days == 0:
+        urgency = "today"
+        due_label = f"Due today at {item.due_at.strftime('%I:%M %p').lstrip('0')}"
+    else:
+        urgency = "upcoming"
+        due_label = f"Due in {days} day{'s' if days != 1 else ''}"
+    sender = metadata.get("sender", "")
+    subject = metadata.get("subject", "")
+    account = metadata.get("account_email", "")
+    source_parts = [value for value in (account, sender, subject) if value]
+    why = (
+        "This task is overdue and needs a decision now."
+        if urgency == "overdue"
+        else "This task is due today. Complete it or deliberately reschedule it."
+        if urgency == "today"
+        else "This task is approaching and is kept visible for planning."
+    )
     return {
         "id": item.id,
         "title": item.title,
@@ -2048,7 +2243,36 @@ def serialize_reminder(item):
         "is_read": item.is_read,
         "notified_at": item.notified_at.isoformat() if item.notified_at else None,
         "opportunity_id": item.opportunity_id,
+        "email_id": metadata.get("email_id"),
+        "email_subject": metadata.get("subject", ""),
+        "email_sender": metadata.get("sender", ""),
+        "email_account": account,
+        "summary": metadata.get("summary", ""),
+        "due_label": due_label,
+        "urgency": urgency,
+        "why": why,
+        "context": " • ".join(source_parts),
+        "source": "Gmail" if item.notification_type == "email_action" else item.channel,
     }
+
+
+def _complete_linked_email_work(reminder):
+    source_key = reminder.source_key or ""
+    if not source_key.startswith("email-task:"):
+        return
+    try:
+        task_id = int(source_key.split(":", 1)[1])
+    except (TypeError, ValueError):
+        return
+    task = db.session.get(EmailTask, task_id)
+    if task:
+        task.status = "done"
+        task.updated_at = datetime.utcnow()
+    event = PlanningEvent.query.filter_by(source_key=f"email_task:{task_id}").first()
+    if event:
+        event.status = "done"
+        event.work_done = event.work_done or "Completed from the AiOS reminder center."
+        event.work_left = ""
 
 
 def serialize_activity(item):

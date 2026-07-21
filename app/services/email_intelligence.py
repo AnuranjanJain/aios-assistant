@@ -39,6 +39,8 @@ from app.models import (
 
 LOGGER = logging.getLogger(__name__)
 
+EMAIL_SCAN_LIMIT_PER_ACCOUNT = 100
+
 
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -365,7 +367,7 @@ def credentials_for_account(account):
     return credentials
 
 
-def sync_all_accounts(limit_per_account=50):
+def sync_all_accounts(limit_per_account=EMAIL_SCAN_LIMIT_PER_ACCOUNT):
     results = []
     for account in ConnectedAccount.query.filter_by(provider="google", sync_enabled=True).all():
         results.append(sync_account(account, limit=limit_per_account))
@@ -408,7 +410,7 @@ def _friendly_sync_error(exc):
     }
 
 
-def sync_account(account, limit=50):
+def sync_account(account, limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT):
     if isinstance(account, int):
         account = db.session.get(ConnectedAccount, account)
     if account is None:
@@ -423,6 +425,10 @@ def sync_account(account, limit=50):
             raise RuntimeError("OAuth token is missing.")
         service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
         message_ids = _gmail_message_ids(service, account, limit)
+        stored_count = EmailMessage.query.filter_by(account_id=account.id).count()
+        if stored_count < limit:
+            recent_ids = _gmail_recent_message_ids(service, limit)
+            message_ids = list(dict.fromkeys(message_ids + recent_ids))[:limit]
         imported = 0
         for provider_message_id in message_ids:
             message = service.users().messages().get(userId="me", id=provider_message_id, format="full").execute()
@@ -486,6 +492,12 @@ def _gmail_message_ids(service, account, limit):
                 raise
             account.sync_cursor = None
 
+    return _gmail_recent_message_ids(service, limit)
+
+
+def _gmail_recent_message_ids(service, limit):
+    found = []
+    seen = set()
     page_token = None
     while len(found) < limit:
         kwargs = {
@@ -618,11 +630,61 @@ def analyze_pending_emails(limit=25, app_config=None):
     return {"ok": True, "analyzed": analyzed}
 
 
-def sync_account_intelligence(account, app_config=None, limit=50):
+def analyze_recent_emails_per_account(
+    limit_per_account=EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+    app_config=None,
+):
+    from app.services.email_views import latest_emails_per_account
+
+    analyzed = 0
+    for email in latest_emails_per_account(limit_per_account):
+        if email.analyzed_at is not None:
+            continue
+        upsert_email_insight(email, analyze_email(email, app_config or {}))
+        analyzed += 1
+    db.session.commit()
+    return {
+        "ok": True,
+        "analyzed": analyzed,
+        "per_account_limit": limit_per_account,
+    }
+
+
+def analyze_account_emails(
+    account,
+    limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+    app_config=None,
+):
+    account_id = account if isinstance(account, int) else account.id
+    emails = (
+        EmailMessage.query.filter_by(account_id=account_id)
+        .order_by(EmailMessage.sent_at.desc(), EmailMessage.id.desc())
+        .limit(limit)
+        .all()
+    )
+    analyzed = 0
+    for email in emails:
+        if email.analyzed_at is not None:
+            continue
+        upsert_email_insight(email, analyze_email(email, app_config or {}))
+        analyzed += 1
+    db.session.commit()
+    return {"ok": True, "analyzed": analyzed, "per_account_limit": limit}
+
+
+def sync_account_intelligence(
+    account,
+    app_config=None,
+    limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+):
     sync = sync_account(account, limit=limit)
     if not sync.get("ok"):
         return sync
-    analysis = analyze_pending_emails(limit=limit, app_config=app_config or {})
+    analysis = analyze_account_emails(
+        account,
+        limit=limit,
+        app_config=app_config or {},
+    )
     from app.services.email_views import materialize_email_views
 
     views = materialize_email_views(limit=100)
@@ -1050,15 +1112,33 @@ def parse_deadline_text(value, anchor=None):
 
 
 def generate_daily_plan(plan_date=None):
+    from app.services.email_views import latest_email_ids_per_account
+
     plan_date = plan_date or date.today()
+    recent_email_ids = latest_email_ids_per_account(EMAIL_SCAN_LIMIT_PER_ACCOUNT)
     urgent = (
         EmailInsight.query.join(EmailMessage)
-        .filter(EmailInsight.priority.in_(["high", "urgent"]))
+        .filter(
+            EmailInsight.email_id.in_(recent_email_ids),
+            EmailInsight.priority.in_(["high", "urgent"]),
+        )
         .order_by(EmailMessage.sent_at.desc())
         .limit(8)
         .all()
+        if recent_email_ids
+        else []
     )
-    open_tasks = EmailTask.query.filter_by(status="open").order_by(EmailTask.created_at.desc()).limit(8).all()
+    open_tasks = (
+        EmailTask.query.filter(
+            EmailTask.email_id.in_(recent_email_ids),
+            EmailTask.status == "open",
+        )
+        .order_by(EmailTask.created_at.desc())
+        .limit(8)
+        .all()
+        if recent_email_ids
+        else []
+    )
     items = []
     hour = 8
     minute = 30
@@ -1097,13 +1177,21 @@ def generate_weekly_plan(week_start=None):
 
 
 def refresh_suggestions():
+    from app.services.email_views import latest_email_ids_per_account
+
     stale_cutoff = datetime.utcnow() - timedelta(days=3)
+    recent_email_ids = latest_email_ids_per_account(EMAIL_SCAN_LIMIT_PER_ACCOUNT)
     candidates = (
-        EmailMessage.query.filter(EmailMessage.sent_at <= stale_cutoff)
+        EmailMessage.query.filter(
+            EmailMessage.id.in_(recent_email_ids),
+            EmailMessage.sent_at <= stale_cutoff,
+        )
         .filter(EmailMessage.analyzed_at.isnot(None))
         .order_by(EmailMessage.sent_at.desc())
         .limit(20)
         .all()
+        if recent_email_ids
+        else []
     )
     created = 0
     for email in candidates:
@@ -1122,30 +1210,71 @@ def intelligence_today():
     return serialize_daily_plan(daily)
 
 
-def intelligence_summary():
+def intelligence_summary(*, refresh_planner=True):
     from app.services.daily_assistant import latest_daily_assistant_summary
     from app.services.planning_events import planning_board
     from app.services.github_intelligence import generate_daily_summary, serialize_daily_summary
     from app.services.learning_intelligence import learning_summary
     from app.services.college_intelligence import pat_college_summary
     from app.services.project_context import project_context
+    from app.services.email_views import latest_email_ids_per_account
 
-    urgent = EmailInsight.query.filter(EmailInsight.priority.in_(["high", "urgent"])).count()
-    unread = EmailMessage.query.filter_by(is_unread=True).count()
+    recent_email_ids = latest_email_ids_per_account(EMAIL_SCAN_LIMIT_PER_ACCOUNT)
+    urgent = (
+        EmailInsight.query.filter(
+            EmailInsight.email_id.in_(recent_email_ids),
+            EmailInsight.priority.in_(["high", "urgent"]),
+        ).count()
+        if recent_email_ids
+        else 0
+    )
+    unread = (
+        EmailMessage.query.filter(
+            EmailMessage.id.in_(recent_email_ids),
+            EmailMessage.is_unread.is_(True),
+        ).count()
+        if recent_email_ids
+        else 0
+    )
     accounts = ConnectedAccount.query.count()
     daily = intelligence_today()
     weekly = WeeklyPlan.query.order_by(WeeklyPlan.week_start.desc()).first()
     suggestions = AISuggestion.query.filter_by(status="open").order_by(AISuggestion.created_at.desc()).limit(6).all()
-    deadlines = EmailInsight.query.filter(EmailInsight.deadlines_json != "[]").order_by(EmailInsight.updated_at.desc()).limit(6).all()
-    waiting = EmailInsight.query.filter(EmailInsight.waiting_on_json != "[]").order_by(EmailInsight.updated_at.desc()).limit(6).all()
+    deadlines = (
+        EmailInsight.query.filter(
+            EmailInsight.email_id.in_(recent_email_ids),
+            EmailInsight.deadlines_json != "[]",
+        )
+        .order_by(EmailInsight.updated_at.desc())
+        .limit(6)
+        .all()
+        if recent_email_ids
+        else []
+    )
+    waiting = (
+        EmailInsight.query.filter(
+            EmailInsight.email_id.in_(recent_email_ids),
+            EmailInsight.waiting_on_json != "[]",
+        )
+        .order_by(EmailInsight.updated_at.desc())
+        .limit(6)
+        .all()
+        if recent_email_ids
+        else []
+    )
     learning = learning_summary()
-    events = planning_board()
+    events = planning_board(refresh_sources=refresh_planner)
     github_daily = generate_daily_summary()
     db.session.commit()
     return {
         "accounts": accounts,
         "unread_emails": unread,
         "urgent_emails": urgent,
+        "email_scan": {
+            "accounts": accounts,
+            "emails": len(recent_email_ids),
+            "per_account_limit": EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+        },
         "assistant": latest_daily_assistant_summary(),
         "today": daily,
         "weekly": serialize_weekly_plan(weekly) if weekly else generate_weekly_plan(),
@@ -1228,9 +1357,12 @@ def run_email_intelligence_cycle(app_config):
     from app.services.planning_events import planning_board
     from app.services.email_views import materialize_email_views
 
-    sync_results = sync_all_accounts(limit_per_account=30)
-    analysis = analyze_pending_emails(limit=30, app_config=app_config)
-    views = materialize_email_views(limit=100)
+    sync_results = sync_all_accounts(limit_per_account=EMAIL_SCAN_LIMIT_PER_ACCOUNT)
+    analysis = analyze_recent_emails_per_account(
+        limit_per_account=EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+        app_config=app_config,
+    )
+    views = materialize_email_views(limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT)
     github = update_all_repositories(limit=30)
     generate_events_from_learning_items()
     daily = generate_daily_plan()
