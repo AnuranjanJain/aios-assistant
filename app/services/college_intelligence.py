@@ -1,11 +1,23 @@
 import html
+import json
 import re
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
-from app.models import EmailMessage
+from flask import current_app
+from sqlalchemy import or_
+
+from app.models import EmailMessage, PlanningEvent
+from runtime_paths import get_runtime_paths
 
 
 PAT_PATTERN = re.compile(r"\bPAT\b|placement aptitude training|professional aptitude training", re.I)
+COLLEGE_ASSESSMENT_PATTERN = re.compile(
+    r"cdc[-\s]+assessment portal|tcs benchmark(?:ing)? assessment|"
+    r"vit(?:student|bhopal)?.{0,40}(?:assessment|course)|"
+    r"you have been enrolled in a course",
+    re.I,
+)
 CLASS_CUES = (
     "class",
     "training",
@@ -68,7 +80,13 @@ def pat_college_summary(today=None, limit=40):
     today = today or date.today()
     candidates = EmailMessage.query.order_by(EmailMessage.sent_at.desc()).limit(100).all()
     messages = [email for email in candidates if _is_pat_college_notice(email)][:limit]
-    updates = [_serialize_pat_email(email, today) for email in messages]
+    mail_updates = [_serialize_pat_email(email, today) for email in messages]
+    planning_updates = [
+        _serialize_planning_event(event)
+        for event in _college_planning_events(today, limit=limit)
+    ]
+    saved_updates = _saved_college_events()
+    updates = _merge_updates(saved_updates + planning_updates + mail_updates)[:limit]
     today_updates = [item for item in updates if item["event_date"] == today.isoformat()]
     active_today = [item for item in today_updates if item["status"] != "cancelled"]
     cancelled_today = [item for item in today_updates if item["status"] == "cancelled"]
@@ -82,39 +100,139 @@ def pat_college_summary(today=None, limit=40):
     bring = _unique(item for update in preparation_updates for item in update["bring"])
     instructions = _unique(item for update in preparation_updates for item in update["instructions"])
     if active_today:
-        headline = "PAT class is scheduled today"
+        headline = (
+            "PAT class is scheduled today"
+            if _is_pat_update(active_today[0])
+            else f"{active_today[0]['subject']} is scheduled today"
+        )
         status = "scheduled"
     elif cancelled_today:
-        headline = "Today's PAT class is cancelled"
+        headline = (
+            "Today's PAT class is cancelled"
+            if _is_pat_update(cancelled_today[0])
+            else f"{cancelled_today[0]['subject']} is cancelled"
+        )
         status = "cancelled"
     elif next_event:
         event_day = date.fromisoformat(next_event["event_date"])
         days_left = (event_day - today).days
         relative = "tomorrow" if days_left == 1 else f"in {days_left} days"
-        headline = f"Next PAT event is {event_day.strftime('%A, %d %b')} ({relative})"
+        if _is_pat_update(next_event):
+            headline = f"Next PAT event is {event_day.strftime('%A, %d %b')} ({relative})"
+        else:
+            headline = (
+                f"{next_event['subject']} is {event_day.strftime('%A, %d %b')} "
+                f"({relative})"
+            )
         status = "upcoming"
     elif updates:
-        headline = "No PAT class found for today"
+        headline = "No college event found for today"
         status = "no_class_found"
     else:
-        headline = "No PAT mail has been detected yet"
+        headline = "No college mail or event has been detected yet"
         status = "not_connected"
     return {
         "date": today.isoformat(),
         "status": status,
         "has_class_today": bool(active_today),
+        "has_event_today": bool(active_today),
         "headline": headline,
         "time": primary["time"] if primary else "",
         "location": primary["location"] if primary else "",
         "bring": bring,
         "instructions": instructions,
         "latest_subject": primary["subject"] if primary else "",
-        "latest_summary": primary["summary"] if primary else "Connect Gmail in AiOS and run Sync to scan PAT notices.",
+        "latest_summary": (
+            primary["summary"]
+            if primary
+            else "Connect Gmail in AiOS and run Sync to scan college notices."
+        ),
         "emails_scanned": len(candidates),
         "next_event": next_event,
         "next_event_days": (date.fromisoformat(next_event["event_date"]) - today).days if next_event else None,
         "updates": updates[:12],
     }
+
+
+def save_college_event(data):
+    title = str(data.get("title") or "").strip()
+    raw_date = str(
+        data.get("event_date")
+        or data.get("deadline")
+        or data.get("planned_start")
+        or ""
+    ).strip()
+    if not title:
+        return {"ok": False, "message": "title is required"}
+    try:
+        event_date = date.fromisoformat(raw_date[:10])
+    except ValueError:
+        return {"ok": False, "message": "event_date must use YYYY-MM-DD"}
+
+    path = _college_events_path()
+    events = _read_college_events(path)
+    slug = re.sub(r"\W+", "-", title.lower()).strip("-")
+    key = f"{slug}:{event_date.isoformat()}"
+    now = datetime.utcnow().isoformat()
+    event = {
+        "id": key,
+        "email_id": None,
+        "subject": title[:240],
+        "sender": "AiOS local planner",
+        "timestamp": now,
+        "event_date": event_date.isoformat(),
+        "status": str(data.get("status") or "planned")[:40],
+        "time": str(data.get("time") or "").strip()[:40],
+        "location": str(data.get("location") or "").strip()[:160],
+        "bring": _string_values(data.get("bring")),
+        "instructions": _string_values(data.get("instructions")),
+        "summary": str(
+            data.get("summary")
+            or data.get("idea")
+            or data.get("work_left")
+            or "Saved as an important college event."
+        ).strip()[:800],
+        "source_type": "saved",
+        "priority": str(data.get("priority") or "normal")[:40],
+    }
+    events = [item for item in events if item.get("id") != key]
+    events.append(event)
+    events = sorted(
+        events,
+        key=lambda item: (item.get("event_date") or "9999-12-31", item.get("timestamp") or ""),
+    )[-100:]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(events, indent=2), encoding="utf-8")
+    temporary.replace(path)
+    return {"ok": True, "event": event}
+
+
+def _saved_college_events():
+    return _read_college_events(_college_events_path())
+
+
+def _college_events_path():
+    configured = current_app.config.get("COLLEGE_EVENTS_PATH")
+    if configured:
+        return Path(configured)
+    return get_runtime_paths().data_dir / "college-events.json"
+
+
+def _read_college_events(path):
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return []
+    return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+
+
+def _string_values(value):
+    if isinstance(value, list):
+        return [str(item).strip()[:220] for item in value if str(item).strip()][:20]
+    if isinstance(value, str):
+        return [item.strip()[:220] for item in value.split(",") if item.strip()][:20]
+    return []
 
 
 def _serialize_pat_email(email, today):
@@ -136,7 +254,89 @@ def _serialize_pat_email(email, today):
         "bring": [label for label, terms in BRING_ITEMS.items() if any(term in lowered for term in terms)],
         "instructions": _extract_instructions(clean_text),
         "summary": _pat_summary(email, clean_text, event_date),
+        "source_type": "email",
     }
+
+
+def _college_planning_events(today, limit=40):
+    window_start = datetime.combine(today - timedelta(days=30), datetime.min.time())
+    return (
+        PlanningEvent.query.filter(
+            PlanningEvent.status.notin_(("completed", "done")),
+            or_(
+                PlanningEvent.deadline >= window_start,
+                PlanningEvent.planned_start >= window_start,
+            ),
+            or_(
+                PlanningEvent.event_type.in_(("assessment", "class", "college", "exam")),
+                PlanningEvent.title.ilike("%PAT%"),
+                PlanningEvent.title.ilike("%college%"),
+                PlanningEvent.title.ilike("%course%"),
+                PlanningEvent.title.ilike("%exam%"),
+                PlanningEvent.title.ilike("%assessment%"),
+                PlanningEvent.title.ilike("%benchmark%"),
+                PlanningEvent.title.ilike("%CDC%"),
+            ),
+        )
+        .order_by(PlanningEvent.deadline.asc(), PlanningEvent.planned_start.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def _serialize_planning_event(event):
+    scheduled = event.deadline or event.planned_start
+    summary_parts = [event.idea or "", event.work_left or ""]
+    summary = "\n".join(part.strip() for part in summary_parts if part.strip())
+    if not summary:
+        summary = "This event is saved in your local AiOS planner."
+    bring_text = f" {event.idea or ''} {event.work_left or ''} ".lower()
+    return {
+        "email_id": None,
+        "planning_event_id": event.id,
+        "subject": event.title,
+        "sender": event.source or "AiOS planner",
+        "timestamp": event.updated_at.isoformat() if event.updated_at else None,
+        "event_date": scheduled.date().isoformat() if scheduled else None,
+        "status": event.status or "planned",
+        "time": scheduled.strftime("%I:%M %p").lstrip("0") if event.planned_start else "",
+        "location": "",
+        "bring": [
+            label
+            for label, terms in BRING_ITEMS.items()
+            if any(term in bring_text for term in terms)
+        ],
+        "instructions": _extract_instructions(summary),
+        "summary": summary[:800],
+        "source_type": "planner",
+    }
+
+
+def _merge_updates(updates):
+    unique = {}
+    for update in updates:
+        key = (
+            re.sub(r"\W+", "", (update.get("subject") or "").lower()),
+            update.get("event_date") or "",
+        )
+        current = unique.get(key)
+        if current is None or (
+            update.get("source_type") == "planner"
+            and current.get("source_type") != "saved"
+        ):
+            unique[key] = update
+    return sorted(
+        unique.values(),
+        key=lambda item: (
+            0 if item.get("source_type") == "saved" else 1,
+            item.get("event_date") or "9999-12-31",
+            item.get("timestamp") or "",
+        ),
+    )
+
+
+def _is_pat_update(update):
+    return bool(PAT_PATTERN.search(update.get("subject") or ""))
 
 
 def _email_text(email):
@@ -145,7 +345,9 @@ def _email_text(email):
 
 def _is_pat_college_notice(email):
     text = _email_text(email)
-    if not PAT_PATTERN.search(text):
+    is_pat = bool(PAT_PATTERN.search(text))
+    is_assessment = bool(COLLEGE_ASSESSMENT_PATTERN.search(text))
+    if not is_pat and not is_assessment:
         return False
     subject = (email.subject or "").lower()
     clean_text = _without_quoted_headers(text).lower()
@@ -154,7 +356,7 @@ def _is_pat_college_notice(email):
     )
     if registration_mail or any(cue in subject for cue in OPPORTUNITY_CUES):
         return False
-    return any(cue in clean_text for cue in CLASS_CUES)
+    return any(cue in clean_text for cue in CLASS_CUES) or is_assessment
 
 
 def _without_quoted_headers(text):

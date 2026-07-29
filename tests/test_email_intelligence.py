@@ -84,6 +84,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
             OLLAMA_EMBED_MODEL = "nomic-embed-text"
             MEMORY_VECTOR_BACKEND = "sqlite"
             MEMORY_VECTOR_PATH = str(Path(self.temp_dir.name) / "vectors")
+            COLLEGE_EVENTS_PATH = str(Path(self.temp_dir.name) / "college-events.json")
             USER_DISPLAY_NAME = "Anuranjan"
 
         self.config_class = TestConfig
@@ -386,6 +387,64 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual([item.title for item in context["reminders"]], ["Submit project update"])
         self.assertEqual(context["stats"]["active_reminders"], 1)
 
+    def test_dashboard_drops_past_year_email_tasks_and_stale_reminders(self):
+        today = date.today()
+        old_year = today.year - 1
+        account = ConnectedAccount(provider="google", email="years@example.com", label="Years")
+        old_email = EmailMessage(
+            account=account,
+            provider_message_id="old-year-message",
+            sender="old@example.com",
+            subject=f"Old deadline from {old_year}",
+            snippet="This historical task must not return to today's actions.",
+            sent_at=datetime(old_year, 11, 11, 9, 0),
+        )
+        current_email = EmailMessage(
+            account=account,
+            provider_message_id="current-year-message",
+            sender="current@example.com",
+            subject=f"Current deadline from {today.year}",
+            snippet="This current-year task should remain available.",
+            sent_at=datetime.now(),
+        )
+        db.session.add_all([account, old_email, current_email])
+        db.session.flush()
+        old_task = EmailTask(
+            email=old_email,
+            title=f"Schedule work before 11/11/{str(old_year)[-2:]}",
+            priority="high",
+            due_at=datetime(old_year, 11, 11, 17, 0),
+        )
+        current_task = EmailTask(
+            email=current_email,
+            title="Current-year action",
+            priority="high",
+            due_at=datetime.combine(today, time(17, 0)),
+        )
+        db.session.add_all([old_task, current_task])
+        db.session.flush()
+        db.session.add(
+            Reminder(
+                source_key=f"email-task:{old_task.id}",
+                title=old_task.title,
+                due_at=old_task.due_at,
+                notification_type="email_action",
+            )
+        )
+        db.session.commit()
+
+        materialize_email_views(limit=100)
+        with self.app.test_request_context("/"):
+            context = build_dashboard_context()
+
+        self.assertEqual(
+            [item.title for item in context["reminders"]],
+            ["Current-year action"],
+        )
+        self.assertIsNone(
+            Reminder.query.filter_by(source_key=f"email-task:{old_task.id}").first()
+        )
+
     def test_pat_college_summary_extracts_today_class_and_requirements(self):
         account = ConnectedAccount(provider="google", email="college@example.com", label="College")
         email = EmailMessage(
@@ -452,6 +511,94 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertIn("rough sheets", summary["updates"][0]["bring"])
         self.assertIn("10th marksheet", summary["bring"])
         self.assertGreaterEqual(len(summary["latest_summary"].splitlines()), 3)
+
+    def test_college_summary_merges_cdc_assessment_mail_with_saved_exam(self):
+        account = ConnectedAccount(
+            provider="google",
+            email="college@example.com",
+            label="College",
+        )
+        email = EmailMessage(
+            account=account,
+            provider_message_id="tcs-benchmark-enrollment",
+            sender="noreply.cdcinfo@vitstudent.ac.in",
+            subject="You have been enrolled in a course",
+            snippet=(
+                "Greetings from CDC- Assessment Portal! Course Name: "
+                "2027_VIT_Bhopal_TCS_Benchmark Assessment."
+            ),
+            sent_at=datetime(2026, 7, 20, 6, 27),
+        )
+        event = PlanningEvent(
+            event_type="exam",
+            source="manual",
+            source_key="manual:tcs-benchmark-2026-07-31",
+            title="TCS Benchmarking Exam",
+            project="College",
+            deadline=datetime(2026, 7, 31, 9, 0),
+            priority="high",
+            status="planned",
+            idea="Enrolled through the CDC Assessment Portal.",
+            work_left="Confirm the reporting time and venue, then prepare.",
+        )
+        unrelated = [
+            PlanningEvent(
+                event_type="task",
+                source="manual",
+                source_key=f"manual:unrelated-{index}",
+                title=f"Unrelated task {index}",
+                deadline=datetime(2026, 7, 29, 8, 0) + timedelta(minutes=index),
+                status="planned",
+            )
+            for index in range(100)
+        ]
+        db.session.add_all([account, email, event, *unrelated])
+        db.session.commit()
+
+        summary = pat_college_summary(today=date(2026, 7, 29))
+
+        self.assertEqual(summary["status"], "upcoming")
+        self.assertEqual(summary["next_event_days"], 2)
+        self.assertIn("TCS Benchmarking Exam", summary["headline"])
+        self.assertEqual(summary["next_event"]["source_type"], "planner")
+        self.assertTrue(
+            any(
+                update["source_type"] == "email"
+                and "CDC- Assessment Portal" in update["summary"]
+                for update in summary["updates"]
+            )
+        )
+
+    def test_college_event_api_persists_priority_exam_outside_planner_limit(self):
+        db.session.add(
+            PlanningEvent(
+                event_type="exam",
+                source="manual",
+                source_key="manual:duplicate-tcs-exam",
+                title="TCS Benchmarking Exam",
+                deadline=datetime(2026, 7, 31, 9, 0),
+                status="planned",
+            )
+        )
+        db.session.commit()
+        response = self.client.post(
+            "/api/college/events",
+            headers={"X-AiOS-Token": "local-test-token"},
+            json={
+                "title": "TCS Benchmarking Exam",
+                "event_date": "2026-07-31",
+                "priority": "high",
+                "summary": "Confirm the reporting time and venue.",
+            },
+        )
+
+        summary = pat_college_summary(today=date(2026, 7, 29))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["ok"])
+        self.assertEqual(summary["next_event_days"], 2)
+        self.assertEqual(summary["next_event"]["subject"], "TCS Benchmarking Exam")
+        self.assertEqual(summary["next_event"]["source_type"], "saved")
 
     def test_project_context_keeps_selected_repo_folder_progress_and_timeline(self):
         result = create_project(

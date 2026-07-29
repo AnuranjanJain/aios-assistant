@@ -157,7 +157,10 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
         insight = task.email.insight
         priority = task.priority or (insight.priority if insight else "normal")
         due_at = task.due_at
-        actionable_today = bool(due_at and due_at.date() <= today) or (due_at is None and priority in {"high", "urgent"})
+        due_this_year = bool(due_at and due_at.date().year == today.year)
+        actionable_today = bool(
+            due_this_year and due_at.date() <= today
+        ) or (due_at is None and priority in {"high", "urgent"})
         task_key = re.sub(r"\W+", " ", task.title.lower()).strip()
         if not actionable_today or task_key in seen_tasks:
             continue

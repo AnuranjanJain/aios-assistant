@@ -80,7 +80,7 @@ from app.services.memory_engine import (
     upsert_entity,
 )
 from app.services.notifications import notification_center, reschedule_notification, snooze_notification
-from app.services.college_intelligence import pat_college_summary
+from app.services.college_intelligence import pat_college_summary, save_college_event
 from app.services.oauth_sign_in import (
     cancel_google_sign_in,
     consume_google_sign_in_result,
@@ -1113,7 +1113,9 @@ def build_dashboard_context():
         if active_email_ids
         else []
     )
-    end_of_today = datetime.combine(date.today(), time.max)
+    today = date.today()
+    start_of_year = datetime.combine(today.replace(month=1, day=1), time.min)
+    end_of_today = datetime.combine(today, time.max)
     active_task_keys = (
         [
             f"email-task:{task_id}"
@@ -1129,9 +1131,10 @@ def build_dashboard_context():
             Reminder.source_key.in_(active_task_keys),
             Reminder.notification_type == "email_action",
             Reminder.is_done.is_(False),
+            Reminder.due_at >= start_of_year,
             Reminder.due_at <= end_of_today,
         )
-        .order_by(Reminder.due_at.asc())
+        .order_by(Reminder.due_at.desc())
         .all()
         if active_task_keys
         else []
@@ -1941,6 +1944,14 @@ def api_update_project(project_id):
 @bp.get("/api/college/pat")
 def api_college_pat():
     return jsonify({"ok": True, **pat_college_summary()})
+
+
+@bp.post("/api/college/events")
+def api_save_college_event():
+    result = save_college_event(request.get_json(silent=True) or {})
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 @bp.get("/api/wdyd/snapshot")
