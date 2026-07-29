@@ -594,7 +594,7 @@ class AiosController extends ChangeNotifier {
   }
 
   static const _pageEndpoints = <String, String>{
-    'opportunities': '/api/opportunities/overview',
+    'opportunities': '/api/applications',
     'reminders': '/api/reminders/overview',
     'memory': '/api/memory',
     'connectors': '/api/connectors',

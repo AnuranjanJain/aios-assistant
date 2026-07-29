@@ -44,6 +44,8 @@ They communicate only through loopback APIs. Raw activity and email content stay
 - Remembers projects, goals, learning paths, notes, checkpoints, and next actions.
 - Tracks hackathons, job updates, Gmail signals, and reminders.
 - Owns Email Intelligence: multi-account Gmail OAuth, encrypted local tokens, local email sync, AI understanding, semantic search, and daily/weekly planning.
+- Classifies the latest 500 emails across all enabled accounts as one combined portfolio, then groups related application updates by company.
+- Separates applied, selected, no-response, no-further-email, and rejected states while filtering generic alerts, newsletters, and public selection lists.
 - Exposes planning and project intelligence to WDYD over a paired loopback API.
 - Connects with Gmail OAuth and local import folders.
 - Keeps AI local-first with Ollama support and rule-based fallback.
@@ -95,6 +97,12 @@ tokens or credentials. Older WDYD clients can continue using the individual
 endpoints.
 
 Email content is never sent to cloud AI providers by this module. Analysis uses Ollama when available and a deterministic local fallback otherwise.
+
+The portfolio scope is global, not 500 messages per inbox. AiOS orders locally
+stored mail from every enabled account by timestamp, analyzes the newest 500,
+and retains older synchronized mail in SQLite. The dashboard exposes aggregate
+counts and short approved summaries; WDYD never receives raw bodies or OAuth
+tokens.
 
 Google sign-in runs as a cancellable background job. AiOS stays responsive,
 shows the browser handoff state, and returns HTTP `202` plus polling URLs to API

@@ -11,7 +11,7 @@ class AiosShell extends StatefulWidget {
 
   static const destinations = <({String id, String label, IconData icon})>[
     (id: 'overview', label: 'Overview', icon: Icons.grid_view_rounded),
-    (id: 'opportunities', label: 'Opportunities', icon: Icons.work_outline),
+    (id: 'opportunities', label: 'Applications', icon: Icons.work_outline),
     (id: 'reminders', label: 'Reminders', icon: Icons.notifications_none),
     (id: 'inbox', label: 'Inbox AI', icon: Icons.mail_outline),
     (id: 'memory', label: 'Memory', icon: Icons.storage_outlined),
@@ -535,7 +535,7 @@ class _TopRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final entries = <({String id, String label, IconData icon})>[
       (id: 'sources', label: 'Gmail', icon: Icons.mail_outline),
-      (id: 'opportunities', label: 'Pipeline', icon: Icons.work_outline),
+      (id: 'opportunities', label: 'Applications', icon: Icons.work_outline),
       (id: 'reminders', label: 'Reminders', icon: Icons.notifications_none),
       (id: 'memory', label: 'Memory', icon: Icons.storage_outlined),
       (id: 'inbox', label: 'Inbox AI', icon: Icons.auto_awesome_outlined),
@@ -622,7 +622,7 @@ class _DashboardTabs extends StatelessWidget {
     final palette = _Palette.of(context);
     const tabs = [
       ('overview', 'Overview'),
-      ('opportunities', 'Opportunities'),
+      ('opportunities', 'Applications'),
       ('reminders', 'Reminders'),
       ('inbox', 'Inbox AI'),
     ];
@@ -716,13 +716,12 @@ class _OverviewPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stats = _map(controller.live['stats']);
     final intelligence = _map(controller.live['intelligence']);
+    final portfolio = _map(controller.live['application_portfolio']);
+    final applicationStats = _map(portfolio['stats']);
+    final hackathonStats = _map(_map(portfolio['hackathons'])['stats']);
     final today = _map(intelligence['today']);
-    final opportunities = [
-      ..._maps(controller.live['achievements']),
-      ..._maps(controller.live['opportunities']),
-    ];
+    final opportunities = _maps(portfolio['active']);
     final reminders = _maps(controller.live['reminders']);
     final summary = _string(
       today['summary'],
@@ -738,8 +737,8 @@ class _OverviewPage extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _MetricGrid(
-          stats: stats,
-          intelligence: intelligence,
+          applicationStats: applicationStats,
+          hackathonStats: hackathonStats,
           connectedAccounts: _maps(controller.accounts['accounts']).length,
         ),
         const SizedBox(height: 16),
@@ -845,30 +844,40 @@ class _Hero extends StatelessWidget {
 
 class _MetricGrid extends StatelessWidget {
   const _MetricGrid({
-    required this.stats,
-    required this.intelligence,
+    required this.applicationStats,
+    required this.hackathonStats,
     required this.connectedAccounts,
   });
-  final Map<String, dynamic> stats;
-  final Map<String, dynamic> intelligence;
+  final Map<String, dynamic> applicationStats;
+  final Map<String, dynamic> hackathonStats;
   final int connectedAccounts;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final columns = constraints.maxWidth >= 760 ? 4 : 2;
+      final columns = constraints.maxWidth >= 840 ? 3 : 2;
       final width = (constraints.maxWidth - ((columns - 1) * 16)) / columns;
       final values = [
+        ('Applied', '${applicationStats['applied'] ?? 0}', 'grouped companies'),
         (
-          'Tracked',
-          '${stats['opportunities'] ?? 0}',
-          'jobs, hackathons, interviews',
+          'Selected',
+          '${applicationStats['selected'] ?? 0}',
+          '${applicationStats['selected_rate'] ?? 0}% conversion',
         ),
-        ('Reminders', '${stats['active_reminders'] ?? 0}', 'open action items'),
         (
-          'Unread Mail',
-          '${intelligence['unread_emails'] ?? 0}',
-          'across connected inboxes',
+          'No response',
+          '${applicationStats['no_response'] ?? 0}',
+          'waiting over 7 days',
+        ),
+        (
+          'No further email',
+          '${applicationStats['no_further_email'] ?? 0}',
+          'only one mail found',
+        ),
+        (
+          'Hackathons',
+          '${hackathonStats['total'] ?? 0}',
+          '${hackathonStats['selected'] ?? 0} selections',
         ),
         ('Accounts', '$connectedAccounts', 'private Gmail sources'),
       ];
@@ -896,7 +905,13 @@ class _MetricGrid extends StatelessWidget {
                     Text(
                       item.$2,
                       style: TextStyle(
-                        color: index < 2 ? _Palette.primary : null,
+                        color: index == 0
+                            ? _Palette.info
+                            : index == 1
+                            ? _Palette.success
+                            : index == 2
+                            ? _Palette.warning
+                            : null,
                         fontSize: 32,
                         height: 1,
                         fontWeight: FontWeight.w900,
@@ -937,14 +952,14 @@ class _LeadSection extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     children: [
       _Panel(
-        eyebrow: 'NEW LEADS',
-        title: 'Opportunity pipeline',
+        eyebrow: 'APPLICATION FUNNEL',
+        title: 'Latest application updates',
         action: _MiniButton(
           label: 'Run scan',
           onTap: controller.syncing ? null : controller.syncAll,
         ),
         child: opportunities.isEmpty
-            ? const _Empty('No opportunities yet.')
+            ? const _Empty('No applications found in the latest email scope.')
             : LayoutBuilder(
                 builder: (context, constraints) {
                   final columns = constraints.maxWidth > 580 ? 3 : 1;
@@ -1014,7 +1029,7 @@ class _LeadCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _string(item['title'], fallback: 'Opportunity'),
+                _string(item['company'], fallback: 'Application'),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -1024,7 +1039,8 @@ class _LeadCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                '${_string(item['kind'])} - ${_string(item['status'])}',
+                '${_string(item['role'], fallback: 'Role not identified')} - '
+                '${_string(item['response_label'], fallback: _string(item['stage_label'], fallback: 'Applied'))}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -1320,38 +1336,45 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final data = controller.dataFor('opportunities');
-    final opportunities = data.containsKey('items')
-        ? _maps(data['items'])
-        : _maps(controller.live['opportunities']);
-    final stats = _map(data['stats']);
+    final source = data.isNotEmpty
+        ? data
+        : _map(controller.live['application_portfolio']);
+    final active = _maps(source['active']);
+    final archive = _maps(source['archive']);
+    final opportunities = [...active, ...archive];
+    final stats = _map(source['stats']);
+    final hackathonStats = _map(_map(source['hackathons'])['stats']);
+    final scope = _map(source['scope']);
     final query = _search.text.trim().toLowerCase();
     final visible = opportunities.where((item) {
       final searchable = [
-        item['title'],
-        item['organization'],
-        item['program'],
-        item['status'],
-        item['kind'],
-        item['source'],
-        item['notes'],
+        item['company'],
+        item['role'],
+        ..._strings(item['roles']),
+        item['stage'],
+        item['stage_label'],
+        item['response_status'],
+        item['response_label'],
+        item['platform'],
+        item['summary'],
       ].map(_string).join(' ').toLowerCase();
       if (query.isNotEmpty && !searchable.contains(query)) return false;
       return switch (_filter) {
         'action' => item['needs_action'] == true,
-        'deadline' =>
-          item['days_left'] is num &&
-              (item['days_left'] as num) >= 0 &&
-              (item['days_left'] as num) <= 7,
-        'wins' => item['is_achievement'] == true,
-        _ => true,
+        'selected' => item['selected_for_next_step'] == true,
+        'no_response' => item['response_status'] == 'no_response',
+        'no_further' => item['has_further_email'] != true,
+        'rejected' => item['stage'] == 'rejected',
+        'archive' => item['archived'] == true,
+        _ => item['archived'] != true,
       };
     }).toList();
 
     return _PageColumn(
       children: [
         _Panel(
-          eyebrow: 'OPPORTUNITY COMMAND CENTER',
-          title: 'Know what deserves your attention.',
+          eyebrow: 'EMAIL INTELLIGENCE',
+          title: 'Your application funnel, without inbox noise.',
           action: _ActionButton(
             label: controller.syncing ? 'Scanning...' : 'Run scan',
             icon: Icons.refresh_rounded,
@@ -1361,7 +1384,8 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Selections, applications, assessments, interviews, and build deadlines from your locally synced mail.',
+                '${scope['label'] ?? 'Latest 500 combined emails'} across '
+                '${stats['accounts_scanned'] ?? 0} accounts. Generic alerts, newsletters, and public selection lists are excluded.',
                 style: TextStyle(
                   color: _Palette.of(context).muted,
                   height: 1.45,
@@ -1371,33 +1395,46 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
               _ActionMetricStrip(
                 metrics: [
                   (
-                    label: 'Tracked',
-                    value: '${stats['total'] ?? opportunities.length}',
-                    caption: 'recent signals',
+                    label: 'Applied',
+                    value: '${stats['applied'] ?? opportunities.length}',
+                    caption: 'grouped companies',
                     icon: Icons.work_outline,
                     color: _Palette.info,
                   ),
                   (
-                    label: 'Act now',
-                    value:
-                        '${stats['action_needed'] ?? opportunities.where((item) => item['needs_action'] == true).length}',
-                    caption: 'next steps',
-                    icon: Icons.bolt_rounded,
+                    label: 'Selected',
+                    value: '${stats['selected'] ?? 0}',
+                    caption: '${stats['selected_rate'] ?? 0}% conversion',
+                    icon: Icons.check_circle_outline_rounded,
+                    color: _Palette.success,
+                  ),
+                  (
+                    label: 'No response',
+                    value: '${stats['no_response'] ?? 0}',
+                    caption: 'waiting over 7 days',
+                    icon: Icons.hourglass_empty_rounded,
                     color: _Palette.warning,
                   ),
                   (
-                    label: 'Due soon',
-                    value: '${stats['due_soon'] ?? 0}',
-                    caption: 'within 7 days',
-                    icon: Icons.event_busy_outlined,
+                    label: 'No further email',
+                    value: '${stats['no_further_email'] ?? 0}',
+                    caption: 'only one mail found',
+                    icon: Icons.mark_email_unread_outlined,
                     color: _Palette.danger,
                   ),
                   (
-                    label: 'Wins',
-                    value: '${stats['achievements'] ?? 0}',
-                    caption: 'selected or shortlisted',
-                    icon: Icons.emoji_events_outlined,
-                    color: _Palette.success,
+                    label: 'Hackathons',
+                    value: '${hackathonStats['total'] ?? 0}',
+                    caption: '${hackathonStats['selected'] ?? 0} selections',
+                    icon: Icons.code_rounded,
+                    color: _Palette.primary,
+                  ),
+                  (
+                    label: 'Emails scanned',
+                    value: '${stats['emails_scanned'] ?? 0}',
+                    caption: 'combined local scope',
+                    icon: Icons.all_inbox_outlined,
+                    color: _Palette.info,
                   ),
                 ],
               ),
@@ -1419,14 +1456,29 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
                         onTap: () => setState(() => _filter = 'action'),
                       ),
                       _ActionFilterButton(
-                        label: 'Deadlines',
-                        selected: _filter == 'deadline',
-                        onTap: () => setState(() => _filter = 'deadline'),
+                        label: 'Selected',
+                        selected: _filter == 'selected',
+                        onTap: () => setState(() => _filter = 'selected'),
                       ),
                       _ActionFilterButton(
-                        label: 'Wins',
-                        selected: _filter == 'wins',
-                        onTap: () => setState(() => _filter = 'wins'),
+                        label: 'No response',
+                        selected: _filter == 'no_response',
+                        onTap: () => setState(() => _filter = 'no_response'),
+                      ),
+                      _ActionFilterButton(
+                        label: 'No further email',
+                        selected: _filter == 'no_further',
+                        onTap: () => setState(() => _filter = 'no_further'),
+                      ),
+                      _ActionFilterButton(
+                        label: 'Rejected',
+                        selected: _filter == 'rejected',
+                        onTap: () => setState(() => _filter = 'rejected'),
+                      ),
+                      _ActionFilterButton(
+                        label: 'Archive',
+                        selected: _filter == 'archive',
+                        onTap: () => setState(() => _filter = 'archive'),
                       ),
                     ],
                   );
@@ -1436,7 +1488,7 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
                         : 360,
                     child: _WorkspaceSearch(
                       controller: _search,
-                      hint: 'Search company, program, stage or source',
+                      hint: 'Search company, role, stage or source',
                       onChanged: (_) => setState(() {}),
                     ),
                   );
@@ -1458,14 +1510,14 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
               const SizedBox(height: 20),
               _SectionLabel(
                 title:
-                    '${visible.length} ${visible.length == 1 ? 'opportunity' : 'opportunities'}',
+                    '${visible.length} ${visible.length == 1 ? 'application' : 'applications'}',
                 subtitle: _filter == 'all'
-                    ? 'Newest activity first'
+                    ? 'Newest grouped company activity first'
                     : 'Filtered to the signals that match this lane',
               ),
               const SizedBox(height: 12),
               if (visible.isEmpty)
-                const _Empty('No opportunity matches this search or filter.')
+                const _Empty('No application matches this search or filter.')
               else
                 ...visible.indexed.map(
                   (entry) => _Reveal(
@@ -1505,15 +1557,9 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const _Eyebrow('OPPORTUNITY DETAILS'),
+                            const _Eyebrow('APPLICATION DETAILS'),
                             Text(
-                              _string(
-                                item['program'],
-                                fallback: _string(
-                                  item['organization'],
-                                  fallback: 'Opportunity',
-                                ),
-                              ),
+                              _string(item['company'], fallback: 'Application'),
                               style: const TextStyle(
                                 fontSize: 25,
                                 fontWeight: FontWeight.w900,
@@ -1521,7 +1567,10 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              _string(item['title']),
+                              _string(
+                                item['role'],
+                                fallback: 'Role not identified',
+                              ),
                               style: TextStyle(
                                 color: _Palette.of(context).muted,
                                 height: 1.4,
@@ -1543,10 +1592,13 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
                     runSpacing: 8,
                     children: [
                       _SignalPill(
-                        _string(item['status'], fallback: 'Tracking'),
+                        _string(item['response_label'], fallback: 'Tracking'),
                         _opportunityTone(item),
                       ),
-                      _MetaPill(_string(item['kind'], fallback: 'opportunity')),
+                      _MetaPill(
+                        _string(item['stage_label'], fallback: 'Applied'),
+                      ),
+                      _MetaPill('${item['mail_count'] ?? 1} grouped mail'),
                       if (_string(item['deadline_message']).isNotEmpty)
                         _SignalPill(
                           _string(item['deadline_message']),
@@ -1582,17 +1634,24 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
                   const SizedBox(height: 8),
                   Text(
                     _string(
-                      item['notes'],
+                      item['summary'],
                       fallback: 'No summary is available yet.',
                     ),
                     style: const TextStyle(height: 1.55),
                   ),
                   const SizedBox(height: 20),
                   _KeyValue(
-                    'Source',
-                    _string(item['source'], fallback: 'Local intelligence'),
+                    'Accounts',
+                    _strings(item['source_accounts']).join(', '),
                   ),
-                  _KeyValue('Updated', _friendlyDate(item['updated_at'])),
+                  _KeyValue(
+                    'Platform',
+                    _string(item['platform'], fallback: 'Email'),
+                  ),
+                  _KeyValue(
+                    'Updated',
+                    _friendlyDate(item['latest_activity_at']),
+                  ),
                 ],
               ),
             ),
@@ -1610,10 +1669,7 @@ class _OpportunityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = _string(
-      item['program'],
-      fallback: _string(item['organization'], fallback: 'Opportunity'),
-    );
+    final title = _string(item['company'], fallback: 'Application');
     return _HoverSurface(
       color: _Palette.of(context).surfaceRaised,
       borderColor: item['needs_action'] == true
@@ -1659,14 +1715,14 @@ class _OpportunityRow extends StatelessWidget {
                         ),
                         const SizedBox(width: 10),
                         _SignalPill(
-                          _string(item['status'], fallback: 'Tracking'),
+                          _string(item['response_label'], fallback: 'Tracking'),
                           _opportunityTone(item),
                         ),
                       ],
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      _string(item['title']),
+                      _string(item['role'], fallback: 'Role not identified'),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1681,10 +1737,11 @@ class _OpportunityRow extends StatelessWidget {
                       runSpacing: 7,
                       children: [
                         _MetaPill(
-                          _string(item['kind'], fallback: 'opportunity'),
+                          _string(item['stage_label'], fallback: 'Applied'),
                         ),
-                        if (_string(item['source']).isNotEmpty)
-                          _MetaPill(_string(item['source'])),
+                        if (_string(item['platform']).isNotEmpty)
+                          _MetaPill(_string(item['platform'])),
+                        _MetaPill('${item['mail_count'] ?? 1} mail'),
                         if (item['days_left'] is num)
                           _SignalPill(
                             _shortDeadline(item),
@@ -4173,11 +4230,12 @@ class _WorkspaceSearch extends StatelessWidget {
 }
 
 Color _opportunityTone(Map<String, dynamic> item) =>
-    switch (_string(item['urgency'])) {
-      'overdue' => _Palette.danger,
-      'urgent' => _Palette.warning,
-      'action' => _Palette.info,
-      _ when item['is_achievement'] == true => _Palette.success,
+    switch (_string(item['response_status'])) {
+      'selected' => _Palette.success,
+      'rejected' => _Palette.danger,
+      'no_response' => _Palette.warning,
+      'no_further_email' => _Palette.info,
+      _ when item['selected_for_next_step'] == true => _Palette.success,
       _ => _Palette.primary,
     };
 
@@ -4198,20 +4256,18 @@ String _shortDeadline(Map<String, dynamic> item) {
 }
 
 IconData _opportunityIcon(Map<String, dynamic> item) {
-  final status = _string(item['status']).toLowerCase();
-  final kind = _string(item['kind']).toLowerCase();
-  if (item['is_achievement'] == true) {
-    return Icons.emoji_events_outlined;
+  final stage = _string(item['stage']).toLowerCase();
+  if (stage == 'offer') return Icons.workspace_premium_outlined;
+  if (item['selected_for_next_step'] == true && stage == 'shortlisted') {
+    return Icons.check_circle_outline_rounded;
   }
-  if (status.contains('interview')) {
+  if (stage.contains('interview')) {
     return Icons.record_voice_over_outlined;
   }
-  if (status.contains('assessment') || status.contains('round')) {
+  if (stage.contains('assessment') || stage.contains('project')) {
     return Icons.assignment_outlined;
   }
-  if (kind.contains('hackathon') || kind.contains('competition')) {
-    return Icons.code_rounded;
-  }
+  if (stage == 'rejected') return Icons.cancel_outlined;
   return Icons.work_outline;
 }
 

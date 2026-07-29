@@ -47,7 +47,8 @@ from app.services.email_intelligence import (
     upsert_email_insight,
 )
 from app.services.college_intelligence import pat_college_summary
-from app.services.email_views import latest_email_ids_per_account, materialize_email_views
+from app.services.email_scope import latest_email_ids_combined
+from app.services.email_views import materialize_email_views
 from app.services.application_intelligence import application_overview
 from app.routes import build_dashboard_context
 from app.services.project_context import create_project, project_context, update_project
@@ -265,7 +266,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         db.session.flush()
         anchor = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
         emails = []
-        for index in range(101):
+        for index in range(251):
             email = EmailMessage(
                 account=account,
                 provider_message_id=f"task-mail-{index}",
@@ -281,7 +282,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
             [
                 EmailTask(email=emails[0], title="Do this today", priority="high", due_at=None),
                 EmailTask(email=emails[1], title="Do this tomorrow", priority="high", due_at=anchor + timedelta(days=1)),
-                EmailTask(email=emails[100], title="Old mail task", priority="urgent", due_at=anchor),
+                EmailTask(email=emails[250], title="Old mail task", priority="urgent", due_at=anchor),
             ]
         )
         db.session.commit()
@@ -289,11 +290,11 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         result = materialize_email_views(limit=250)
         reminders = Reminder.query.filter(Reminder.source_key.like("email-task:%")).all()
 
-        self.assertEqual(result["emails_scanned"], 100)
+        self.assertEqual(result["emails_scanned"], 250)
         self.assertEqual([item.title for item in reminders], ["Do this today"])
         self.assertEqual(reminders[0].due_at.date(), date.today())
 
-    def test_latest_one_hundred_emails_are_scanned_for_each_connected_account(self):
+    def test_latest_emails_are_combined_across_connected_accounts(self):
         first = ConnectedAccount(provider="google", email="first@example.com", label="First")
         second = ConnectedAccount(provider="google", email="second@example.com", label="Second")
         db.session.add_all([first, second])
@@ -343,10 +344,10 @@ class EmailIntelligenceTestCase(unittest.TestCase):
             ).all()
         }
 
-        self.assertEqual(result["emails_scanned"], 200)
+        self.assertEqual(result["emails_scanned"], 100)
         self.assertEqual(result["accounts_scanned"], 2)
-        self.assertEqual(result["per_account_limit"], 100)
-        self.assertEqual(len(latest_email_ids_per_account()), 200)
+        self.assertEqual(result["combined_limit"], 100)
+        self.assertEqual(len(latest_email_ids_combined(100)), 100)
         self.assertEqual(reminder_titles, {"Account task 0", "Account task 1"})
 
     def test_dashboard_reminders_and_stats_only_use_recent_email_actions(self):
@@ -1644,6 +1645,11 @@ class EmailIntelligenceTestCase(unittest.TestCase):
 
         captured = {}
 
+        class FixedDatetime(datetime):
+            @classmethod
+            def utcnow(cls):
+                return cls(2026, 7, 12, 12, 0, 0)
+
         def fake_urlopen(request, timeout):
             captured.setdefault("authorization", []).append(request.headers.get("Authorization"))
             captured.setdefault("urls", []).append(request.full_url)
@@ -1651,7 +1657,10 @@ class EmailIntelligenceTestCase(unittest.TestCase):
             FakeResponse.url = request.full_url
             return FakeResponse()
 
-        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        with (
+            mock.patch("urllib.request.urlopen", side_effect=fake_urlopen),
+            mock.patch("app.services.github_intelligence.datetime", FixedDatetime),
+        ):
             from app.services.planning_events import refresh_repo_activity
 
             refresh_repo_activity(event)
@@ -1933,6 +1942,183 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.get_json()["active"]), 100)
+
+    def test_application_overview_filters_noise_and_builds_response_funnel(self):
+        first = ConnectedAccount(
+            provider="google",
+            email="career-one@example.com",
+            label="Career one",
+        )
+        second = ConnectedAccount(
+            provider="google",
+            email="career-two@example.com",
+            label="Career two",
+        )
+        db.session.add_all([first, second])
+        db.session.flush()
+        now = datetime.now()
+
+        def add_mail(account, message_id, subject, body, sent_at, company="", role=""):
+            email = EmailMessage(
+                account=account,
+                provider_message_id=message_id,
+                sender="Recruiting <recruiting@example-company.com>",
+                subject=subject,
+                snippet=body,
+                body_text=body,
+                sent_at=sent_at,
+            )
+            db.session.add(email)
+            db.session.flush()
+            if company:
+                db.session.add(
+                    Opportunity(
+                        source_key=f"gmail:{account.id}:{message_id}",
+                        email_message_id=email.id,
+                        kind="job",
+                        title=role,
+                        organization=company,
+                        status="Tracked",
+                        source="Gmail",
+                        created_at=sent_at,
+                        updated_at=sent_at,
+                    )
+                )
+            return email
+
+        add_mail(
+            first,
+            "acme-applied",
+            "Application received for Backend Intern",
+            "Thank you for applying. We received your application.",
+            now - timedelta(days=12),
+            "Acme",
+            "Backend Intern",
+        )
+        add_mail(
+            first,
+            "beta-applied",
+            "Application received for AI Intern",
+            "Your application has been received.",
+            now - timedelta(days=4),
+            "Beta Labs",
+            "AI Intern",
+        )
+        add_mail(
+            second,
+            "beta-assessment",
+            "Assessment for your application",
+            "Complete the online assessment for your application by Friday.",
+            now - timedelta(days=1),
+            "Beta Labs",
+            "AI Intern",
+        )
+        add_mail(
+            second,
+            "gamma-rejected",
+            "Update on your application",
+            "Unfortunately, we will not be moving forward with your application.",
+            now - timedelta(hours=6),
+            "Gamma",
+            "Data Intern",
+        )
+        add_mail(
+            first,
+            "job-alert",
+            "Software Engineer jobs you may be interested in",
+            "New jobs in Bengaluru. Apply now.",
+            now - timedelta(hours=5),
+        )
+        add_mail(
+            second,
+            "linkedin-invite",
+            "I want to connect",
+            "You have an invitation on LinkedIn.",
+            now - timedelta(hours=4),
+        )
+        add_mail(
+            second,
+            "generic-list",
+            "Congratulations - internship selection list",
+            "Please find the selected candidates attached.",
+            now - timedelta(hours=3),
+        )
+        add_mail(
+            first,
+            "buildathon-registration",
+            "Registration details submitted | BYAMN Buildathon 2026",
+            "Your registration details were submitted successfully.",
+            now - timedelta(hours=2),
+        )
+        add_mail(
+            second,
+            "datathon-build",
+            "3 Days Left to Submit Your Datathon 2026 Prototype",
+            "Finish and submit your Datathon prototype.",
+            now - timedelta(hours=1),
+        )
+        db.session.commit()
+
+        result = application_overview()
+
+        self.assertEqual(result["stats"]["emails_scanned"], 9)
+        self.assertEqual(result["stats"]["total"], 3)
+        self.assertEqual(result["stats"]["selected"], 1)
+        self.assertEqual(result["stats"]["no_response"], 1)
+        self.assertEqual(result["stats"]["no_further_email"], 1)
+        self.assertEqual(result["stats"]["rejected"], 1)
+        self.assertEqual(result["stats"]["selected_rate"], 33)
+        companies = {item["company"]: item for item in result["active"]}
+        self.assertEqual(companies["Acme"]["response_status"], "no_response")
+        self.assertFalse(companies["Acme"]["has_further_email"])
+        self.assertEqual(companies["Beta Labs"]["response_status"], "selected")
+        self.assertEqual(companies["Beta Labs"]["mail_count"], 2)
+        self.assertNotIn("LinkedIn", companies)
+        self.assertEqual(result["hackathons"]["stats"]["total"], 2)
+        self.assertEqual(result["hackathons"]["stats"]["applied"], 2)
+        self.assertEqual(result["hackathons"]["stats"]["building"], 1)
+
+    def test_application_overview_cleans_workday_company_and_role_labels(self):
+        account = ConnectedAccount(
+            provider="google",
+            email="career@example.com",
+            label="Career",
+        )
+        email = EmailMessage(
+            account=account,
+            provider_message_id="workday-application",
+            sender="MIT_SH_Workday_Support <noreply@myworkday.com>",
+            subject=(
+                "Thanks for applying to the Intern, Smart Factory Solutions "
+                "- R00244571 at Magna International!"
+            ),
+            snippet="Thank you for applying. Your application was received.",
+            body_text="Thank you for applying. Your application was received.",
+            sent_at=datetime.now() - timedelta(days=2),
+        )
+        db.session.add(email)
+        db.session.flush()
+        db.session.add(
+            Opportunity(
+                source_key=f"gmail:{account.id}:workday-application",
+                email_message_id=email.id,
+                kind="internship",
+                title=email.subject,
+                organization="MIT_SH_Workday_Support",
+                status="Applied",
+                source="Gmail",
+            )
+        )
+        db.session.commit()
+
+        item = application_overview()["active"][0]
+
+        self.assertEqual(item["company"], "Magna International")
+        self.assertEqual(
+            item["role"],
+            "Intern, Smart Factory Solutions - R00244571",
+        )
+        self.assertEqual(item["platform"], "Workday")
 
     def test_planner_prioritizes_hiring_steps_and_low_progress_projects(self):
         account = ConnectedAccount(provider="google", email="jobs@example.com", label="Jobs")

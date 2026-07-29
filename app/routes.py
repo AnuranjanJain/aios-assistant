@@ -91,6 +91,10 @@ from app.services.oauth_sign_in import (
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
 from app.services.application_intelligence import application_overview
+from app.services.email_scope import (
+    EMAIL_PORTFOLIO_LIMIT,
+    latest_email_ids_combined,
+)
 from app.services.planning_events import (
     create_manual_event,
     planning_board,
@@ -1094,13 +1098,14 @@ def build_dashboard_context():
         try:
             from app.services.email_views import materialize_email_views
 
-            materialize_email_views(limit=100)
+            materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT)
             _EMAIL_VIEW_REFRESH_AT = now
         except Exception:
             db.session.rollback()
-    from app.services.email_views import latest_email_ids_per_account
 
-    active_email_ids = latest_email_ids_per_account(limit=100)
+    active_email_ids = latest_email_ids_combined(
+        limit=EMAIL_PORTFOLIO_LIMIT
+    )
     opportunities = (
         Opportunity.query.filter(Opportunity.email_message_id.in_(active_email_ids))
         .order_by(Opportunity.updated_at.desc())
@@ -1134,7 +1139,7 @@ def build_dashboard_context():
     inbox_items = (
         InboxItem.query.filter(InboxItem.email_message_id.in_(active_email_ids))
         .order_by(InboxItem.occurred_at.desc(), InboxItem.created_at.desc())
-        .limit(20)
+        .limit(50)
         .all()
         if active_email_ids
         else []
@@ -1143,25 +1148,36 @@ def build_dashboard_context():
     connector_runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(5).all()
     plan = build_daily_plan(opportunities, reminders)
     stats = build_dashboard_stats(opportunities, reminders, inbox_items, activity_events)
+    application_portfolio = application_overview()
 
     opportunity_cards = [serialize_opportunity(item) for item in opportunities]
-    achievements = [item for item in opportunity_cards if item["is_achievement"]]
-    deadline_candidates = sorted(
+    achievements = [
+        {
+            "program": item["company"],
+            "status": item["stage_label"],
+            "title": item["role"],
+        }
+        for item in application_portfolio["active"]
+        if item["selected_for_next_step"]
+    ][:8]
+    deadline_highlights = sorted(
         [
-            item
-            for item in opportunity_cards
+            {
+                "days_left": item["days_left"],
+                "deadline": item["deadline"],
+                "title": item["title"],
+                "deadline_message": (
+                    f"{item['title']} is due in {item['days_left']} day"
+                    f"{'' if item['days_left'] == 1 else 's'}."
+                ),
+            }
+            for item in application_portfolio["hackathons"]["items"]
             if item["deadline"]
             and item["days_left"] is not None
             and item["days_left"] >= 0
-            and item["kind"] in {"hackathon", "competition"}
-            and item["program"].strip().lower() not in {"vitbhopal", "vitstudent", "placement office"}
         ],
-        key=lambda item: (item["days_left"] is None, item["days_left"] if item["days_left"] is not None else 999999),
+        key=lambda item: item["days_left"],
     )
-    deadline_highlights_by_program = {}
-    for item in deadline_candidates:
-        deadline_highlights_by_program.setdefault(item["program"].strip().lower(), item)
-    deadline_highlights = list(deadline_highlights_by_program.values())
     return {
         "opportunities": opportunities,
         "opportunity_cards": opportunity_cards,
@@ -1173,6 +1189,7 @@ def build_dashboard_context():
         "connector_runs": connector_runs,
         "plan": plan,
         "stats": stats,
+        "application_portfolio": application_portfolio,
         "profile": get_user_profile(),
     }
 
@@ -1588,7 +1605,7 @@ def _placements_payload():
 
 @bp.get("/api/applications")
 def api_applications():
-    return jsonify(application_overview(active_limit=100))
+    return jsonify(application_overview())
 
 
 @bp.get("/api/neopat")
@@ -1748,6 +1765,7 @@ def _live_api_payload():
         "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:20]],
         "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
         "latest_connector": serialize_connector_run(latest_connector) if latest_connector else None,
+        "application_portfolio": context["application_portfolio"],
         # WDYD reads persisted planning data here. Explicit sync jobs own source refreshes.
         "intelligence": intelligence_summary(refresh_planner=False),
         "readiness": readiness_summary(get_effective_config(current_app.config)),
@@ -1935,17 +1953,18 @@ def api_wdyd_snapshot():
         if cache_hit:
             payload = cached["payload"]
         else:
+            live = _live_api_payload()
             payload = {
                 "ok": True,
                 "service": "aios-assistant",
                 "schema_version": 1,
                 "generated_at": datetime.utcnow().isoformat(),
-                "live": _live_api_payload(),
+                "live": live,
                 "desktop": _desktop_status_payload(),
                 "workers": {"items": list_worker_status()},
                 "hackathons": _hackathons_payload(),
                 "placements": _placements_payload(),
-                "applications": application_overview(active_limit=100),
+                "applications": live["application_portfolio"],
                 "neopat": _neopat_payload(),
                 "projects": {"ok": True, **project_context()},
                 "college": {"ok": True, **pat_college_summary()},

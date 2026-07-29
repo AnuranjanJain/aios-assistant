@@ -35,11 +35,15 @@ from app.models import (
     WeeklyPlan,
     db,
 )
+from app.services.email_scope import (
+    EMAIL_BACKFILL_LIMIT_PER_ACCOUNT,
+    EMAIL_PORTFOLIO_LIMIT,
+    latest_email_ids_combined,
+    latest_emails_combined,
+)
 
 
 LOGGER = logging.getLogger(__name__)
-
-EMAIL_SCAN_LIMIT_PER_ACCOUNT = 100
 
 
 GMAIL_SCOPES = [
@@ -367,7 +371,7 @@ def credentials_for_account(account):
     return credentials
 
 
-def sync_all_accounts(limit_per_account=EMAIL_SCAN_LIMIT_PER_ACCOUNT):
+def sync_all_accounts(limit_per_account=EMAIL_BACKFILL_LIMIT_PER_ACCOUNT):
     results = []
     for account in ConnectedAccount.query.filter_by(provider="google", sync_enabled=True).all():
         results.append(sync_account(account, limit=limit_per_account))
@@ -410,7 +414,7 @@ def _friendly_sync_error(exc):
     }
 
 
-def sync_account(account, limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT):
+def sync_account(account, limit=EMAIL_BACKFILL_LIMIT_PER_ACCOUNT):
     if isinstance(account, int):
         account = db.session.get(ConnectedAccount, account)
     if account is None:
@@ -428,7 +432,25 @@ def sync_account(account, limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT):
         stored_count = EmailMessage.query.filter_by(account_id=account.id).count()
         if stored_count < limit:
             recent_ids = _gmail_recent_message_ids(service, limit)
-            message_ids = list(dict.fromkeys(message_ids + recent_ids))[:limit]
+            existing_ids = {
+                provider_id
+                for (provider_id,) in db.session.query(
+                    EmailMessage.provider_message_id
+                )
+                .filter(
+                    EmailMessage.account_id == account.id,
+                    EmailMessage.provider_message_id.in_(recent_ids),
+                )
+                .all()
+            }
+            backfill_ids = [
+                provider_id
+                for provider_id in recent_ids
+                if provider_id not in existing_ids
+            ]
+            message_ids = list(
+                dict.fromkeys(message_ids + backfill_ids)
+            )[:limit]
         imported = 0
         for provider_message_id in message_ids:
             message = service.users().messages().get(userId="me", id=provider_message_id, format="full").execute()
@@ -630,14 +652,12 @@ def analyze_pending_emails(limit=25, app_config=None):
     return {"ok": True, "analyzed": analyzed}
 
 
-def analyze_recent_emails_per_account(
-    limit_per_account=EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+def analyze_recent_emails_combined(
+    limit=EMAIL_PORTFOLIO_LIMIT,
     app_config=None,
 ):
-    from app.services.email_views import latest_emails_per_account
-
     analyzed = 0
-    for email in latest_emails_per_account(limit_per_account):
+    for email in latest_emails_combined(limit):
         if email.analyzed_at is not None:
             continue
         upsert_email_insight(email, analyze_email(email, app_config or {}))
@@ -646,13 +666,13 @@ def analyze_recent_emails_per_account(
     return {
         "ok": True,
         "analyzed": analyzed,
-        "per_account_limit": limit_per_account,
+        "combined_limit": limit,
     }
 
 
 def analyze_account_emails(
     account,
-    limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+    limit=EMAIL_BACKFILL_LIMIT_PER_ACCOUNT,
     app_config=None,
 ):
     account_id = account if isinstance(account, int) else account.id
@@ -675,7 +695,7 @@ def analyze_account_emails(
 def sync_account_intelligence(
     account,
     app_config=None,
-    limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+    limit=EMAIL_BACKFILL_LIMIT_PER_ACCOUNT,
 ):
     sync = sync_account(account, limit=limit)
     if not sync.get("ok"):
@@ -687,7 +707,7 @@ def sync_account_intelligence(
     )
     from app.services.email_views import materialize_email_views
 
-    views = materialize_email_views(limit=100)
+    views = materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT)
     return {
         **sync,
         "analysis": analysis,
@@ -704,6 +724,8 @@ def analyze_email(email, app_config):
     prompt = (
         "Return compact JSON for this email. No markdown. "
         "Use category only from: internship, hackathon, meeting, assignment, reminder, finance, travel, shopping, learning, personal, general. "
+        "Use internship only for a personal application, assessment, interview, offer, or rejection. "
+        "Job alerts, connection invitations, interview-prep content, and generic selection-list broadcasts are general. "
         "Include priority, urgency, category, summary, action_items, deadlines, meetings, follow_ups, waiting_on, "
         "projects, people, companies, required_documents, repositories, suggested_actions, confidence.\n"
         f"From: {email.sender}\nSubject: {email.subject}\nSnippet: {email.snippet}\nBody: {(email.body_text or '')[:3500]}"
@@ -793,8 +815,23 @@ def heuristic_insight(email):
 
 def classify_email_text(text):
     rules = [
-        ("internship", ["internship", "intern ", "interview", "recruiter", "application", "placement", "offer letter"]),
         ("hackathon", ["hackathon", "devpost", "buildathon", "challenge", "submission", "demo video"]),
+        (
+            "internship",
+            [
+                "application received",
+                "application submitted",
+                "thank you for applying",
+                "your application",
+                "you have been shortlisted",
+                "invite you to interview",
+                "interview scheduled",
+                "internship interview",
+                "assessment for your application",
+                "offer letter",
+                "not moving forward with your application",
+            ],
+        ),
         ("meeting", ["meeting", "calendar invite", "zoom", "google meet", "call", "interview schedule"]),
         ("assignment", ["assignment", "homework", "coursework", "submit", "submission", "due date"]),
         ("reminder", ["reminder", "don't forget", "do not forget", "follow up", "following up"]),
@@ -1112,10 +1149,8 @@ def parse_deadline_text(value, anchor=None):
 
 
 def generate_daily_plan(plan_date=None):
-    from app.services.email_views import latest_email_ids_per_account
-
     plan_date = plan_date or date.today()
-    recent_email_ids = latest_email_ids_per_account(EMAIL_SCAN_LIMIT_PER_ACCOUNT)
+    recent_email_ids = latest_email_ids_combined(EMAIL_PORTFOLIO_LIMIT)
     urgent = (
         EmailInsight.query.join(EmailMessage)
         .filter(
@@ -1177,10 +1212,8 @@ def generate_weekly_plan(week_start=None):
 
 
 def refresh_suggestions():
-    from app.services.email_views import latest_email_ids_per_account
-
     stale_cutoff = datetime.utcnow() - timedelta(days=3)
-    recent_email_ids = latest_email_ids_per_account(EMAIL_SCAN_LIMIT_PER_ACCOUNT)
+    recent_email_ids = latest_email_ids_combined(EMAIL_PORTFOLIO_LIMIT)
     candidates = (
         EmailMessage.query.filter(
             EmailMessage.id.in_(recent_email_ids),
@@ -1217,9 +1250,7 @@ def intelligence_summary(*, refresh_planner=True):
     from app.services.learning_intelligence import learning_summary
     from app.services.college_intelligence import pat_college_summary
     from app.services.project_context import project_context
-    from app.services.email_views import latest_email_ids_per_account
-
-    recent_email_ids = latest_email_ids_per_account(EMAIL_SCAN_LIMIT_PER_ACCOUNT)
+    recent_email_ids = latest_email_ids_combined(EMAIL_PORTFOLIO_LIMIT)
     urgent = (
         EmailInsight.query.filter(
             EmailInsight.email_id.in_(recent_email_ids),
@@ -1273,7 +1304,7 @@ def intelligence_summary(*, refresh_planner=True):
         "email_scan": {
             "accounts": accounts,
             "emails": len(recent_email_ids),
-            "per_account_limit": EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+            "combined_limit": EMAIL_PORTFOLIO_LIMIT,
         },
         "assistant": latest_daily_assistant_summary(),
         "today": daily,
@@ -1357,12 +1388,14 @@ def run_email_intelligence_cycle(app_config):
     from app.services.planning_events import planning_board
     from app.services.email_views import materialize_email_views
 
-    sync_results = sync_all_accounts(limit_per_account=EMAIL_SCAN_LIMIT_PER_ACCOUNT)
-    analysis = analyze_recent_emails_per_account(
-        limit_per_account=EMAIL_SCAN_LIMIT_PER_ACCOUNT,
+    sync_results = sync_all_accounts(
+        limit_per_account=EMAIL_BACKFILL_LIMIT_PER_ACCOUNT
+    )
+    analysis = analyze_recent_emails_combined(
+        limit=EMAIL_PORTFOLIO_LIMIT,
         app_config=app_config,
     )
-    views = materialize_email_views(limit=EMAIL_SCAN_LIMIT_PER_ACCOUNT)
+    views = materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT)
     github = update_all_repositories(limit=30)
     generate_events_from_learning_items()
     daily = generate_daily_plan()

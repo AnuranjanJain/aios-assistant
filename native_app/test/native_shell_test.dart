@@ -77,6 +77,26 @@ void main() {
       ..message = 'Private core connected'
       ..live = {
         'stats': {'opportunities': 3, 'active_reminders': 2},
+        'application_portfolio': {
+          'stats': {
+            'applied': 14,
+            'selected': 3,
+            'selected_rate': 21,
+            'no_response': 6,
+            'no_further_email': 5,
+          },
+          'active': [
+            {
+              'company': 'Example Labs',
+              'role': 'Software Intern',
+              'stage_label': 'Assessment / test',
+              'response_label': 'Selected',
+            },
+          ],
+          'hackathons': {
+            'stats': {'total': 9, 'selected': 2},
+          },
+        },
         'intelligence': {
           'unread_emails': 8,
           'today': {
@@ -96,8 +116,10 @@ void main() {
 
     expect(find.text('Overview'), findsWidgets);
     expect(find.text('WORKSPACE'), findsOneWidget);
-    expect(find.text('Opportunity pipeline'), findsOneWidget);
-    expect(find.text('3'), findsOneWidget);
+    expect(find.text('Latest application updates'), findsOneWidget);
+    expect(find.text('Applied'), findsOneWidget);
+    expect(find.text('14'), findsOneWidget);
+    expect(find.text('Hackathons'), findsOneWidget);
     expect(find.text('Projects'), findsNothing);
     expect(find.text('Wellbeing'), findsNothing);
     expect(find.text('Planner'), findsNothing);
@@ -207,7 +229,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Opportunity pipeline'), findsOneWidget);
+    expect(find.text('Latest application updates'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -233,6 +255,41 @@ void main() {
         'opportunities': [
           {'title': 'PromptWars', 'kind': 'hackathon', 'status': 'building'},
         ],
+        'application_portfolio': {
+          'stats': {
+            'applied': 1,
+            'selected': 1,
+            'selected_rate': 100,
+            'no_response': 0,
+            'no_further_email': 0,
+            'emails_scanned': 500,
+            'accounts_scanned': 1,
+          },
+          'scope': {'label': 'Latest 500 combined emails'},
+          'active': [
+            {
+              'company': 'Example Labs',
+              'role': 'Software Intern',
+              'roles': ['Software Intern'],
+              'stage': 'assessment',
+              'stage_label': 'Assessment / test',
+              'response_status': 'selected',
+              'response_label': 'Selected',
+              'selected_for_next_step': true,
+              'has_further_email': true,
+              'mail_count': 2,
+              'needs_action': true,
+              'platform': 'Email',
+              'summary': 'An assessment invitation was detected.',
+              'next_action': 'Complete the assessment.',
+              'latest_activity_at': '2026-07-18T09:00:00',
+            },
+          ],
+          'archive': <Map<String, dynamic>>[],
+          'hackathons': {
+            'stats': {'total': 1, 'selected': 1},
+          },
+        },
         'inbox_items': [
           {
             'subject': 'Round two invitation',
@@ -288,6 +345,7 @@ void main() {
 
     await showPage('opportunities');
     expect(find.text('Run scan'), findsOneWidget);
+    expect(find.text('Applications'), findsWidgets);
 
     await showPage('reminders');
     expect(find.text('Mark read'), findsOneWidget);

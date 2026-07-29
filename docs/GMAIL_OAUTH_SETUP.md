@@ -36,10 +36,17 @@ Secret key:   %LOCALAPPDATA%\AiOS Assistant\instance\secret_key
 
 ## Synchronization behavior
 
-The first run downloads a bounded set of recent messages. Later runs use Gmail
-History API cursors, including message additions and label changes. If Google
-expires a history cursor, AiOS automatically performs a fresh bounded sync.
-Duplicate messages are prevented by the account and Gmail message ID pair.
+The first run downloads a bounded recent backfill for each account. Later runs
+use Gmail History API cursors, including message additions and label changes. If
+Google expires a history cursor, AiOS automatically performs a fresh bounded
+sync. Duplicate messages are prevented by the account and Gmail message ID pair.
+
+Application intelligence then combines every enabled account into one
+timestamp-ordered scope of the latest 500 locally stored emails. Related updates
+are grouped by company, so an application confirmation, assessment, interview,
+and offer appear as one timeline rather than four separate opportunities. Older
+mail remains local and can be synchronized incrementally; it is simply outside
+the current fast dashboard scope.
 
 Background synchronization is controlled by `EMAIL_SYNC_INTERVAL_MINUTES` in
 Settings. A failure on one account does not stop other connected accounts.

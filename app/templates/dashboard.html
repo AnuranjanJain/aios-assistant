@@ -4,7 +4,7 @@
 
       <nav class="dashboard-tabs" aria-label="Dashboard sections">
         <button type="button" data-dashboard-tab="overview" aria-pressed="false">Overview</button>
-        <button type="button" data-dashboard-tab="opportunities" aria-pressed="false">Opportunities</button>
+        <button type="button" data-dashboard-tab="opportunities" aria-pressed="false">Applications</button>
         <button type="button" data-dashboard-tab="reminders" aria-pressed="false">Reminders</button>
         <button type="button" data-dashboard-tab="inbox" aria-pressed="false">Inbox AI</button>
       </nav>
@@ -44,34 +44,62 @@
         </article>
       </section>
 
+      <section class="mail-funnel-grid" data-dashboard-tab-panel="overview" aria-label="Email intelligence funnel">
+        <article class="mail-funnel-card accent">
+          <span>Applied</span>
+          <strong data-live-portfolio-stat="applied">{{ application_portfolio.stats.applied }}</strong>
+          <small>personal applications detected</small>
+        </article>
+        <article class="mail-funnel-card success">
+          <span>Selected</span>
+          <strong data-live-portfolio-stat="selected">{{ application_portfolio.stats.selected }}</strong>
+          <small>{{ application_portfolio.stats.selected_rate }}% reached a further round</small>
+        </article>
+        <article class="mail-funnel-card warning">
+          <span>No response</span>
+          <strong data-live-portfolio-stat="no_response">{{ application_portfolio.stats.no_response }}</strong>
+          <small>waiting at least 7 days</small>
+        </article>
+        <article class="mail-funnel-card quiet">
+          <span>No further email</span>
+          <strong data-live-portfolio-stat="no_further_email">{{ application_portfolio.stats.no_further_email }}</strong>
+          <small>only one application message</small>
+        </article>
+        <article class="mail-funnel-card hackathon">
+          <span>Hackathons</span>
+          <strong data-live-hackathon-stat="total">{{ application_portfolio.hackathons.stats.total }}</strong>
+          <small>{{ application_portfolio.hackathons.stats.applied }} applied or building</small>
+        </article>
+      </section>
+
       <section class="workspace-grid" data-dashboard-tab-panel="overview">
         <div class="workspace-main">
           <section class="lead-section">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">New leads</p>
-                <h2>Opportunity pipeline</h2>
+                <p class="eyebrow">Latest 500 combined emails</p>
+                <h2>Application pipeline</h2>
               </div>
               <a class="mini-link" href="{{ url_for('main.connectors') }}">Run scan</a>
             </div>
             <div class="lead-card-grid">
-              {% for item in (achievements + opportunity_cards)[:6] %}
+              {% for item in application_portfolio.active[:6] %}
                 <article class="lead-card">
-                  <div class="lead-avatar">{{ (item.title or "A")[:1] }}</div>
+                  <div class="lead-avatar">{{ (item.company or "A")[:1] }}</div>
                   <div>
-                    <strong>{{ item.title }}</strong>
-                    <small>{{ item.kind }} - {{ item.status }}</small>
+                    <strong>{{ item.company }}</strong>
+                    <small>{{ item.role }} - {{ item.stage_label }}</small>
                   </div>
                   <div class="lead-tags">
-                    <span>{{ item.organization or "Unknown" }}</span>
-                    <span>{{ item.source or "local" }}</span>
+                    <span>{{ item.response_label }}</span>
+                    <span>{{ item.mail_count }} mail{% if item.mail_count != 1 %}s{% endif %}</span>
                   </div>
                   <div class="lead-dots" aria-hidden="true">
                     <i></i><i></i><i></i><i></i>
                   </div>
                 </article>
               {% else %}
-                <p class="empty">No opportunities yet.</p>
+                <p class="empty">No personal application evidence found in the combined mail window.</p>
               {% endfor %}
             </div>
           </section>
@@ -153,12 +181,12 @@
         <article class="panel">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Graph</p>
-              <h2>Opportunity Mix</h2>
+              <p class="eyebrow">Local mail classifier</p>
+              <h2>Mail category mix</h2>
             </div>
           </div>
           <div class="bars">
-            {% for item in stats.opportunity_graph %}
+            {% for item in application_portfolio.mail_categories %}
               <div class="bar-row">
                 <div class="bar-meta">
                   <span>{{ item.label }}</span>
@@ -169,24 +197,31 @@
                 </div>
               </div>
             {% else %}
-              <p class="empty">No tracked opportunities yet.</p>
+              <p class="empty">No synchronized Gmail data yet.</p>
             {% endfor %}
           </div>
         </article>
 
-        <article class="panel ingest">
+        <article class="panel">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Input</p>
-              <h2>Test Email Intake</h2>
+              <p class="eyebrow">Application response health</p>
+              <h2>What happened after applying</h2>
             </div>
           </div>
-          <form method="post" action="{{ url_for('main.ingest_message') }}">
-            <label><span class="sr-only">Sender email</span><input name="sender" placeholder="sender@example.com"></label>
-            <label><span class="sr-only">Email subject</span><input name="subject" placeholder="Email subject" required></label>
-            <label><span class="sr-only">Email body</span><textarea name="body" placeholder="Paste email body"></textarea></label>
-            <button type="submit">Classify Message</button>
-          </form>
+          <div class="bars">
+            {% for item in application_portfolio.status_counts %}
+              <div class="bar-row">
+                <div class="bar-meta">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.count }}</strong>
+                </div>
+                <div class="bar-track">
+                  <span style="width: {{ (item.count / application_portfolio.stats.total * 100)|round if application_portfolio.stats.total else 0 }}%"></span>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
         </article>
 
         <article id="wellbeing" class="panel">
@@ -216,8 +251,8 @@
         <article id="opportunities" class="panel dashboard-detail-panel" data-dashboard-tab-panel="opportunities">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Pipeline</p>
-              <h2>Tracked Opportunities</h2>
+              <p class="eyebrow">{{ application_portfolio.scope.label }}</p>
+              <h2>Application intelligence</h2>
             </div>
           </div>
           {% if achievements %}
@@ -248,25 +283,31 @@
               </div>
             </section>
           {% endif %}
-          <div class="list dashboard-detail-list" data-live-list="opportunities">
-            {% for item in opportunity_cards %}
-              <article class="list-row {{ 'opportunity-urgent' if item.days_left is not none and item.days_left <= 3 else '' }}">
+          <div class="mail-funnel-grid compact">
+            <article class="mail-funnel-card accent"><span>Applied</span><strong>{{ application_portfolio.stats.applied }}</strong></article>
+            <article class="mail-funnel-card success"><span>Selected</span><strong>{{ application_portfolio.stats.selected }}</strong></article>
+            <article class="mail-funnel-card warning"><span>No response</span><strong>{{ application_portfolio.stats.no_response }}</strong></article>
+            <article class="mail-funnel-card quiet"><span>Rejected</span><strong>{{ application_portfolio.stats.rejected }}</strong></article>
+          </div>
+          <div class="list dashboard-detail-list application-mail-list">
+            {% for item in application_portfolio.active %}
+              <article class="list-row">
                 <span class="status-dot"></span>
                 <div class="list-copy">
-                  <strong>{{ item.title }}</strong>
+                  <strong>{{ item.company }} - {{ item.role }}</strong>
                   <small class="list-meta">
-                    <span>{{ item.kind }}</span>
-                    <span>{{ item.status }}</span>
-                    <span>{{ item.organization or "Unknown" }}</span>
-                    {% if item.deadline %}<span>{{ item.days_left }} days left</span>{% endif %}
+                    <span>{{ item.stage_label }}</span>
+                    <span>{{ item.response_label }}</span>
+                    <span>{{ item.platform }}</span>
+                    <span>{{ item.mail_count }} grouped mail{% if item.mail_count != 1 %}s{% endif %}</span>
                   </small>
-                  {% if item.deadline_message %}<p class="deadline-copy">{{ item.deadline_message }}</p>{% endif %}
-                  {% if item.notes %}<p class="list-summary mail-summary">{{ item.notes }}</p>{% endif %}
-                  <small>{{ item.source or "Local source" }} · updated {{ item.updated_at[:16]|replace('T', ' ') }}</small>
+                  <p class="list-summary mail-summary">{{ item.summary }}</p>
+                  <small class="list-next-action">Next: {{ item.next_action }}</small>
+                  <small>{{ item.source_accounts|join(", ") }} - updated {{ item.latest_activity_at[:16]|replace('T', ' ') }}</small>
                 </div>
               </article>
             {% else %}
-              <p class="empty">No opportunities yet.</p>
+              <p class="empty">No personal applications were found. Job alerts and generic selection broadcasts are intentionally excluded.</p>
             {% endfor %}
           </div>
         </article>
@@ -274,7 +315,7 @@
         <article id="reminders" class="panel dashboard-detail-panel" data-dashboard-tab-panel="reminders">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Latest 100 emails</p>
+              <p class="eyebrow">Latest 500 combined emails</p>
               <h2>Today's tasks</h2>
             </div>
           </div>
@@ -308,8 +349,8 @@
         <article id="inbox" class="panel dashboard-detail-panel" data-dashboard-tab-panel="inbox">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Classifier</p>
-              <h2>Recent Inbox Intelligence</h2>
+              <p class="eyebrow">Latest 500 combined emails</p>
+              <h2>Recent inbox intelligence</h2>
             </div>
           </div>
           <div class="list dashboard-detail-list" data-live-list="inbox_items">
