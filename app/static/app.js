@@ -61,7 +61,7 @@ const SIDEBAR_SCROLL_KEY = "aios.sidebar.scrollTop";
 
 async function refreshLiveDashboard() {
   const liveNodes = document.querySelectorAll(
-    "[data-live-stat], [data-live-plan-summary], [data-live-list], [data-live-updated]"
+    "[data-live-stat], [data-live-portfolio-stat], [data-live-hackathon-stat], [data-live-plan-summary], [data-live-list], [data-live-updated]"
   );
   if (!liveNodes.length) {
     return;
@@ -98,6 +98,21 @@ function updateStats(payload) {
     const key = node.dataset.liveStat;
     if (Object.prototype.hasOwnProperty.call(payload.stats || {}, key)) {
       updateLiveValue(node, payload.stats[key]);
+    }
+  });
+  const portfolio = payload.application_portfolio || {};
+  const portfolioStats = portfolio.stats || {};
+  document.querySelectorAll("[data-live-portfolio-stat]").forEach((node) => {
+    const key = node.dataset.livePortfolioStat;
+    if (Object.prototype.hasOwnProperty.call(portfolioStats, key)) {
+      updateLiveValue(node, portfolioStats[key]);
+    }
+  });
+  const hackathonStats = portfolio.hackathons?.stats || {};
+  document.querySelectorAll("[data-live-hackathon-stat]").forEach((node) => {
+    const key = node.dataset.liveHackathonStat;
+    if (Object.prototype.hasOwnProperty.call(hackathonStats, key)) {
+      updateLiveValue(node, hackathonStats[key]);
     }
   });
 }

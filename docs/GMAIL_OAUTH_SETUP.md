@@ -5,7 +5,7 @@ It requests only `gmail.readonly`; it cannot send, edit, or delete email.
 
 ## Connect an account
 
-1. Open **Settings -> Google account**.
+1. Open **Accounts** in the native Windows app.
 2. Select **Sign in with Google**.
 3. AiOS shows a waiting screen while the system browser opens. Use **Continue
    in browser** to reopen it or **Cancel sign-in** to stop without storing access.
@@ -36,10 +36,17 @@ Secret key:   %LOCALAPPDATA%\AiOS Assistant\instance\secret_key
 
 ## Synchronization behavior
 
-The first run downloads a bounded set of recent messages. Later runs use Gmail
-History API cursors, including message additions and label changes. If Google
-expires a history cursor, AiOS automatically performs a fresh bounded sync.
-Duplicate messages are prevented by the account and Gmail message ID pair.
+The first run downloads a bounded recent backfill for each account. Later runs
+use Gmail History API cursors, including message additions and label changes. If
+Google expires a history cursor, AiOS automatically performs a fresh bounded
+sync. Duplicate messages are prevented by the account and Gmail message ID pair.
+
+Application intelligence then combines every enabled account into one
+timestamp-ordered scope of the latest 500 locally stored emails. Related updates
+are grouped by company, so an application confirmation, assessment, interview,
+and offer appear as one timeline rather than four separate opportunities. Older
+mail remains local and can be synchronized incrementally; it is simply outside
+the current fast dashboard scope.
 
 Background synchronization is controlled by `EMAIL_SYNC_INTERVAL_MINUTES` in
 Settings. A failure on one account does not stop other connected accounts.
@@ -70,5 +77,5 @@ End users never perform this step. A release maintainer enables Gmail API,
 configures the Google OAuth consent screen, and creates a **Desktop app** OAuth
 client. Place its downloaded file at
 `%APPDATA%\AiOS Assistant\credentials\google_client_secret.json` before running
-`scripts/build-desktop.ps1`; the build embeds it in the executable. For source
+`scripts/build-windows-native.ps1`; the build embeds it in `AiOS-Core.exe`. For source
 development only, `GMAIL_CREDENTIALS_PATH` may point to an equivalent file.

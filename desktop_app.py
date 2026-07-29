@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from datetime import datetime, timezone
+from pathlib import Path
 
 from werkzeug.serving import make_server
 
@@ -22,21 +23,14 @@ INSTANCE_MUTEX_NAME = "Local\\AiOSAssistantDesktop"
 _INSTANCE_MUTEX_HANDLE = None
 ALLOWED_START_PATHS = {
     "/",
-    "/automation",
-    "/browser-agent",
-    "/career",
     "/connectors",
     "/gmail",
     "/hackathons",
     "/jobs",
     "/memory",
-    "/planner",
-    "/planning-events",
     "/profile",
-    "/projects",
     "/settings",
     "/sources",
-    "/wellbeing",
     "/workers",
 }
 
@@ -129,10 +123,15 @@ class TrayController:
         except Exception:
             return False
 
-        image = Image.new("RGBA", (64, 64), (76, 29, 149, 255))
-        draw = ImageDraw.Draw(image)
-        draw.ellipse((10, 10, 54, 54), fill=(255, 216, 77, 255))
-        draw.ellipse((22, 22, 42, 42), fill=(76, 29, 149, 255))
+        bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+        icon_path = bundle_root / "app" / "static" / "icons" / "aios-icon-512.png"
+        try:
+            image = Image.open(icon_path).convert("RGBA").resize((64, 64), Image.Resampling.LANCZOS)
+        except OSError:
+            image = Image.new("RGBA", (64, 64), (11, 15, 11, 255))
+            draw = ImageDraw.Draw(image)
+            draw.line((16, 48, 29, 17, 35, 17, 48, 48), fill=(167, 255, 60, 255), width=7, joint="curve")
+            draw.line((24, 37, 40, 37), fill=(244, 247, 239, 255), width=6)
         menu = pystray.Menu(
             pystray.MenuItem("Open AiOS", lambda _icon, _item: self.show(), default=True),
             pystray.MenuItem("Settings", lambda _icon, _item: self.show("/settings")),
@@ -206,7 +205,6 @@ def run_worker_mode(worker_id):
     configure_desktop_environment()
     worker_entrypoints = {
         "reminders": ("local_worker", "main"),
-        "activity": ("desktop_activity_worker", "main"),
         "watch_imports": ("watch_import_worker", "main"),
         "hackathons": ("hackathon_monitor_worker", "main"),
         "email_intelligence": ("email_intelligence_worker", "main"),
@@ -330,7 +328,6 @@ def main():
     from app.models import db
     from app.services.background_services import register_service, unregister_service
     from app.services.settings import get_setting, set_setting
-    from desktop_activity_worker import CHECK_SECONDS as ACTIVITY_INTERVAL_SECONDS, scan_once as scan_activity_once
     from email_intelligence_worker import sync_interval_seconds, scan_once as scan_email_once
     from hackathon_monitor_worker import scan_once as scan_opportunities
     from local_worker import CHECK_INTERVAL_SECONDS, check_reminders, load_state, save_state
@@ -379,13 +376,6 @@ def main():
         save_callback=lambda _state: None,
         interval=scan_interval_minutes * 60,
     )
-    activity_worker = PollingWorker(
-        service_id="activity",
-        callback=lambda state: scan_activity_once(app, state),
-        state={},
-        save_callback=lambda _state: None,
-        interval=ACTIVITY_INTERVAL_SECONDS,
-    )
     email_worker = PollingWorker(
         service_id="email_intelligence",
         callback=lambda state: scan_email_once(app, state),
@@ -394,7 +384,7 @@ def main():
         interval=sync_interval_seconds(app),
     )
 
-    components = (email_worker, activity_worker, opportunity_worker, watch_worker, reminder_worker, server)
+    components = (email_worker, opportunity_worker, watch_worker, reminder_worker, server)
     runtime_path = paths.data_dir / "runtime.json"
     runtime_descriptor = RuntimeDescriptor(
         runtime_path,
@@ -404,6 +394,8 @@ def main():
             "api_token": api_token,
             "pid": os.getpid(),
             "started_at": datetime.now(timezone.utc).isoformat(),
+            "capabilities": {"wdyd_snapshot": 1},
+            "snapshot_path": "/api/wdyd/snapshot",
         },
     )
     runtime_descriptor.write()
@@ -418,12 +410,6 @@ def main():
         opportunity_worker,
     )
     register_service(
-        "activity",
-        "Desktop activity tracker",
-        "Logs active desktop windows into wellbeing signals.",
-        activity_worker,
-    )
-    register_service(
         "email_intelligence",
         "Email intelligence planner",
         "Syncs connected Gmail accounts and generates local AI plans.",
@@ -436,7 +422,7 @@ def main():
                 component.shutdown()
             except Exception:
                 pass
-        for service_id in ("reminders", "watch_imports", "opportunities", "activity", "email_intelligence"):
+        for service_id in ("reminders", "watch_imports", "opportunities", "email_intelligence"):
             unregister_service(service_id)
 
     atexit.register(shutdown)
@@ -445,7 +431,6 @@ def main():
     reminder_worker.start()
     watch_worker.start()
     opportunity_worker.start()
-    activity_worker.start()
     email_worker.start()
 
     if not wait_for_server(port):
@@ -455,12 +440,17 @@ def main():
     print(f"AiOS data: {paths.data_dir}")
     print(f"AiOS local URL: {url}")
 
-    if os.getenv("AIOS_HEADLESS", "") == "1":
+    core_only = os.getenv("AIOS_HEADLESS", "") == "1" or "--core-only" in sys.argv
+    if core_only:
+        core_stop_event = threading.Event()
+        app.config["AIOS_EXIT_CALLBACK"] = core_stop_event.set
+        app.config["AIOS_SHOW_CALLBACK"] = lambda _path="/": None
         try:
-            while True:
-                time.sleep(1)
+            while not core_stop_event.wait(1):
+                pass
         except KeyboardInterrupt:
-            shutdown()
+            pass
+        shutdown()
         return
 
     try:

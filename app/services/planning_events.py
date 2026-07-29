@@ -29,6 +29,14 @@ def _clean(value, limit):
     return str(value or "").strip()[:limit]
 
 
+def _progress_fraction(event):
+    try:
+        value = float(_json(event.metadata_json).get("progress") or 0)
+        return value / 100 if value > 1 else value
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _first_url(text):
     match = re.search(r"https?://[^\s)>\"]+", text or "")
     return match.group(0)[:500] if match else ""
@@ -49,7 +57,7 @@ def _deadline_work_slot(event_type, deadline, offset):
             return candidate
         return _planned_slot(offset)
 
-    days_before = {"hackathon": 2, "goal": 1, "repo": 1}.get(event_type, 0)
+    days_before = {"hackathon": 2, "application": 1, "goal": 1, "repo": 1}.get(event_type, 0)
     target_date = max(date.today(), (deadline - timedelta(days=days_before)).date())
     candidate = _planned_slot(offset, target_date)
     if candidate >= deadline:
@@ -81,7 +89,9 @@ def upsert_event(source_key, **data):
 
 
 def generate_events_from_sources():
+    from app.services.application_intelligence import application_overview
     from app.services.learning_intelligence import generate_events_from_learning_items
+    from app.services.project_context import project_context
 
     created_or_updated = 0
     offset = 0
@@ -108,6 +118,93 @@ def generate_events_from_sources():
             metadata_json=_dump({"opportunity_id": item.id, "kind": item.kind}),
         )
         refresh_repo_activity(event)
+        created_or_updated += 1
+        offset += 1
+
+    applications = application_overview(active_limit=100)["active"]
+    for item in applications:
+        if not item["needs_action"]:
+            continue
+        deadline = parse_datetime(item.get("deadline"))
+        stage = item["stage"]
+        planned_minutes = {
+            "assessment": 90,
+            "project": 120,
+            "interview": 75,
+            "offer": 45,
+            "shortlisted": 45,
+        }.get(stage, 30)
+        source_email = item.get("source_email") or {}
+        event = upsert_event(
+            f"application:{item['id']}",
+            event_type="application",
+            source="gmail_application_intelligence",
+            title=f"{item['stage_label']}: {item['company']}",
+            project=item["role"],
+            idea=item["summary"],
+            deadline=deadline,
+            planned_start=_deadline_work_slot("application", deadline, offset),
+            planned_minutes=planned_minutes,
+            priority="urgent" if item.get("days_left") is not None and item["days_left"] <= 2 else "high",
+            status="planned",
+            work_done=f"Applied via {item['platform']} on {item.get('applied_at') or 'an inferred date'}; current stage: {item['stage_label']}.",
+            work_left=item["next_action"],
+            repo_url=(item.get("project") or {}).get("repository", ""),
+            next_question=f"What did you complete for the {item['company']} {item['stage_label'].lower()} step?",
+            metadata_json=_dump(
+                {
+                    "application_id": item["id"],
+                    "company": item["company"],
+                    "stage": stage,
+                    "platform": item["platform"],
+                    "source_email_id": source_email.get("id"),
+                    "source_account": source_email.get("account_email", ""),
+                    "progress": ((item.get("project") or {}).get("progress", 0) or 0) / 100,
+                    "source_signals": ["gmail", *((item.get("project") or {}).get("signals", []))],
+                }
+            ),
+        )
+        refresh_repo_activity(event)
+        created_or_updated += 1
+        offset += 1
+
+    projects = project_context()["projects"]
+    for item in projects[:20]:
+        if item["progress"] >= 100 or (not item["selected"] and not item.get("deadline") and not item["next_action"]):
+            continue
+        deadline = parse_datetime(item.get("deadline"))
+        days_left = (deadline.date() - date.today()).days if deadline else None
+        signals = [
+            *(["local_workspace"] if item["working_directory"] else []),
+            *(["github"] if item["repository"] else []),
+            *(["codex_history"] if any("codex" in str(entry).lower() for entry in item["timeline"]) else []),
+        ]
+        event = upsert_event(
+            f"project:{item['id']}",
+            event_type="repo",
+            source="project_context",
+            title=f"Continue {item['title']}",
+            project=item["title"],
+            idea=item["work_done"],
+            deadline=deadline,
+            planned_start=_deadline_work_slot("repo", deadline, offset),
+            planned_minutes=120 if item["progress"] < 60 else 75,
+            priority="urgent" if days_left is not None and days_left <= 3 and item["progress"] < 80 else "high" if item["selected"] else "normal",
+            status="planned",
+            work_done=item["work_done"],
+            work_left=item["remaining_work"] or item["next_action"],
+            repo_url=item["repository"],
+            repo_latest_activity=item["timeline"][0]["title"] if item["timeline"] else "",
+            next_question=f"What changed in {item['title']} locally, on GitHub, or in Codex?",
+            metadata_json=_dump(
+                {
+                    "project_id": item["id"],
+                    "progress": item["progress"] / 100,
+                    "estimated_hours": max(1, round((100 - item["progress"]) / 20, 1)),
+                    "source_signals": signals,
+                }
+            ),
+        )
         created_or_updated += 1
         offset += 1
 
@@ -258,8 +355,9 @@ def build_next_question(event):
     return default_next_question(event.event_type, event.title, event.project or "", event.repo_url or "")
 
 
-def planning_board():
-    generate_events_from_sources()
+def planning_board(*, refresh_sources=True):
+    if refresh_sources:
+        generate_events_from_sources()
     events = PlanningEvent.query.order_by(
         PlanningEvent.status.asc(),
         PlanningEvent.deadline.is_(None),
@@ -358,6 +456,15 @@ def planner_briefing(events, blocks, questions):
     today_count = len(blocks["today"])
     week_count = len(blocks["week"])
     month_count = len(blocks["month"])
+    at_risk = [
+        event
+        for event in due_week
+        if event.event_type in {"hackathon", "application", "repo"}
+        and (
+            event.priority in {"urgent", "high"}
+            or _progress_fraction(event) < 0.6
+        )
+    ]
     if today_count:
         headline = f"{today_count} planned block{'s' if today_count != 1 else ''} today."
     elif week_count:
@@ -375,7 +482,9 @@ def planner_briefing(events, blocks, questions):
         "blocked_count": len(blocked),
         "focus": [block["title"] for block in blocks["today"][:3]]
         or [block["title"] for block in blocks["week"][:3]],
+        "focus_reasons": [block.get("reason", "") for block in blocks["today"][:3]],
         "due_soon": [event.title for event in due_week[:5]],
+        "at_risk": [event.title for event in at_risk[:5]],
         "ask_next": [item["question"] for item in questions[:3]],
     }
 

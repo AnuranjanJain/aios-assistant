@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from app import create_app
@@ -86,6 +87,9 @@ class UiModernizationTestCase(unittest.TestCase):
     def test_dashboard_detail_tabs_use_full_width_readable_layout(self):
         html = self.get_text("/?tab=opportunities")
         template = Path("app/templates/dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("Latest 500 combined emails", html)
+        self.assertIn("Application intelligence", html)
+        self.assertNotIn("Test Email Intake", html)
         self.assertIn('class="data-grid dashboard-detail-grid"', html)
         self.assertEqual(html.count("panel dashboard-detail-panel"), 3)
         self.assertEqual(html.count("list dashboard-detail-list"), 3)
@@ -151,6 +155,160 @@ class UiModernizationTestCase(unittest.TestCase):
         response = self.client.post("/api/desktop/show", json={"path": "/"})
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.get_json()["ok"])
+
+    def test_wdyd_snapshot_is_versioned_and_keeps_raw_email_private(self):
+        pairing = self.client.get("/api/local/pairing")
+        self.assertEqual(pairing.status_code, 200)
+        pairing_payload = pairing.get_json()
+        self.assertEqual(pairing_payload["capabilities"]["wdyd_snapshot"], 1)
+        self.assertEqual(pairing_payload["snapshot_path"], "/api/wdyd/snapshot")
+
+        response = self.client.get(
+            "/api/wdyd/snapshot",
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["service"], "aios-assistant")
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["X-AiOS-Snapshot-Cache"], "miss")
+        self.assertEqual(
+            set(payload),
+            {
+                "applications",
+                "college",
+                "desktop",
+                "generated_at",
+                "hackathons",
+                "live",
+                "neopat",
+                "ok",
+                "placements",
+                "projects",
+                "schema_version",
+                "service",
+                "workers",
+            },
+        )
+        self.assertNotIn("body_plain", response.get_data(as_text=True))
+        self.assertNotIn("refresh_token", response.get_data(as_text=True))
+        self.assertEqual(payload["applications"]["stats"]["scan_limit"], 500)
+        self.assertIn("selected", payload["applications"]["stats"])
+        self.assertIn("no_response", payload["applications"]["stats"])
+        self.assertIn("hackathons", payload["applications"])
+
+        cached = self.client.get(
+            "/api/wdyd/snapshot",
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(cached.headers["X-AiOS-Snapshot-Cache"], "hit")
+        self.assertEqual(cached.get_json()["generated_at"], payload["generated_at"])
+
+        created = self.client.post(
+            "/api/planning-events",
+            json={"title": "Prepare project walkthrough", "event_type": "task"},
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(created.status_code, 200)
+        refreshed = self.client.get(
+            "/api/wdyd/snapshot",
+            headers={"X-AiOS-Token": "local-test-token"},
+        )
+        self.assertEqual(refreshed.headers["X-AiOS-Snapshot-Cache"], "miss")
+
+    def test_native_reminder_actions_return_json_and_persist(self):
+        with self.app.app_context():
+            from app.models import ConnectedAccount, EmailMessage, EmailTask, Opportunity, PlanningEvent, Reminder, db
+
+            account = ConnectedAccount(email="student@example.com")
+            db.session.add(account)
+            db.session.flush()
+            email = EmailMessage(
+                account_id=account.id,
+                provider_message_id="reminder-action-1",
+                sender="Recruiter <jobs@example.com>",
+                subject="Interview confirmation needed",
+                snippet="Please confirm the interview slot.",
+                sent_at=datetime.now(),
+            )
+            db.session.add(email)
+            db.session.flush()
+            task = EmailTask(
+                email_id=email.id,
+                title="Confirm the interview slot",
+                priority="high",
+                due_at=datetime.now() - timedelta(days=1),
+            )
+            db.session.add(task)
+            db.session.flush()
+            reminder = Reminder(
+                title=task.title,
+                due_at=task.due_at,
+                notification_type="email_action",
+                source_key=f"email-task:{task.id}",
+                metadata_json='{"account_email":"student@example.com","sender":"jobs@example.com","subject":"Interview confirmation needed"}',
+            )
+            event = PlanningEvent(
+                event_type="email",
+                source="gmail",
+                source_key=f"email_task:{task.id}",
+                title=task.title,
+                status="open",
+            )
+            opportunity = Opportunity(
+                source_key="gmail:1:reminder-action-1",
+                email_message_id=email.id,
+                kind="internship",
+                title="Interview confirmation needed",
+                organization="Example Labs",
+                status="Interview scheduled",
+                source="Gmail: student@example.com",
+                deadline=datetime.now() + timedelta(days=2),
+                notes="You reached the interview stage.\nPrepare two project examples.",
+            )
+            db.session.add_all([reminder, event, opportunity])
+            db.session.commit()
+            reminder_id = reminder.id
+
+        headers = {"X-AiOS-Token": "local-test-token"}
+        reminder_overview = self.client.get("/api/reminders/overview", headers=headers)
+        self.assertEqual(reminder_overview.status_code, 200)
+        reminder_payload = reminder_overview.get_json()
+        self.assertEqual(reminder_payload["stats"]["overdue"], 1)
+        self.assertEqual(reminder_payload["items"][0]["email_account"], "student@example.com")
+        self.assertIn("Overdue", reminder_payload["items"][0]["due_label"])
+
+        opportunity_overview = self.client.get("/api/opportunities/overview", headers=headers)
+        self.assertEqual(opportunity_overview.status_code, 200)
+        opportunity_payload = opportunity_overview.get_json()
+        self.assertEqual(opportunity_payload["stats"]["action_needed"], 1)
+        self.assertEqual(opportunity_payload["items"][0]["program"], "Example Labs")
+        self.assertIn("interview", opportunity_payload["items"][0]["next_action"].lower())
+
+        read_response = self.client.post(
+            f"/api/reminders/{reminder_id}/read", headers=headers
+        )
+        self.assertEqual(read_response.status_code, 200)
+        self.assertTrue(read_response.get_json()["reminder"]["is_read"])
+
+        done_response = self.client.post(
+            f"/api/reminders/{reminder_id}/done", headers=headers
+        )
+        self.assertEqual(done_response.status_code, 200)
+        self.assertTrue(done_response.get_json()["reminder"]["is_done"])
+
+        with self.app.app_context():
+            from app.models import EmailTask, PlanningEvent, Reminder
+
+            saved = db.session.get(Reminder, reminder_id)
+            self.assertTrue(saved.is_read)
+            self.assertTrue(saved.is_done)
+            self.assertEqual(EmailTask.query.one().status, "done")
+            self.assertEqual(PlanningEvent.query.one().status, "done")
+
+        reminder_overview = self.client.get("/api/reminders/overview", headers=headers)
+        self.assertEqual(reminder_overview.get_json()["stats"]["open"], 0)
 
     def test_login_uses_accessible_shared_controls(self):
         html = self.get_text("/login")

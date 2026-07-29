@@ -108,7 +108,14 @@ class PlanningEngine:
     def _target_date(self, event, earliest, latest):
         if not event.deadline:
             return preferred if (preferred := event.planned_start.date() if event.planned_start else None) else earliest
-        days_before = {"hackathon": 2, "goal": 1, "repo": 1, "learning_video": 1}.get(event.event_type, 0)
+        progress = self._progress(event)
+        days_before = {
+            "hackathon": 3 if progress < 0.6 else 2,
+            "application": 1,
+            "goal": 1,
+            "repo": 2 if progress < 0.6 else 1,
+            "learning_video": 1,
+        }.get(event.event_type, 0)
         target = event.deadline.date() - timedelta(days=days_before)
         return min(max(target, earliest), latest)
 
@@ -154,6 +161,9 @@ class PlanningEngine:
 
     def _priority_key(self, event):
         deadline = event.deadline or datetime.combine(self.today + timedelta(days=365), time(23, 59))
+        days_left = (deadline.date() - self.today).days
+        progress = self._progress(event)
+        risk_rank = 0 if days_left <= 1 else 1 if days_left <= 3 and progress < 0.8 else 2 if days_left <= 7 else 3
         priority_rank = {"urgent": 0, "high": 1, "normal": 2, "medium": 2, "low": 3}.get(
             str(event.priority or "normal").lower(),
             2,
@@ -162,8 +172,16 @@ class PlanningEngine:
             self._difficulty(event),
             1,
         )
-        event_rank = {"hackathon": 0, "email": 1, "goal": 2, "repo": 2, "learning": 3, "learning_video": 3}.get(event.event_type, 4)
-        return (deadline, priority_rank, difficulty_rank, event_rank)
+        event_rank = {
+            "hackathon": 0,
+            "application": 0,
+            "repo": 1,
+            "email": 2,
+            "goal": 3,
+            "learning": 4,
+            "learning_video": 4,
+        }.get(event.event_type, 5)
+        return (risk_rank, deadline, priority_rank, difficulty_rank, event_rank)
 
     def _remaining_minutes(self, event):
         minutes = max(5, int(event.planned_minutes or 45))
@@ -174,13 +192,7 @@ class PlanningEngine:
                 minutes = max(minutes, int(float(estimated_hours) * 60))
             except (TypeError, ValueError):
                 pass
-        progress = metadata.get("progress")
-        if progress in (None, ""):
-            progress = 1.0 if event.status in DONE_STATUSES else 0.0
-        try:
-            progress_value = max(0.0, min(1.0, float(progress)))
-        except (TypeError, ValueError):
-            progress_value = 0.0
+        progress_value = self._progress(event)
         return max(0, int(round(minutes * (1.0 - progress_value))))
 
     def _dependencies_done(self, event):
@@ -194,6 +206,8 @@ class PlanningEngine:
 
     def _serialize(self, block):
         event = block["event"]
+        metadata = self.metadata.get(event.id, {})
+        days_left = (event.deadline.date() - self.today).days if event.deadline else None
         return {
             "event_id": event.id,
             "title": event.title,
@@ -204,7 +218,35 @@ class PlanningEngine:
             "deadline": event.deadline.isoformat() if event.deadline else None,
             "next_action": event.work_left or event.next_question or "",
             "status": event.status,
+            "reason": self._reason(event, days_left),
+            "days_left": days_left,
+            "progress": round(self._progress(event) * 100),
+            "source_signals": metadata.get("source_signals") or [],
         }
+
+    def _progress(self, event):
+        progress = self.metadata.get(event.id, {}).get("progress")
+        if progress in (None, ""):
+            return 1.0 if event.status in DONE_STATUSES else 0.0
+        try:
+            value = float(progress)
+            if value > 1:
+                value /= 100
+            return max(0.0, min(1.0, value))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _reason(self, event, days_left):
+        progress = round(self._progress(event) * 100)
+        if days_left is not None and days_left <= 0:
+            return "Due today or overdue, so this block is placed first."
+        if event.event_type == "application":
+            return f"A hiring step is waiting{f' with {days_left} days left' if days_left is not None else ''}."
+        if event.event_type in {"hackathon", "repo"} and days_left is not None:
+            return f"{days_left} days remain and tracked progress is {progress}%."
+        if event.priority in {"urgent", "high"}:
+            return "High-priority work selected from your connected local signals."
+        return "Scheduled from the nearest available work window."
 
     def _event_keys(self, event):
         return {str(event.id), event.source_key or "", event.title or ""}

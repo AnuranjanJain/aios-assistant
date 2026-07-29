@@ -7,11 +7,13 @@
 <h3 align="center">Your local AI life operating system</h3>
 
 <p align="center">
-  Memory, Gmail, projects, learning and daily plans in one private workspace.
+  Gmail intelligence, opportunities, reminders, and durable memory in one private workspace.
 </p>
 
 <p align="center">
   <img alt="Windows desktop" src="https://img.shields.io/badge/Windows-desktop-75D7FF?style=for-the-badge&labelColor=121512">
+  <img alt="Native client" src="https://img.shields.io/badge/client-native%20Flutter-A7FF3C?style=for-the-badge&labelColor=121512">
+  <img alt="No browser server" src="https://img.shields.io/badge/browser%20server-not%20required-FFD166?style=for-the-badge&labelColor=121512">
   <img alt="Local first" src="https://img.shields.io/badge/local--first-yes-A7FF3C?style=for-the-badge&labelColor=121512">
   <img alt="Google Gmail readonly" src="https://img.shields.io/badge/Gmail-read--only-FFD166?style=for-the-badge&labelColor=121512">
   <img alt="Ollama ready" src="https://img.shields.io/badge/Ollama-ready-72E6A2?style=for-the-badge&labelColor=121512">
@@ -19,41 +21,32 @@
 
 AiOS is the personal assistant layer for **What Do You Do** and the wider AiOS idea: it runs on your machine, keeps data local, and turns scattered signals into a clean daily workspace.
 
-<p align="center">
-  <img src="docs/screenshots/aios-desktop-shell-tour.gif" alt="AiOS desktop shell tour" width="820">
-</p>
+This `windows-native` branch is the Windows installed-app delivery line. The
+native Flutter client owns the visible experience, while the packaged local core
+owns Gmail, OAuth tokens, workers, SQLite, Ollama, and loopback APIs. A browser is
+opened only for Google's OAuth approval and can be closed immediately afterward.
 
-## See It In Motion
-
-| Overview | Opportunities |
-| --- | --- |
-| ![AiOS overview](docs/screenshots/aios-desktop-shell-overview.png) | ![AiOS opportunities](docs/screenshots/aios-desktop-shell-opportunities.png) |
-
-| Memory | Profile |
-| --- | --- |
-| ![AiOS memory](docs/screenshots/aios-desktop-shell-memory.png) | ![AiOS profile](docs/screenshots/aios-desktop-shell-profile.png) |
-
-| Planner | Mobile companion |
-| --- | --- |
-| ![AiOS planner](docs/screenshots/aios-desktop-planner.png) | ![AiOS mobile dashboard](docs/screenshots/aios-mobile-dashboard.png) |
+The Linux/browser implementation is preserved on the
+[`linux-browser`](https://github.com/AnuranjanJain/aios-assistant/tree/linux-browser)
+branch.
 
 ## Two Apps, One Private Loop
 
 | App | Job |
 | --- | --- |
-| **[What Do You Do](https://github.com/AnuranjanJain/what-do-you-do)** | Observes activity and answers where the day went. |
-| **AiOS Assistant** | Connects mail, projects and memory, then decides what should happen next. |
+| **[What Do You Do](https://github.com/AnuranjanJain/what-do-you-do)** | Owns activity, projects, wellbeing, college/PAT, and daily planning. |
+| **AiOS Assistant** | Owns Gmail intelligence, opportunities, reminders, memory, connectors, and background sync. |
 
 They communicate only through loopback APIs. Raw activity and email content stay on the device.
 
 ## What It Does
 
-- Remembers projects, goals, learning paths, notes, and next actions.
-- Tracks hackathons, job updates, Gmail signals, reminders, and wellbeing events.
+- Remembers projects, goals, learning paths, notes, checkpoints, and next actions.
+- Tracks hackathons, job updates, Gmail signals, and reminders.
 - Owns Email Intelligence: multi-account Gmail OAuth, encrypted local tokens, local email sync, AI understanding, semantic search, and daily/weekly planning.
-- Turns hackathons, repos, email tasks, learning videos, and goals into one planning board with work done, work left, deadlines, and next questions.
-- Runs local desktop automation previews before touching files.
-- Plans goals into daily, weekly, or monthly roadmaps.
+- Classifies the latest 500 emails across all enabled accounts as one combined portfolio, then groups related application updates by company.
+- Separates applied, selected, no-response, no-further-email, and rejected states while filtering generic alerts, newsletters, and public selection lists.
+- Exposes planning and project intelligence to WDYD over a paired loopback API.
 - Connects with Gmail OAuth and local import folders.
 - Keeps AI local-first with Ollama support and rule-based fallback.
 - Ships as an installable Windows desktop app plus Arch/Linux packaging.
@@ -62,12 +55,13 @@ They communicate only through loopback APIs. Raw activity and email content stay
 
 ```mermaid
 flowchart LR
-    A["Gmail / files / browser / wellbeing"] --> B["Local Flask API"]
-    B --> C["SQLite memory + activity store"]
+    A["Gmail / local imports"] --> B["Packaged AiOS core"]
+    B --> C["SQLite email + memory store"]
     B --> D["Rule engine or Ollama"]
-    C --> E["Desktop dashboard"]
+    C --> E["Native Flutter Windows client"]
     D --> E
-    E --> F["Plans, reminders, pipelines, reports"]
+    E --> F["Inbox AI, reminders, opportunities, memory"]
+    B --> G["Paired WDYD app"]
 ```
 
 ## Email Intelligence
@@ -77,6 +71,8 @@ AiOS is the integration and planning brain for WDYD v2. It owns Google OAuth, Gm
 Local APIs exposed to WDYD and other loopback clients:
 
 ```text
+GET  /api/local/pairing
+GET  /api/wdyd/snapshot
 GET  /api/intelligence/accounts
 POST /api/intelligence/accounts/google/connect
 GET  /api/oauth/google/sign-in/<job-id>
@@ -94,7 +90,19 @@ POST /api/planning-events
 PATCH /api/planning-events/<id>
 ```
 
+`/api/wdyd/snapshot` is the versioned, read-only desktop bridge. It combines
+approved planner, reminder, opportunity, application, PAT, project, worker and
+readiness summaries into one request. It never includes Gmail bodies, refresh
+tokens or credentials. Older WDYD clients can continue using the individual
+endpoints.
+
 Email content is never sent to cloud AI providers by this module. Analysis uses Ollama when available and a deterministic local fallback otherwise.
+
+The portfolio scope is global, not 500 messages per inbox. AiOS orders locally
+stored mail from every enabled account by timestamp, analyzes the newest 500,
+and retains older synchronized mail in SQLite. The dashboard exposes aggregate
+counts and short approved summaries; WDYD never receives raw bodies or OAuth
+tokens.
 
 Google sign-in runs as a cancellable background job. AiOS stays responsive,
 shows the browser handoff state, and returns HTTP `202` plus polling URLs to API
@@ -145,54 +153,55 @@ account selection, and read-only Gmail access. See
 
 Set `EMAIL_SYNC_INTERVAL_MINUTES` in Settings to control continuous background sync. The worker enforces a 2-minute minimum to avoid hammering Gmail.
 
-## Desktop Shell
+## Native Windows Shell
 
 ```mermaid
 flowchart TB
-    S["Shared sidebar shell"] --> O["Overview tabs"]
-    S --> M["Memory"]
-    S --> P["Planner"]
-    S --> A["Automation"]
-    S --> B["Browser Agent"]
-    S --> C["Career Copilot"]
-    S --> X["Sources / Connectors / Workers / Settings"]
-    O --> T["Overview | Opportunities | Reminders | Inbox AI"]
+    W["aios_assistant.exe"] --> O["Overview"]
+    W --> I["Inbox AI"]
+    W --> H["Opportunities"]
+    W --> M["Memory"]
+    W --> R["Reminders"]
+    W --> G["Gmail Sources"]
+    W --> C["Connectors / Workers"]
+    W --> S["Settings / startup / tray / exit"]
+    W --> A["127.0.0.1 paired API"]
+    A --> K["AiOS-Core.exe"]
 ```
 
-Everything important now uses the same shell, top pipeline rail, profile button, and smooth page motion.
+The Flutter shell renders real local data and starts the adjacent core
+automatically. Close and minimize move the window to the tray; explicit Exit
+stops both processes.
 
-## Quick Start
+## Platform Branches
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-copy .env.example .env
-python run.py
-```
+| Branch | Product surface |
+| --- | --- |
+| `windows-native` | Native Flutter client plus packaged local connector core |
+| `linux-browser` | Flask/browser dashboard and Linux packaging |
 
-Open:
-
-```text
-http://127.0.0.1:5000
-```
-
-Run the packaged desktop build:
-
-```powershell
-.\release\AiOS-Assistant.exe
-```
+## Windows Install
 
 Build and install the desktop app:
 
 ```powershell
-.\scripts\build-desktop.ps1
-.\scripts\install-desktop.ps1 -EnableStartup
+.\scripts\build-windows-native.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\native_app\windows\install\install.ps1
 ```
 
-The installer copies `AiOS-Assistant.exe` to `%LOCALAPPDATA%\Programs\AiOS Assistant`, adds Start Menu/Desktop shortcuts, and can enable login startup. The startup launcher opens AiOS in background tray mode; closing the desktop window hides it to the tray until you use **Exit AiOS** from Settings or the tray menu. When the desktop app starts, it owns the background loops for reminders, imports, opportunities, and activity tracking.
+The installer copies `aios_assistant.exe`, `AiOS-Core.exe`, Flutter DLLs, and
+the Flutter data directory to `%LOCALAPPDATA%\Programs\AiOS Assistant`. It adds
+Start Menu and Desktop shortcuts, so Windows Search can launch the app. Enable
+background login startup from the native Settings page. Closing the desktop
+window hides it to the tray until you choose **Exit AiOS** from Settings or the
+tray menu.
 
-Arch/Linux:
+Windows users do not run `python run.py`, Vite, or a permanent browser tab. The
+installed app starts its packaged local core automatically.
+
+Linux development and packaging remain on the `linux-browser` branch.
+
+Arch/Linux on that branch:
 
 ```bash
 ./scripts/build-desktop-arch.sh
@@ -221,46 +230,50 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 
 ```text
 app/
-  routes.py              Desktop pages, API endpoints, OAuth routes
+  routes.py              Local API and OAuth endpoints
   models.py              SQLite models
   services/              Memory, planner, email intelligence, connectors, workers, settings
-  templates/             Shared desktop shell and pages
-  static/                CSS, JS, manifest, icons
+  templates/             Linux/browser client templates
+  static/                Linux/browser assets and packaged core resources
 
-automation_agent/        Local file and office automation tools
-browser_agent/           Browser research and job tracking planner
-career_agent/            GitHub, resume, roadmap, and job match logic
+native_app/              Flutter Windows client
+  lib/src/               native shell, controller, API and core manager
+  windows/runner/        Win32 window, tray and lifecycle channel
+  windows/install/       per-user installer and uninstaller
+
+aios_core.spec           headless Windows core package
+scripts/build-windows-native.ps1
+                         builds the core, Flutter client and release ZIP
+
+automation_agent/        Incubating standalone module; not shown in AiOS
+browser_agent/           Incubating standalone module; not shown in AiOS
+career_agent/            Incubating standalone module; not shown in AiOS
 docs/                    Architecture, QA, screenshots, module specs
 extension/               Browser/plugin companion surface
 packaging/               Desktop release helpers
 tests/                   Regression and integration tests
 ```
 
-## Main Pages
+## Native Pages
 
 | Page | Purpose |
 | --- | --- |
-| `/` | Desktop overview with tabbed Overview, Opportunities, Reminders, Inbox AI |
-| `/gmail` | Gmail intelligence feed |
-| `/hackathons` | Hackathon corner |
-| `/jobs` | Placement and job tracker |
-| `/wellbeing` | What Do You Do / activity signals |
-| `/memory` | Persistent personal memory |
-| `/planner` | Goal planner |
-| `/automation` | Desktop automation preview and approval |
-| `/browser-agent` | Browser research and job search agent |
-| `/career` | Career Copilot |
-| `/profile` | Name, role, current focus, profile photo |
-| `/connectors` | Gmail and import connectors |
-| `/workers` | Desktop background service status |
-| `/settings` | Local config, PIN lock, desktop startup |
+| Overview | Gmail intelligence, reminders, and opportunity signals |
+| Inbox AI | Local email summaries and urgent actions |
+| Opportunities | Grouped jobs, hackathons, achievements and deadlines |
+| Reminders | Due and upcoming actions extracted locally |
+| Memory | Search, entities, notes, project checkpoints, and next actions |
+| Sources | One-click multi-account Google sign-in and sync |
+| Connectors | Local pipeline health and manual sync |
+| Workers | Background email, reminder, import, and opportunity services |
+| Settings | Core health, theme, Windows startup, tray and exit |
 
 ## Safety Notes
 
 - Credentials stay out of git: `credentials/`, `.env`, `instance/`, `release/`, `dist/`, and `build/` are ignored.
 - Gmail tokens live locally.
 - OAuth refresh tokens are encrypted before storage.
-- Destructive automation uses previews and approval.
+- Activity collection belongs to WDYD; AiOS does not run a second desktop tracker.
 - Local API pairing is loopback-only and token protected.
 - Cloud AI is optional; local-first is the default design.
 
@@ -269,7 +282,10 @@ tests/                   Regression and integration tests
 ```powershell
 python -m pytest -q
 python -m pip_audit -r requirements.txt
-python -m PyInstaller --clean --noconfirm desktop_app.spec
+python -m PyInstaller --clean --noconfirm aios_core.spec
+cd native_app
+C:\Users\anura\development\flutter\bin\flutter.bat analyze
+C:\Users\anura\development\flutter\bin\flutter.bat test
 ```
 
 ## Deep Dives

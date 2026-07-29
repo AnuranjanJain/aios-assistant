@@ -4,10 +4,13 @@ import re
 from datetime import date, datetime, time, timedelta
 from email.utils import parseaddr
 
-from app.models import EmailMessage, EmailTask, InboxItem, Opportunity, Reminder, db
-
-
-OPPORTUNITY_CATEGORIES = {"hackathon", "internship"}
+from app.models import EmailTask, InboxItem, Opportunity, Reminder, db
+from app.services.application_intelligence import classify_tracked_email
+from app.services.email_scope import (
+    EMAIL_PORTFOLIO_LIMIT,
+    clamp_email_limit,
+    latest_emails_combined,
+)
 
 
 def _json(value):
@@ -38,63 +41,6 @@ def _clean_text(value):
     text = html.unescape(str(value or ""))
     text = re.sub(r"[\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]", "", text)
     return re.sub(r"\s+", " ", text).strip()
-
-
-def _opportunity_status(email):
-    text = _email_text(email).lower()
-    if any(word in text for word in ("unfortunately", "not selected", "regret to inform")):
-        return "Rejected"
-    round_match = re.search(
-        r"(?:you(?:r team)? (?:have |has )?been |you(?:'re| are) )?(?:selected|shortlisted|qualified|advanced)\s+(?:to|for|into)\s+(?:the\s+)?(round\s*\d+|next round|final round)",
-        text,
-    )
-    if round_match:
-        stage = re.sub(r"\s+", " ", round_match.group(1)).title().replace("Round ", "Round ")
-        return f"Selected for {stage}"
-    if any(
-        phrase in text
-        for phrase in (
-            "your profile is eligible for the next round",
-            "you are eligible for the next round",
-            "you have qualified for the next round",
-        )
-    ):
-        current_round = re.search(r"\bround\s*(\d+)\b", (email.subject or "").lower())
-        if current_round:
-            return f"Selected for Round {int(current_round.group(1)) + 1}"
-        return "Selected for Next Round"
-    if any(phrase in text for phrase in ("you have been shortlisted", "you've been shortlisted", "you are shortlisted")):
-        return "Shortlisted"
-    if any(phrase in text for phrase in ("you are a finalist", "you have been selected as a finalist", "your team is a finalist")):
-        return "Finalist"
-    if any(phrase in text for phrase in ("you are the winner", "your team has won", "congratulations, winner")):
-        return "Winner"
-    if any(phrase in text for phrase in ("you have been selected", "you've been selected", "your team has been selected")):
-        return "Selected"
-    rules = [
-        ("Offer", ("offer letter", "employment offer")),
-        ("Selection announced", ("selection list", "selected candidates")),
-        ("Interview scheduled", ("interview", "discussion round")),
-        ("Assessment", ("online assessment", "coding round", "oa ")),
-        ("Applied", ("application received", "application submitted")),
-        ("Action needed", ("action required", "complete your", "submit")),
-    ]
-    return next((label for label, words in rules if any(word in text for word in words)), "Tracked")
-
-
-def _is_opportunity(email, insight):
-    if insight and insight.category in OPPORTUNITY_CATEGORIES:
-        return True
-    return _opportunity_status(email).startswith(("Selected", "Shortlisted", "Finalist", "Winner"))
-
-
-def _opportunity_kind(email, insight):
-    if insight and insight.category in OPPORTUNITY_CATEGORIES:
-        return insight.category
-    text = _email_text(email).lower()
-    if any(word in text for word in ("hackathon", "challenge", "competition", "grid", "buildathon")):
-        return "competition"
-    return "career"
 
 
 def _summary_lines(email, insight):
@@ -150,9 +96,9 @@ def _deadline_from_email(email):
     return None
 
 
-def materialize_email_views(limit=100):
-    limit = min(100, max(1, int(limit or 100)))
-    emails = EmailMessage.query.order_by(EmailMessage.sent_at.desc()).limit(limit).all()
+def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
+    limit = clamp_email_limit(limit)
+    emails = latest_emails_combined(limit)
     counts = {"inbox": 0, "opportunities": 0, "reminders": 0, "today_reminders": 0}
     for email in emails:
         insight = email.insight
@@ -174,18 +120,23 @@ def materialize_email_views(limit=100):
         )
         inbox.occurred_at = email.sent_at
 
-        if insight and _is_opportunity(email, insight):
+        tracked = classify_tracked_email(email)
+        if tracked:
             opportunity = Opportunity.query.filter_by(source_key=source_key).first()
             if opportunity is None:
                 opportunity = Opportunity(source_key=source_key, email_message_id=email.id)
                 db.session.add(opportunity)
                 counts["opportunities"] += 1
-            opportunity.kind = _opportunity_kind(email, insight)
-            opportunity.title = email.subject[:180] or "Email opportunity"
-            opportunity.organization = _organization(email, insight)
-            opportunity.status = _opportunity_status(email)
+            opportunity.kind = (
+                tracked.get("opportunity_kind", "hackathon")
+                if tracked["kind"] == "hackathon"
+                else "job"
+            )
+            opportunity.title = tracked["role"][:180] or email.subject[:180] or "Email opportunity"
+            opportunity.organization = tracked["company"][:120]
+            opportunity.status = tracked.get("status") or tracked["stage"].replace("_", " ").title()
             opportunity.source = f"Gmail: {email.account.email}" if email.account else "Gmail"
-            opportunity.deadline = _deadline_from_email(email)
+            opportunity.deadline = tracked["deadline"] or _deadline_from_email(email)
             opportunity.notes = _summary_lines(email, insight)[:2000]
 
     email_ids = [email.id for email in emails]
@@ -206,7 +157,10 @@ def materialize_email_views(limit=100):
         insight = task.email.insight
         priority = task.priority or (insight.priority if insight else "normal")
         due_at = task.due_at
-        actionable_today = bool(due_at and due_at.date() <= today) or (due_at is None and priority in {"high", "urgent"})
+        due_this_year = bool(due_at and due_at.date().year == today.year)
+        actionable_today = bool(
+            due_this_year and due_at.date() <= today
+        ) or (due_at is None and priority in {"high", "urgent"})
         task_key = re.sub(r"\W+", " ", task.title.lower()).strip()
         if not actionable_today or task_key in seen_tasks:
             continue
@@ -228,6 +182,8 @@ def materialize_email_views(limit=100):
                 "email_id": task.email_id,
                 "subject": task.email.subject,
                 "sender": task.email.sender,
+                "account_email": task.email.account.email if task.email.account else "",
+                "summary": (insight.summary if insight else task.email.snippet or "")[:500],
                 "message": f"From Gmail: {task.email.subject}",
             },
             ensure_ascii=True,
@@ -241,7 +197,14 @@ def materialize_email_views(limit=100):
         db.session.delete(reminder)
 
     db.session.commit()
-    return {"ok": True, **counts, "processed": len(emails), "emails_scanned": len(emails)}
+    return {
+        "ok": True,
+        **counts,
+        "processed": len(emails),
+        "emails_scanned": len(emails),
+        "accounts_scanned": len({email.account_id for email in emails}),
+        "combined_limit": limit,
+    }
 
 
 def _first_task_due_at(email):

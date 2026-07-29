@@ -2,6 +2,7 @@ from datetime import date, datetime, time
 from hmac import compare_digest
 from pathlib import Path
 import secrets
+from threading import Lock
 from time import monotonic
 from urllib.parse import urlsplit
 import json
@@ -14,10 +15,12 @@ from werkzeug.utils import secure_filename
 from app.models import (
     ActivityEvent,
     ConnectorRun,
+    EmailTask,
     HackathonUpdate,
     InboxItem,
     Opportunity,
     PlacementUpdate,
+    PlanningEvent,
     Reminder,
     db,
 )
@@ -77,7 +80,7 @@ from app.services.memory_engine import (
     upsert_entity,
 )
 from app.services.notifications import notification_center, reschedule_notification, snooze_notification
-from app.services.college_intelligence import pat_college_summary
+from app.services.college_intelligence import pat_college_summary, save_college_event
 from app.services.oauth_sign_in import (
     cancel_google_sign_in,
     consume_google_sign_in_result,
@@ -87,6 +90,11 @@ from app.services.oauth_sign_in import (
 )
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
+from app.services.application_intelligence import application_overview
+from app.services.email_scope import (
+    EMAIL_PORTFOLIO_LIMIT,
+    latest_email_ids_combined,
+)
 from app.services.planning_events import (
     create_manual_event,
     planning_board,
@@ -105,6 +113,9 @@ from app.services.workers import list_worker_status, start_worker, stop_worker
 
 bp = Blueprint("main", __name__)
 _EMAIL_VIEW_REFRESH_AT = 0.0
+_WDYD_SNAPSHOT_CACHE = {}
+_WDYD_SNAPSHOT_CACHE_LOCK = Lock()
+WDYD_SNAPSHOT_CACHE_SECONDS = 60
 TRUSTED_BROWSER_ORIGINS = {
     "http://127.0.0.1:5000",
     "http://localhost:5000",
@@ -1087,41 +1098,89 @@ def build_dashboard_context():
         try:
             from app.services.email_views import materialize_email_views
 
-            materialize_email_views(limit=100)
+            materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT)
             _EMAIL_VIEW_REFRESH_AT = now
         except Exception:
             db.session.rollback()
-    opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
-    end_of_today = datetime.combine(date.today(), time.max)
-    reminders = (
-        Reminder.query.filter(Reminder.is_done.is_(False), Reminder.due_at <= end_of_today)
-        .order_by(Reminder.due_at.asc())
-        .all()
+
+    active_email_ids = latest_email_ids_combined(
+        limit=EMAIL_PORTFOLIO_LIMIT
     )
-    inbox_items = InboxItem.query.order_by(InboxItem.occurred_at.desc(), InboxItem.created_at.desc()).limit(20).all()
+    opportunities = (
+        Opportunity.query.filter(Opportunity.email_message_id.in_(active_email_ids))
+        .order_by(Opportunity.updated_at.desc())
+        .all()
+        if active_email_ids
+        else []
+    )
+    today = date.today()
+    start_of_year = datetime.combine(today.replace(month=1, day=1), time.min)
+    end_of_today = datetime.combine(today, time.max)
+    active_task_keys = (
+        [
+            f"email-task:{task_id}"
+            for (task_id,) in db.session.query(EmailTask.id)
+            .filter(EmailTask.email_id.in_(active_email_ids))
+            .all()
+        ]
+        if active_email_ids
+        else []
+    )
+    reminders = (
+        Reminder.query.filter(
+            Reminder.source_key.in_(active_task_keys),
+            Reminder.notification_type == "email_action",
+            Reminder.is_done.is_(False),
+            Reminder.due_at >= start_of_year,
+            Reminder.due_at <= end_of_today,
+        )
+        .order_by(Reminder.due_at.desc())
+        .all()
+        if active_task_keys
+        else []
+    )
+    inbox_items = (
+        InboxItem.query.filter(InboxItem.email_message_id.in_(active_email_ids))
+        .order_by(InboxItem.occurred_at.desc(), InboxItem.created_at.desc())
+        .limit(50)
+        .all()
+        if active_email_ids
+        else []
+    )
     activity_events = ActivityEvent.query.order_by(ActivityEvent.created_at.desc()).limit(5).all()
     connector_runs = ConnectorRun.query.order_by(ConnectorRun.created_at.desc()).limit(5).all()
     plan = build_daily_plan(opportunities, reminders)
     stats = build_dashboard_stats(opportunities, reminders, inbox_items, activity_events)
+    application_portfolio = application_overview()
 
     opportunity_cards = [serialize_opportunity(item) for item in opportunities]
-    achievements = [item for item in opportunity_cards if item["is_achievement"]]
-    deadline_candidates = sorted(
+    achievements = [
+        {
+            "program": item["company"],
+            "status": item["stage_label"],
+            "title": item["role"],
+        }
+        for item in application_portfolio["active"]
+        if item["selected_for_next_step"]
+    ][:8]
+    deadline_highlights = sorted(
         [
-            item
-            for item in opportunity_cards
+            {
+                "days_left": item["days_left"],
+                "deadline": item["deadline"],
+                "title": item["title"],
+                "deadline_message": (
+                    f"{item['title']} is due in {item['days_left']} day"
+                    f"{'' if item['days_left'] == 1 else 's'}."
+                ),
+            }
+            for item in application_portfolio["hackathons"]["items"]
             if item["deadline"]
             and item["days_left"] is not None
             and item["days_left"] >= 0
-            and item["kind"] in {"hackathon", "competition"}
-            and item["program"].strip().lower() not in {"vitbhopal", "vitstudent", "placement office"}
         ],
-        key=lambda item: (item["days_left"] is None, item["days_left"] if item["days_left"] is not None else 999999),
+        key=lambda item: item["days_left"],
     )
-    deadline_highlights_by_program = {}
-    for item in deadline_candidates:
-        deadline_highlights_by_program.setdefault(item["program"].strip().lower(), item)
-    deadline_highlights = list(deadline_highlights_by_program.values())
     return {
         "opportunities": opportunities,
         "opportunity_cards": opportunity_cards,
@@ -1133,6 +1192,7 @@ def build_dashboard_context():
         "connector_runs": connector_runs,
         "plan": plan,
         "stats": stats,
+        "application_portfolio": application_portfolio,
         "profile": get_user_profile(),
     }
 
@@ -1176,6 +1236,64 @@ def mark_reminder_read(reminder_id):
     reminder.is_read = True
     db.session.commit()
     return redirect(request.referrer or url_for("main.dashboard"))
+
+
+@bp.post("/api/reminders/<int:reminder_id>/done")
+def api_complete_reminder(reminder_id):
+    reminder = Reminder.query.get_or_404(reminder_id)
+    reminder.is_done = True
+    reminder.is_read = True
+    _complete_linked_email_work(reminder)
+    db.session.commit()
+    _invalidate_wdyd_snapshot()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Reminder completed.",
+            "reminder": serialize_reminder(reminder),
+        }
+    )
+
+
+@bp.post("/api/reminders/<int:reminder_id>/read")
+def api_mark_reminder_read(reminder_id):
+    reminder = Reminder.query.get_or_404(reminder_id)
+    reminder.is_read = True
+    db.session.commit()
+    _invalidate_wdyd_snapshot()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Reminder marked as read.",
+            "reminder": serialize_reminder(reminder),
+        }
+    )
+
+
+@bp.get("/api/reminders/overview")
+def api_reminders_overview():
+    context = build_dashboard_context()
+    items = [serialize_reminder(item) for item in context["reminders"]]
+    today = date.today()
+    completed_today = Reminder.query.filter(
+        Reminder.is_done.is_(True),
+        Reminder.due_at >= datetime.combine(today, time.min),
+        Reminder.due_at <= datetime.combine(today, time.max),
+    ).count()
+    return jsonify(
+        {
+            "ok": True,
+            "items": items,
+            "stats": {
+                "open": len(items),
+                "overdue": sum(item["urgency"] == "overdue" for item in items),
+                "due_today": sum(item["urgency"] == "today" for item in items),
+                "unread": sum(not item["is_read"] for item in items),
+                "completed_today": completed_today,
+            },
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    )
 
 
 @bp.post("/seed")
@@ -1378,6 +1496,10 @@ def api_ingest_message():
 
 @bp.get("/api/hackathons")
 def api_hackathons():
+    return jsonify(_hackathons_payload())
+
+
+def _hackathons_payload():
     hackathons = (
         Opportunity.query.filter_by(kind="hackathon")
         .order_by(Opportunity.updated_at.desc())
@@ -1391,14 +1513,12 @@ def api_hackathons():
         .limit(8)
         .all()
     )
-    return jsonify(
-        {
-            "hackathons": [serialize_hackathon(item) for item in hackathons],
-            "connectors": [serialize_connector_run(item) for item in connector_runs],
-            "unread_updates": HackathonUpdate.query.filter_by(is_read=False).count(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    )
+    return {
+        "hackathons": [serialize_hackathon(item) for item in hackathons],
+        "connectors": [serialize_connector_run(item) for item in connector_runs],
+        "unread_updates": HackathonUpdate.query.filter_by(is_read=False).count(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @bp.post("/api/hackathons/capture")
@@ -1457,6 +1577,10 @@ def api_mark_hackathon_update_read(update_id):
 
 @bp.get("/api/placements")
 def api_placements():
+    return jsonify(_placements_payload())
+
+
+def _placements_payload():
     placements = [
         item
         for item in Opportunity.query.filter_by(kind="job").order_by(Opportunity.updated_at.desc()).all()
@@ -1470,22 +1594,29 @@ def api_placements():
         .limit(8)
         .all()
     )
-    return jsonify(
-        {
-            "placements": [serialize_placement(item) for item in placements],
-            "connectors": [serialize_connector_run(item) for item in connector_runs],
-            "unread_updates": sum(
-                1
-                for item in PlacementUpdate.query.join(Opportunity).filter(Opportunity.kind == "job").all()
-                if not item.is_read and not is_neopat_opportunity(item.opportunity)
-            ),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    )
+    return {
+        "placements": [serialize_placement(item) for item in placements],
+        "connectors": [serialize_connector_run(item) for item in connector_runs],
+        "unread_updates": sum(
+            1
+            for item in PlacementUpdate.query.join(Opportunity).filter(Opportunity.kind == "job").all()
+            if not item.is_read and not is_neopat_opportunity(item.opportunity)
+        ),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
+@bp.get("/api/applications")
+def api_applications():
+    return jsonify(application_overview())
 
 
 @bp.get("/api/neopat")
 def api_neopat():
+    return jsonify(_neopat_payload())
+
+
+def _neopat_payload():
     neopat_items = [
         item
         for item in Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
@@ -1497,18 +1628,16 @@ def api_neopat():
         .limit(8)
         .all()
     )
-    return jsonify(
-        {
-            "placements": [serialize_placement(item) for item in neopat_items],
-            "connectors": [serialize_connector_run(item) for item in connector_runs],
-            "unread_updates": sum(
-                1
-                for item in PlacementUpdate.query.join(Opportunity).all()
-                if not item.is_read and (item.opportunity.kind == "neopat" or is_neopat_opportunity(item.opportunity))
-            ),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    )
+    return {
+        "placements": [serialize_placement(item) for item in neopat_items],
+        "connectors": [serialize_connector_run(item) for item in connector_runs],
+        "unread_updates": sum(
+            1
+            for item in PlacementUpdate.query.join(Opportunity).all()
+            if not item.is_read and (item.opportunity.kind == "neopat" or is_neopat_opportunity(item.opportunity))
+        ),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @bp.post("/api/placements/capture")
@@ -1617,47 +1746,66 @@ def api_today():
 
 @bp.get("/api/live")
 def api_live():
+    return jsonify(_live_api_payload())
+
+
+def _live_api_payload():
     context = build_dashboard_context()
     latest_opportunity = context["opportunities"][0] if context["opportunities"] else None
     latest_activity = context["activity_events"][0] if context["activity_events"] else None
     latest_connector = context["connector_runs"][0] if context["connector_runs"] else None
 
-    return jsonify(
-        {
-            "plan": context["plan"],
-            "stats": context["stats"],
-            "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
-            "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
-            "reminders": [serialize_reminder(item) for item in context["reminders"][:5]],
-            "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:6]],
-            "achievements": context["achievements"][:6],
-            "deadline_highlights": context["deadline_highlights"],
-            "activities": [serialize_activity(item) for item in context["activity_events"][:5]],
-            "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:6]],
-            "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
-            "latest_connector": serialize_connector_run(latest_connector) if latest_connector else None,
-            "intelligence": intelligence_summary(),
-            "readiness": readiness_summary(get_effective_config(current_app.config)),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    )
+    return {
+        "plan": context["plan"],
+        "stats": context["stats"],
+        "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
+        "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
+        "reminders": [serialize_reminder(item) for item in context["reminders"][:20]],
+        "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:20]],
+        "achievements": context["achievements"][:6],
+        "deadline_highlights": context["deadline_highlights"],
+        "activities": [serialize_activity(item) for item in context["activity_events"][:5]],
+        "inbox_items": [serialize_inbox_item(item) for item in context["inbox_items"][:20]],
+        "connector_runs": [serialize_connector_run(item) for item in context["connector_runs"][:5]],
+        "latest_connector": serialize_connector_run(latest_connector) if latest_connector else None,
+        "application_portfolio": context["application_portfolio"],
+        # WDYD reads persisted planning data here. Explicit sync jobs own source refreshes.
+        "intelligence": intelligence_summary(refresh_planner=False),
+        "readiness": readiness_summary(get_effective_config(current_app.config)),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @bp.get("/api/desktop/status")
 def api_desktop_status():
+    return jsonify(_desktop_status_payload())
+
+
+def _desktop_status_payload():
     paths = get_runtime_paths()
-    return jsonify(
+    return {
+        "desktop": bool(current_app.config.get("AIOS_DESKTOP")),
+        "platform": __import__("sys").platform,
+        "data_dir": str(paths.data_dir),
+        "config_dir": str(paths.config_dir),
+        "imports_dir": str(paths.imports_dir),
+        "runtime_descriptor": str(paths.data_dir / "runtime.json"),
+        "database": current_app.config.get("SQLALCHEMY_DATABASE_URI", ""),
+        "ollama_url": get_effective_config(current_app.config)["OLLAMA_URL"],
+        "startup": startup_overview(),
+    }
+
+
+@bp.post("/api/desktop/startup")
+def api_desktop_startup():
+    payload = request.get_json(silent=True) or {}
+    result = save_startup_settings(
         {
-            "desktop": bool(current_app.config.get("AIOS_DESKTOP")),
-            "platform": __import__("sys").platform,
-            "data_dir": str(paths.data_dir),
-            "config_dir": str(paths.config_dir),
-            "imports_dir": str(paths.imports_dir),
-            "runtime_descriptor": str(paths.data_dir / "runtime.json"),
-            "database": current_app.config.get("SQLALCHEMY_DATABASE_URI", ""),
-            "ollama_url": get_effective_config(current_app.config)["OLLAMA_URL"],
+            "startup_enabled": "1" if payload.get("enabled") else "0",
+            "startup_background": "1" if payload.get("background", True) else "0",
         }
     )
+    return jsonify({"ok": True, "startup": startup_overview(), "result": result})
 
 
 @bp.post("/api/desktop/exit")
@@ -1683,6 +1831,45 @@ def api_desktop_show():
 def api_opportunities():
     opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
     return jsonify([serialize_opportunity(item) for item in opportunities])
+
+
+@bp.get("/api/opportunities/overview")
+def api_opportunities_overview():
+    context = build_dashboard_context()
+    items = [serialize_opportunity(item) for item in context["opportunities"]][:100]
+    categories = {}
+    for item in items:
+        label = (item["kind"] or "other").replace("_", " ").title()
+        categories[label] = categories.get(label, 0) + 1
+    return jsonify(
+        {
+            "ok": True,
+            "items": items,
+            "achievements": [item for item in items if item["is_achievement"]],
+            "deadlines": [
+                item
+                for item in sorted(
+                    items,
+                    key=lambda value: value["days_left"] if value["days_left"] is not None else 999999,
+                )
+                if item["days_left"] is not None and item["days_left"] >= 0
+            ][:8],
+            "stats": {
+                "total": len(items),
+                "action_needed": sum(item["needs_action"] for item in items),
+                "due_soon": sum(
+                    item["days_left"] is not None and 0 <= item["days_left"] <= 7
+                    for item in items
+                ),
+                "achievements": sum(item["is_achievement"] for item in items),
+            },
+            "categories": [
+                {"label": label, "count": count}
+                for label, count in sorted(categories.items(), key=lambda entry: (-entry[1], entry[0]))
+            ],
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    )
 
 
 @bp.get("/api/connectors")
@@ -1711,18 +1898,24 @@ def api_intelligence_update_account(account_id):
         label=payload.get("label") if "label" in payload else None,
         sync_enabled=payload.get("sync_enabled") if "sync_enabled" in payload else None,
     )
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 404
 
 
 @bp.delete("/api/intelligence/accounts/<int:account_id>")
 def api_intelligence_remove_account(account_id):
     result = remove_email_account(account_id)
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 404
 
 
 @bp.post("/api/intelligence/accounts/<int:account_id>/sync")
 def api_intelligence_sync_account(account_id):
     result = sync_account_intelligence(account_id, get_effective_config(current_app.config))
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 400
 
 
@@ -1735,12 +1928,16 @@ def api_projects_context():
 def api_create_project():
     payload = request.get_json(silent=True) or {}
     result = create_project(payload.get("title"), payload.get("repository"), payload.get("working_directory"))
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 201 if result.get("ok") else 400
 
 
 @bp.patch("/api/projects/<int:project_id>")
 def api_update_project(project_id):
     result = update_project(project_id, request.get_json(silent=True) or {})
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 404
 
 
@@ -1749,9 +1946,57 @@ def api_college_pat():
     return jsonify({"ok": True, **pat_college_summary()})
 
 
+@bp.post("/api/college/events")
+def api_save_college_event():
+    result = save_college_event(request.get_json(silent=True) or {})
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@bp.get("/api/wdyd/snapshot")
+def api_wdyd_snapshot():
+    cache_key = current_app.config.get("SQLALCHEMY_DATABASE_URI", "default")
+    now = monotonic()
+    with _WDYD_SNAPSHOT_CACHE_LOCK:
+        cached = _WDYD_SNAPSHOT_CACHE.get(cache_key)
+        cache_hit = bool(cached and now - cached["at"] < WDYD_SNAPSHOT_CACHE_SECONDS)
+        if cache_hit:
+            payload = cached["payload"]
+        else:
+            live = _live_api_payload()
+            payload = {
+                "ok": True,
+                "service": "aios-assistant",
+                "schema_version": 1,
+                "generated_at": datetime.utcnow().isoformat(),
+                "live": live,
+                "desktop": _desktop_status_payload(),
+                "workers": {"items": list_worker_status()},
+                "hackathons": _hackathons_payload(),
+                "placements": _placements_payload(),
+                "applications": live["application_portfolio"],
+                "neopat": _neopat_payload(),
+                "projects": {"ok": True, **project_context()},
+                "college": {"ok": True, **pat_college_summary()},
+            }
+            _WDYD_SNAPSHOT_CACHE[cache_key] = {"at": now, "payload": payload}
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-AiOS-Snapshot-Cache"] = "hit" if cache_hit else "miss"
+    return response
+
+
+def _invalidate_wdyd_snapshot():
+    cache_key = current_app.config.get("SQLALCHEMY_DATABASE_URI", "default")
+    with _WDYD_SNAPSHOT_CACHE_LOCK:
+        _WDYD_SNAPSHOT_CACHE.pop(cache_key, None)
+
+
 @bp.post("/api/intelligence/sync")
 def api_intelligence_sync():
     result = run_email_intelligence_cycle(get_effective_config(current_app.config))
+    _invalidate_wdyd_snapshot()
     return jsonify({"ok": True, **result})
 
 
@@ -1866,12 +2111,16 @@ def api_planning_events():
 @bp.post("/api/planning-events")
 def api_create_planning_event():
     result = create_manual_event(request.get_json(silent=True) or {})
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 400
 
 
 @bp.patch("/api/planning-events/<int:event_id>")
 def api_update_planning_event(event_id):
     result = update_event_progress(event_id, request.get_json(silent=True) or {})
+    if result.get("ok"):
+        _invalidate_wdyd_snapshot()
     return jsonify(result), 200 if result.get("ok") else 404
 
 
@@ -1886,6 +2135,8 @@ def api_local_pairing():
             "service": "aios-assistant",
             "base_url": request.host_url.rstrip("/"),
             "api_token": token,
+            "capabilities": {"wdyd_snapshot": 1},
+            "snapshot_path": "/api/wdyd/snapshot",
         }
     )
 
@@ -2004,6 +2255,32 @@ def serialize_opportunity(item):
             deadline_message = f"{program} was due {abs(days_left)} day{'s' if abs(days_left) != 1 else ''} ago. Review the submission status."
     else:
         deadline_message = ""
+    status_key = (item.status or "tracked").strip().lower()
+    needs_action = any(
+        token in status_key
+        for token in ("action", "assessment", "interview", "selected", "shortlisted", "finalist", "offer")
+    ) or (days_left is not None and 0 <= days_left <= 7)
+    if days_left is not None and days_left < 0:
+        urgency = "overdue"
+    elif days_left is not None and days_left <= 3:
+        urgency = "urgent"
+    elif needs_action:
+        urgency = "action"
+    else:
+        urgency = "tracking"
+    if "interview" in status_key:
+        next_action = "Confirm the interview slot and prepare role-specific examples."
+    elif "assessment" in status_key or "round" in status_key:
+        next_action = "Open the instructions, reserve a focused work block, and complete the next round."
+    elif is_achievement:
+        next_action = "Review the selection details and confirm the next required step."
+    elif days_left is not None and days_left <= 7:
+        next_action = "Protect build time now and verify the submission checklist before the deadline."
+    elif "applied" in status_key:
+        next_action = "Track the response window and prepare a concise follow-up."
+    else:
+        next_action = "Review the latest update and decide whether to apply, prepare, or archive it."
+    summary_lines = [line.strip() for line in (item.notes or "").splitlines() if line.strip()][:4]
     return {
         "id": item.id,
         "source_key": item.source_key,
@@ -2018,12 +2295,43 @@ def serialize_opportunity(item):
         "deadline_message": deadline_message,
         "program": program,
         "is_achievement": is_achievement,
+        "needs_action": needs_action,
+        "urgency": urgency,
+        "next_action": next_action,
+        "summary_lines": summary_lines,
         "notes": item.notes,
         "updated_at": item.updated_at.isoformat(),
     }
 
 
 def serialize_reminder(item):
+    try:
+        metadata = json.loads(item.metadata_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+    now = datetime.now()
+    due_day = item.due_at.date()
+    days = (due_day - now.date()).days
+    if days < 0:
+        urgency = "overdue"
+        due_label = f"Overdue by {abs(days)} day{'s' if abs(days) != 1 else ''}"
+    elif days == 0:
+        urgency = "today"
+        due_label = f"Due today at {item.due_at.strftime('%I:%M %p').lstrip('0')}"
+    else:
+        urgency = "upcoming"
+        due_label = f"Due in {days} day{'s' if days != 1 else ''}"
+    sender = metadata.get("sender", "")
+    subject = metadata.get("subject", "")
+    account = metadata.get("account_email", "")
+    source_parts = [value for value in (account, sender, subject) if value]
+    why = (
+        "This task is overdue and needs a decision now."
+        if urgency == "overdue"
+        else "This task is due today. Complete it or deliberately reschedule it."
+        if urgency == "today"
+        else "This task is approaching and is kept visible for planning."
+    )
     return {
         "id": item.id,
         "title": item.title,
@@ -2035,7 +2343,36 @@ def serialize_reminder(item):
         "is_read": item.is_read,
         "notified_at": item.notified_at.isoformat() if item.notified_at else None,
         "opportunity_id": item.opportunity_id,
+        "email_id": metadata.get("email_id"),
+        "email_subject": metadata.get("subject", ""),
+        "email_sender": metadata.get("sender", ""),
+        "email_account": account,
+        "summary": metadata.get("summary", ""),
+        "due_label": due_label,
+        "urgency": urgency,
+        "why": why,
+        "context": " • ".join(source_parts),
+        "source": "Gmail" if item.notification_type == "email_action" else item.channel,
     }
+
+
+def _complete_linked_email_work(reminder):
+    source_key = reminder.source_key or ""
+    if not source_key.startswith("email-task:"):
+        return
+    try:
+        task_id = int(source_key.split(":", 1)[1])
+    except (TypeError, ValueError):
+        return
+    task = db.session.get(EmailTask, task_id)
+    if task:
+        task.status = "done"
+        task.updated_at = datetime.utcnow()
+    event = PlanningEvent.query.filter_by(source_key=f"email_task:{task_id}").first()
+    if event:
+        event.status = "done"
+        event.work_done = event.work_done or "Completed from the AiOS reminder center."
+        event.work_left = ""
 
 
 def serialize_activity(item):

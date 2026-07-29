@@ -2,7 +2,6 @@ import json
 import os
 import subprocess
 import sys
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,12 +23,6 @@ WORKERS = {
         name="Reminder Worker",
         script="local_worker.py",
         description="Checks due reminders and sends local desktop notifications.",
-    ),
-    "activity": WorkerDefinition(
-        worker_id="activity",
-        name="Desktop Activity Worker",
-        script="desktop_activity_worker.py",
-        description="Tracks active desktop windows and logs wellbeing activity.",
     ),
     "watch_imports": WorkerDefinition(
         worker_id="watch_imports",
@@ -88,23 +81,6 @@ def list_worker_status():
                 )
     except ImportError:
         pass
-    activity = next((item for item in statuses if item["id"] == "activity"), None)
-    if activity:
-        try:
-            with urllib.request.urlopen("http://127.0.0.1:17321/health", timeout=0.4) as response:
-                health = json.loads(response.read().decode("utf-8"))
-            if health.get("ok"):
-                activity.update(
-                    {
-                        "running": True,
-                        "managed": True,
-                        "description": "Tracks privacy-filtered desktop activity through What Do You Do.",
-                        "last_run_at": health.get("latestCapturedAt"),
-                        "last_error": health.get("lastError"),
-                    }
-                )
-        except (OSError, ValueError):
-            pass
     return statuses
 
 

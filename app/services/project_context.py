@@ -127,6 +127,7 @@ def _serialize_project_group(items, selected_id=None):
         "category": item.category,
         "status": item.status,
         "progress": progress,
+        "deadline": item.deadline.isoformat() if item.deadline else None,
         "repository": repository_url,
         "working_directory": working_directory,
         "selected": selected_item is not None,
