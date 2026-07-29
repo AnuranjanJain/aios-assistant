@@ -233,6 +233,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('overview hides reminders from previous years', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 760);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final currentYear = DateTime.now().year;
+    final controller = AiosController()
+      ..loading = false
+      ..live = {
+        'reminders': [
+          {
+            'title': 'Stale historical task',
+            'due_at': '${currentYear - 1}-11-11T17:00:00',
+            'channel': 'desktop',
+          },
+          {
+            'title': 'Current-year task',
+            'due_at': '$currentYear-07-29T17:00:00',
+            'channel': 'desktop',
+          },
+        ],
+      };
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: AiosShell(controller: controller)),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('Current-year task'), findsOneWidget);
+    expect(find.text('Stale historical task'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('retained pages expose native actions without overflow', (
     tester,
   ) async {

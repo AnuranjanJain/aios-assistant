@@ -949,66 +949,81 @@ class _LeadSection extends StatelessWidget {
   final AiosController controller;
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      _Panel(
-        eyebrow: 'APPLICATION FUNNEL',
-        title: 'Latest application updates',
-        action: _MiniButton(
-          label: 'Run scan',
-          onTap: controller.syncing ? null : controller.syncAll,
+  Widget build(BuildContext context) {
+    final currentYear = DateTime.now().year;
+    final currentReminders =
+        reminders.where((item) {
+          final dueAt = DateTime.tryParse(_string(item['due_at']));
+          return dueAt != null && dueAt.toLocal().year == currentYear;
+        }).toList()..sort((left, right) {
+          final leftDue = DateTime.tryParse(_string(left['due_at']));
+          final rightDue = DateTime.tryParse(_string(right['due_at']));
+          if (leftDue == null || rightDue == null) return 0;
+          return rightDue.compareTo(leftDue);
+        });
+    return Column(
+      children: [
+        _Panel(
+          eyebrow: 'APPLICATION FUNNEL',
+          title: 'Latest application updates',
+          action: _MiniButton(
+            label: 'Run scan',
+            onTap: controller.syncing ? null : controller.syncAll,
+          ),
+          child: opportunities.isEmpty
+              ? const _Empty('No applications found in the latest email scope.')
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns = constraints.maxWidth > 580 ? 3 : 1;
+                    final width =
+                        (constraints.maxWidth - ((columns - 1) * 12)) / columns;
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: opportunities.take(6).toList().indexed.map((
+                        entry,
+                      ) {
+                        final item = entry.$2;
+                        return SizedBox(
+                          width: width,
+                          child: _Reveal(
+                            index: entry.$1 + 5,
+                            child: _LeadCard(item: item),
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
         ),
-        child: opportunities.isEmpty
-            ? const _Empty('No applications found in the latest email scope.')
-            : LayoutBuilder(
-                builder: (context, constraints) {
-                  final columns = constraints.maxWidth > 580 ? 3 : 1;
-                  final width =
-                      (constraints.maxWidth - ((columns - 1) * 12)) / columns;
-                  return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: opportunities.take(6).toList().indexed.map((
-                      entry,
-                    ) {
-                      final item = entry.$2;
-                      return SizedBox(
-                        width: width,
-                        child: _Reveal(
-                          index: entry.$1 + 5,
-                          child: _LeadCard(item: item),
-                        ),
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-      ),
-      const SizedBox(height: 16),
-      _Panel(
-        eyebrow: 'YOUR DAY\'S TASKS',
-        title: 'Next actions',
-        child: reminders.isEmpty
-            ? const _Empty('No urgent action is due right now.')
-            : LayoutBuilder(
-                builder: (context, constraints) {
-                  final width = (constraints.maxWidth - 24) / 3;
-                  return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: reminders.take(3).toList().indexed.map((entry) {
-                      final item = entry.$2;
-                      return SizedBox(
-                        width: width.clamp(170, constraints.maxWidth),
-                        child: _TaskCard(item: item, accent: entry.$1 == 0),
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-      ),
-    ],
-  );
+        const SizedBox(height: 16),
+        _Panel(
+          eyebrow: 'YOUR DAY\'S TASKS',
+          title: 'Next actions',
+          child: currentReminders.isEmpty
+              ? const _Empty('No urgent action is due right now.')
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = (constraints.maxWidth - 24) / 3;
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: currentReminders.take(3).toList().indexed.map((
+                        entry,
+                      ) {
+                        final item = entry.$2;
+                        return SizedBox(
+                          width: width.clamp(170, constraints.maxWidth),
+                          child: _TaskCard(item: item, accent: entry.$1 == 0),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
 }
 
 class _LeadCard extends StatelessWidget {
