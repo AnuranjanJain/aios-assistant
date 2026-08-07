@@ -115,6 +115,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('Overview'), findsWidgets);
+    expect(find.byType(Semantics), findsWidgets);
     expect(find.text('WORKSPACE'), findsOneWidget);
     expect(find.text('Latest application updates'), findsOneWidget);
     expect(find.text('Applied'), findsOneWidget);

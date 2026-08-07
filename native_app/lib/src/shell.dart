@@ -262,68 +262,76 @@ class _SidebarItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = _Palette.of(context);
-    return Tooltip(
-      message: compact ? item.label : '',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 240),
-            curve: const Cubic(0.2, 0.8, 0.2, 1),
-            height: 38,
-            decoration: BoxDecoration(
-              color: selected ? _Palette.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
+    return Semantics(
+      button: true,
+      label: item.label,
+      hint: 'Open ${item.label}',
+      selected: selected,
+      child: Tooltip(
+        message: compact ? item.label : '',
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 240),
+              curve: const Cubic(0.2, 0.8, 0.2, 1),
+              height: 38,
+              decoration: BoxDecoration(
                 color: selected ? _Palette.primary : Colors.transparent,
-              ),
-            ),
-            padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 10),
-            child: Row(
-              mainAxisAlignment: compact
-                  ? MainAxisAlignment.center
-                  : MainAxisAlignment.start,
-              children: [
-                AnimatedScale(
-                  duration: const Duration(milliseconds: 240),
-                  scale: selected ? 1 : 0.96,
-                  child: Container(
-                    width: 26,
-                    height: 26,
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? const Color(0x14000000)
-                          : palette.surfaceRaised,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    alignment: Alignment.center,
-                    child: Icon(
-                      item.icon,
-                      size: 19,
-                      color: selected ? const Color(0xFF10150C) : palette.text,
-                    ),
-                  ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected ? _Palette.primary : Colors.transparent,
                 ),
-                if (!compact) ...[
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      item.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+              ),
+              padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 10),
+              child: Row(
+                mainAxisAlignment: compact
+                    ? MainAxisAlignment.center
+                    : MainAxisAlignment.start,
+                children: [
+                  AnimatedScale(
+                    duration: const Duration(milliseconds: 240),
+                    scale: selected ? 1 : 0.96,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? const Color(0x14000000)
+                            : palette.surfaceRaised,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        item.icon,
+                        size: 19,
                         color: selected
                             ? const Color(0xFF10150C)
-                            : palette.muted,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                            : palette.text,
                       ),
                     ),
                   ),
+                  if (!compact) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: selected
+                              ? const Color(0xFF10150C)
+                              : palette.muted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -500,23 +508,28 @@ class _TopBar extends StatelessWidget {
           ],
           Expanded(child: _TopRail(controller: controller)),
           const SizedBox(width: 14),
-          Tooltip(
-            message: 'Settings and profile',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(24),
-              onTap: () => controller.selectPage('settings'),
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: palette.surface,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: palette.border),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  'A',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+          Semantics(
+            button: true,
+            label: 'Settings and profile',
+            hint: 'Open settings and profile',
+            child: Tooltip(
+              message: 'Settings and profile',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: () => controller.selectPage('settings'),
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: palette.surface,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: palette.border),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text(
+                    'A',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+                  ),
                 ),
               ),
             ),
@@ -2120,8 +2133,9 @@ class _InboxPageState extends State<_InboxPage> {
     final categories = _maps(data['categories']);
     final visible = items.where((item) {
       final matchesFilter = switch (_filter) {
-        'urgent' => _string(item['priority']) == 'urgent' ||
-            _string(item['urgency']) == 'urgent',
+        'urgent' =>
+          _string(item['priority']) == 'urgent' ||
+              _string(item['urgency']) == 'urgent',
         'high' => {'urgent', 'high'}.contains(_string(item['priority'])),
         'unread' => item['is_unread'] == true,
         'all' => true,
@@ -4228,22 +4242,27 @@ class _ShellButton extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: double.infinity,
-          height: 38,
-          decoration: BoxDecoration(
-            color: _Palette.of(context).surfaceRaised,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _Palette.of(context).border),
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: tooltip,
+    hint: 'Activate $tooltip',
+    child: Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: double.infinity,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _Palette.of(context).surfaceRaised,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _Palette.of(context).border),
+            ),
+            child: child,
           ),
-          child: child,
         ),
       ),
     ),
