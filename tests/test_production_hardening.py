@@ -13,7 +13,12 @@ from app import create_app
 from app.models import Reminder, db
 from app.services.email_intelligence import analyze_email, ollama_generate_json
 from app.services.local_security import LocalSecurityError, is_loopback_url, safe_ollama_url
-from app.services.migrations import apply_migrations, migration_status, restore_sqlite_backup
+from app.services.migrations import (
+    MIGRATIONS,
+    apply_migrations,
+    migration_status,
+    restore_sqlite_backup,
+)
 from app.services.notifications import dispatch_due_notifications, upsert_notification
 
 
@@ -139,6 +144,7 @@ class ProductionHardeningTestCase(unittest.TestCase):
         legacy_engine = create_engine(f"sqlite:///{database.as_posix()}")
         with Session(legacy_engine) as session:
             applied = apply_migrations(session, legacy_engine)
+            self.assertEqual(apply_migrations(session, legacy_engine), [])
             columns = {
                 row[1]
                 for row in session.execute(text("PRAGMA table_info(reminder)")).all()
@@ -147,7 +153,17 @@ class ProductionHardeningTestCase(unittest.TestCase):
         legacy_engine.dispose()
         self.assertIn("notification_claim_id", columns)
         self.assertIn("2026-08-08-notification-claims-v1", applied)
-        self.assertIn("2026-08-08-notification-claims-v1", {row["version"] for row in ledger})
+        notification_migration = next(
+            row for row in ledger if row["version"] == "2026-08-08-notification-claims-v1"
+        )
+        self.assertEqual(
+            notification_migration["checksum"],
+            next(
+                spec.checksum
+                for spec in MIGRATIONS
+                if spec.version == "2026-08-08-notification-claims-v1"
+            ),
+        )
         backups = sorted((database.parent / "backups").glob("legacy.db.*.bak"))
         self.assertTrue(backups)
 

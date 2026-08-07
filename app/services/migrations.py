@@ -219,10 +219,17 @@ def apply_migrations(session, engine, logger: logging.Logger | None = None) -> l
     """
     logger = logger or LOGGER
     _ensure_ledger(session, engine)
-    applied = {
-        row[0]
-        for row in session.execute(text(f"SELECT version FROM {LEDGER_TABLE}")).all()
-    }
+    applied_rows = session.execute(
+        text(f"SELECT version, checksum FROM {LEDGER_TABLE}")
+    ).all()
+    known_specs = {spec.version: spec for spec in MIGRATIONS}
+    applied = {row[0] for row in applied_rows}
+    for version, checksum in applied_rows:
+        spec = known_specs.get(version)
+        if spec and checksum and checksum != spec.checksum:
+            raise RuntimeError(
+                f"Migration checksum mismatch for {version}; refusing to continue."
+            )
     pending = [spec for spec in MIGRATIONS if spec.version not in applied]
     if not pending:
         return []
