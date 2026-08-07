@@ -21,5 +21,7 @@ jobs:
         run: python -m coverage run --branch -m pytest -q && python -m coverage report --fail-under=70
       - name: AI quality gate
         run: python scripts/ai_quality_gate.py
+      - name: Synthetic performance smoke
+        run: python scripts/performance_smoke.py
       - name: Dependency audit
         run: python -m pip_audit -r requirements.txt && python -m pip_audit -r requirements-memory.txt
