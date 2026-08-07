@@ -214,13 +214,15 @@ class HackathonPlatformConnector(BaseConnector):
 
 
 def read_hackathon_export(path):
+    if path.stat().st_size > 50 * 1024 * 1024:
+        raise ValueError("Hackathon export is larger than the 50 MB safety limit.")
     if path.suffix.lower() == ".json":
         payload = json.loads(path.read_text(encoding="utf-8"))
         items = payload if isinstance(payload, list) else payload.get("hackathons", payload.get("items", []))
-        return [item for item in items if isinstance(item, dict)]
+        return [item for item in items[:5000] if isinstance(item, dict)]
 
     with path.open("r", encoding="utf-8-sig", newline="") as file:
-        return list(csv.DictReader(file))
+        return [item for index, item in enumerate(csv.DictReader(file)) if index < 5000]
 
 
 def format_google_api_error(exc):

@@ -1,4 +1,5 @@
 import json
+import secrets
 from datetime import date, datetime, time, timedelta
 
 from app.models import (
@@ -248,8 +249,6 @@ def upsert_notification(source_key, title, message, due_at, notification_type, p
     row.notification_type = notification_type
     row.priority = priority
     row.metadata_json = dump_metadata(message, metadata)
-    if row.is_done:
-        row.is_done = False
     return row
 
 
@@ -261,6 +260,12 @@ def dispatch_due_notifications(now=None, send=False):
         Reminder.query.filter(Reminder.is_done.is_(False))
         .filter(Reminder.is_read.is_(False))
         .filter(Reminder.due_at <= now)
+        .filter(
+            db.or_(
+                Reminder.notification_claimed_until.is_(None),
+                Reminder.notification_claimed_until < now,
+            )
+        )
         .order_by(Reminder.due_at.asc())
         .limit(10)
         .all()
@@ -268,13 +273,41 @@ def dispatch_due_notifications(now=None, send=False):
     due.sort(key=lambda item: (priority_rank(item.priority), item.due_at))
     sent = []
     for item in due:
+        claim_id = secrets.token_urlsafe(16)
+        claim_until = now + timedelta(minutes=2)
+        claimed = (
+            Reminder.query.filter_by(id=item.id)
+            .filter(Reminder.is_done.is_(False))
+            .filter(Reminder.is_read.is_(False))
+            .filter(
+                db.or_(
+                    Reminder.notification_claimed_until.is_(None),
+                    Reminder.notification_claimed_until < now,
+                )
+            )
+            .update(
+                {
+                    Reminder.notification_claim_id: claim_id,
+                    Reminder.notification_claimed_until: claim_until,
+                },
+                synchronize_session=False,
+            )
+        )
+        if claimed != 1:
+            continue
+        db.session.commit()
         metadata = load_metadata(item)
         ok = send_desktop_notification(item.title, metadata.get("message") or item.channel) if send else True
         if ok:
             item.notified_at = now
             item.is_read = True
             item.snoozed_until = None
+            item.notification_claim_id = None
+            item.notification_claimed_until = None
             sent.append(serialize_notification(item))
+        else:
+            item.notification_claim_id = None
+            item.notification_claimed_until = None
     db.session.commit()
     return {"sent": len(sent), "deferred": False, "items": sent}
 

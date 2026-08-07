@@ -22,6 +22,8 @@ class SafetyValidator:
 
     def validate_path(self, value, *, must_exist=False):
         path = Path(value).expanduser()
+        if path.is_symlink():
+            raise SafetyError(f"Reparse points are not available to automation: {path}")
         resolved = path.resolve(strict=must_exist)
         matching_root = next(
             (root for root in self.config.allowed_roots if resolved == root or root in resolved.parents),

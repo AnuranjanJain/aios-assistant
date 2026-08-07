@@ -1,5 +1,10 @@
 # AiOS Agent Pre-Release Validation and QA Audit
 
+> Historical baseline: the original findings in this document drove the
+> follow-up hardening pass. Current evidence and open gates live in
+> [`docs/audit/README.md`](audit/README.md) and
+> [`docs/audit/RELEASE_BLOCKERS.md`](audit/RELEASE_BLOCKERS.md).
+
 Date: 2026-06-16
 Scope: Flask dashboard, native desktop launcher, Memory Agent, Planner Agent, Desktop Automation Agent, Browser Automation Agent, Career Copilot, connectors, workers, local API surface.
 

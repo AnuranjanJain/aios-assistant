@@ -1,9 +1,11 @@
 import os
 import secrets
+import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
-from sqlalchemy import text
+from flask import Flask, current_app, jsonify, render_template, request
+from sqlalchemy import event, text
 
 from config import Config
 from app.models import db
@@ -22,6 +24,14 @@ def create_app(config_class=Config):
 
     with app.app_context():
         if str(app.config.get("SQLALCHEMY_DATABASE_URI", "")).startswith("sqlite"):
+            @event.listens_for(db.engine, "connect")
+            def _configure_sqlite_connection(connection, _record):
+                cursor = connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.close()
+
             with db.engine.connect() as connection:
                 connection.exec_driver_sql("PRAGMA journal_mode=WAL")
                 connection.exec_driver_sql("PRAGMA busy_timeout=30000")
@@ -139,8 +149,15 @@ def configure_secret_key(app):
 
 
 def apply_lightweight_migrations():
+    db.session.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS aios_schema_migration "
+            "(version VARCHAR(80) PRIMARY KEY, applied_at DATETIME NOT NULL)"
+        )
+    )
     inspector = db.inspect(db.engine)
     if "reminder" not in inspector.get_table_names():
+        db.session.commit()
         return
 
     migrations = []
@@ -176,6 +193,12 @@ def apply_lightweight_migrations():
             migrations.append("ALTER TABLE email_insight ADD COLUMN repositories_json TEXT")
         if "suggested_actions_json" not in email_insight_columns:
             migrations.append("ALTER TABLE email_insight ADD COLUMN suggested_actions_json TEXT")
+        if "attention_score" not in email_insight_columns:
+            migrations.append("ALTER TABLE email_insight ADD COLUMN attention_score INTEGER NOT NULL DEFAULT 0")
+        if "priority_reason" not in email_insight_columns:
+            migrations.append("ALTER TABLE email_insight ADD COLUMN priority_reason TEXT")
+        if "is_actionable" not in email_insight_columns:
+            migrations.append("ALTER TABLE email_insight ADD COLUMN is_actionable BOOLEAN NOT NULL DEFAULT 0")
 
     if "opportunity" in inspector.get_table_names():
         opportunity_columns = {column["name"] for column in inspector.get_columns("opportunity")}
@@ -196,17 +219,93 @@ def apply_lightweight_migrations():
             migrations.append("ALTER TABLE inbox_item ADD COLUMN next_action TEXT")
         if "occurred_at" not in inbox_columns:
             migrations.append("ALTER TABLE inbox_item ADD COLUMN occurred_at DATETIME")
+        if "priority" not in inbox_columns:
+            migrations.append("ALTER TABLE inbox_item ADD COLUMN priority VARCHAR(40) NOT NULL DEFAULT 'normal'")
+        if "urgency" not in inbox_columns:
+            migrations.append("ALTER TABLE inbox_item ADD COLUMN urgency VARCHAR(40) NOT NULL DEFAULT 'normal'")
+        if "attention_score" not in inbox_columns:
+            migrations.append("ALTER TABLE inbox_item ADD COLUMN attention_score INTEGER NOT NULL DEFAULT 0")
+        if "priority_reason" not in inbox_columns:
+            migrations.append("ALTER TABLE inbox_item ADD COLUMN priority_reason TEXT")
+        if "is_actionable" not in inbox_columns:
+            migrations.append("ALTER TABLE inbox_item ADD COLUMN is_actionable BOOLEAN NOT NULL DEFAULT 0")
+        if "is_unread" not in inbox_columns:
+            migrations.append("ALTER TABLE inbox_item ADD COLUMN is_unread BOOLEAN NOT NULL DEFAULT 0")
+        if "account_email" not in inbox_columns:
+            migrations.append("ALTER TABLE inbox_item ADD COLUMN account_email VARCHAR(240)")
 
     if "life_item" in inspector.get_table_names():
         life_item_columns = {column["name"] for column in inspector.get_columns("life_item")}
         if "working_directory" not in life_item_columns:
             migrations.append("ALTER TABLE life_item ADD COLUMN working_directory VARCHAR(1000)")
 
+    if "notification_claim_id" not in reminder_columns:
+        migrations.append("ALTER TABLE reminder ADD COLUMN notification_claim_id VARCHAR(80)")
+    if "notification_claimed_until" not in reminder_columns:
+        migrations.append("ALTER TABLE reminder ADD COLUMN notification_claimed_until DATETIME")
+
+    if migrations:
+        backup_path = backup_sqlite_database()
+        if backup_path:
+            current_app.logger.info("Created SQLite migration backup at %s", backup_path)
+
     for statement in migrations:
         db.session.execute(text(statement))
 
     if migrations:
         db.session.commit()
+    db.session.execute(
+        text(
+            "INSERT OR IGNORE INTO aios_schema_migration(version, applied_at) "
+            "VALUES (:version, CURRENT_TIMESTAMP)"
+        ),
+        {"version": "legacy-lightweight-v1"},
+    )
+    db.session.commit()
+
+
+def backup_sqlite_database():
+    """Create a consistent pre-migration backup for an existing SQLite file."""
+    database = db.engine.url.database
+    if not database or database == ":memory:":
+        return None
+
+    source = Path(database)
+    if not source.is_absolute():
+        source = Path.cwd() / source
+    source = source.resolve()
+    if not source.exists():
+        return None
+
+    backup_dir = source.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = backup_dir / f"{source.name}.{stamp}.bak"
+    temporary = backup.with_name(f".{backup.name}.tmp")
+
+    source_connection = sqlite3.connect(str(source), timeout=30)
+    backup_connection = sqlite3.connect(str(temporary), timeout=30)
+    try:
+        source_connection.backup(backup_connection)
+        backup_connection.commit()
+    except Exception:
+        backup_connection.close()
+        source_connection.close()
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    finally:
+        backup_connection.close()
+        source_connection.close()
+
+    os.replace(temporary, backup)
+    try:
+        os.chmod(backup, 0o600)
+    except OSError:
+        pass
+    return backup
 
 
 def ensure_memory_user(name):

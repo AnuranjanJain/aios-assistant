@@ -233,6 +233,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('high DPI desktop shell has no layout overflow', (tester) async {
+    tester.view.devicePixelRatio = 2;
+    tester.view.physicalSize = const Size(2560, 1440);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final controller = AiosController()..loading = false;
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: AiosShell(controller: controller)),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('Latest application updates'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('overview hides reminders from previous years', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1280, 760);
@@ -366,6 +383,49 @@ void main() {
         },
       ],
     };
+    controller.pageData['inbox'] = {
+      'stats': {
+        'total': 2,
+        'actionable': 1,
+        'high_priority': 1,
+        'unread': 2,
+        'low_priority': 1,
+      },
+      'categories': [
+        {'id': 'github', 'label': 'GitHub', 'count': 1},
+        {'id': 'career', 'label': 'Job discovery', 'count': 1},
+      ],
+      'scope': {'label': 'Latest 500 emails across connected accounts'},
+      'items': [
+        {
+          'subject': '[Example/project] Run failed: Test Suite',
+          'sender': 'notifications@github.com',
+          'category': 'github',
+          'category_label': 'GitHub',
+          'priority': 'high',
+          'urgency': 'high',
+          'attention_score': 59,
+          'priority_reason': 'A repository check or workflow failed.',
+          'is_actionable': true,
+          'is_unread': true,
+          'account_email': 'student@example.com',
+          'summary': 'The main test workflow failed and needs review.',
+          'next_action': 'Open the GitHub update and resolve it.',
+        },
+        {
+          'subject': 'Software Engineer I @ Indeed',
+          'sender': 'noreply@match.indeed.com',
+          'category': 'career',
+          'category_label': 'Job discovery',
+          'priority': 'low',
+          'urgency': 'low',
+          'attention_score': 16,
+          'priority_reason': 'Informational mail with no direct action.',
+          'is_actionable': false,
+          'is_unread': true,
+        },
+      ],
+    };
     addTearDown(controller.dispose);
 
     Future<void> showPage(String page) async {
@@ -387,6 +447,12 @@ void main() {
 
     await showPage('inbox');
     expect(find.text('Sync inbox'), findsOneWidget);
+    expect(
+      find.text('Know what matters before opening every email.'),
+      findsOneWidget,
+    );
+    expect(find.text('GitHub - 1'), findsOneWidget);
+    expect(find.text('Open the GitHub update and resolve it.'), findsOneWidget);
 
     await showPage('sources');
     expect(find.byTooltip('Rename account'), findsOneWidget);

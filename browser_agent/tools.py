@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 from browser_agent.scoring import extract_skills
+from browser_agent.safety import BrowserSafety
 
 
 @dataclass
@@ -38,6 +39,7 @@ class PlaywrightBrowserBackend:
 
     def __init__(self, config):
         self.config = config
+        self.safety = BrowserSafety(config)
         self._playwright = None
         self._browser = None
         self._context = None
@@ -60,8 +62,10 @@ class PlaywrightBrowserBackend:
 
     def open(self, url):
         self._ensure()
-        self._page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        return BrowserResult(True, f"Opened {urlsplit(url).hostname}.", {"url": self._page.url})
+        safe_url = self.safety.validate_url(url)
+        self._page.goto(safe_url, wait_until="domcontentloaded", timeout=30_000)
+        final_url = self.safety.validate_url(self._page.url)
+        return BrowserResult(True, f"Opened {urlsplit(final_url).hostname}.", {"url": final_url})
 
     def navigate(self, url):
         return self.open(url)

@@ -12,8 +12,9 @@ It requests only `gmail.readonly`; it cannot send, edit, or delete email.
 4. Choose a Gmail address in the system browser and approve read-only access.
 5. Use **Add another Google account** to connect more mailboxes.
 
-Users do not paste keys, choose credential paths, or import JSON files. The
-installed AiOS release carries its desktop OAuth client configuration.
+The installed AiOS release reads its desktop OAuth client configuration from
+the user app-data directory. The JSON is intentionally not embedded in the
+executable or committed to the repository.
 
 Each account can be renamed, paused, resumed, synchronized, or removed
 independently. Removing an account asks Google to revoke its token and always
@@ -73,9 +74,10 @@ from end users.
 
 ## Release maintainer setup
 
-End users never perform this step. A release maintainer enables Gmail API,
-configures the Google OAuth consent screen, and creates a **Desktop app** OAuth
-client. Place its downloaded file at
-`%APPDATA%\AiOS Assistant\credentials\google_client_secret.json` before running
-`scripts/build-windows-native.ps1`; the build embeds it in `AiOS-Core.exe`. For source
-development only, `GMAIL_CREDENTIALS_PATH` may point to an equivalent file.
+The release maintainer enables Gmail API, configures the Google OAuth consent
+screen, and creates a **Desktop app** OAuth client. Keep the downloaded file
+private and place it at
+`%APPDATA%\AiOS Assistant\credentials\google_client_secret.json` on the
+development/release machine before launching AiOS. The build does not copy or
+embed it in `AiOS-Core.exe`. For source development only,
+`GMAIL_CREDENTIALS_PATH` may point to an equivalent file.

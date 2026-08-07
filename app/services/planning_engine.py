@@ -263,14 +263,18 @@ class PlanningEngine:
         end = self._parse_time(sleep.get("end")) if isinstance(sleep, dict) else None
         start = start or DEFAULT_SLEEP[0]
         end = end or DEFAULT_SLEEP[1]
-        sleep_start = datetime.combine(day, start)
-        sleep_end = datetime.combine(day, end)
-        if sleep_end <= sleep_start:
-            sleep_end += timedelta(days=1)
+        if end <= start:
+            # An overnight schedule belongs to the sleep period that spans
+            # midnight around this planning day, not a future day-only block.
+            sleep_start = datetime.combine(day - timedelta(days=1), start)
+            sleep_end = datetime.combine(day, end)
+        else:
+            sleep_start = datetime.combine(day, start)
+            sleep_end = datetime.combine(day, end)
         return Slot(sleep_start, sleep_end)
 
     def _window_blocked_by_sleep(self, window, sleep):
-        return window[0] >= sleep.start and window[1] <= sleep.end
+        return window[0] < sleep.end and window[1] > sleep.start
 
     def _parse_window(self, value, day):
         if not isinstance(value, dict):

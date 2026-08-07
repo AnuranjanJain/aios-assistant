@@ -57,22 +57,33 @@ def categorize_window(title):
     return "unknown"
 
 
-def log_activity(app, title, started_at, ended_at):
+def activity_label(category):
+    return {
+        "coding": "Coding activity",
+        "entertainment": "Entertainment activity",
+        "social": "Social activity",
+        "dsa": "Problem-solving activity",
+        "email": "Email activity",
+        "study": "Study activity",
+    }.get(category, "Desktop activity")
+
+
+def log_activity(app, category, started_at, ended_at):
     duration_seconds = int((ended_at - started_at).total_seconds())
     if duration_seconds < MIN_LOG_SECONDS:
         return
 
     duration_minutes = max(1, round(duration_seconds / 60))
-    category = categorize_window(title)
-    summary = summarize_activity(category, duration_minutes, actual_task=title)
+    label = activity_label(category)
+    summary = summarize_activity(category, duration_minutes, actual_task=label)
 
     with app.app_context():
         db.session.add(
             ActivityEvent(
                 source="desktop activity worker",
-                app_name=title[:120],
+                app_name=label,
                 category=category,
-                actual_task=title[:180],
+                actual_task=label,
                 duration_minutes=duration_minutes,
                 started_at=started_at,
                 ended_at=ended_at,
@@ -83,14 +94,16 @@ def log_activity(app, title, started_at, ended_at):
 
 
 def scan_once(app, state):
-    current_title = state.get("current_title") or get_active_window_title()
+    current_title = get_active_window_title()
     if not current_title:
         return
 
+    current_category = state.get("current_category") or categorize_window(current_title)
     started_at = state.get("started_at") or datetime.utcnow().isoformat()
     next_title = get_active_window_title()
-    if not next_title or next_title == current_title:
-        state["current_title"] = current_title
+    next_category = categorize_window(next_title) if next_title else current_category
+    if not next_title or next_category == current_category:
+        state["current_category"] = current_category
         state["started_at"] = started_at
         return
 
@@ -99,14 +112,15 @@ def scan_once(app, state):
         started_at_dt = datetime.fromisoformat(started_at)
     except ValueError:
         started_at_dt = ended_at
-    log_activity(app, current_title, started_at_dt, ended_at)
-    state["current_title"] = next_title
+    log_activity(app, current_category, started_at_dt, ended_at)
+    state["current_category"] = next_category
     state["started_at"] = ended_at.isoformat()
 
 
 def main():
     app = create_app()
     current_title = get_active_window_title()
+    current_category = categorize_window(current_title)
     started_at = datetime.utcnow()
     print("AiOS desktop activity worker is running. Press Ctrl+C to stop.")
 
@@ -114,15 +128,17 @@ def main():
         while True:
             time.sleep(CHECK_SECONDS)
             next_title = get_active_window_title()
-            if next_title == current_title:
+            next_category = categorize_window(next_title)
+            if next_category == current_category:
                 continue
 
             ended_at = datetime.utcnow()
-            log_activity(app, current_title, started_at, ended_at)
+            log_activity(app, current_category, started_at, ended_at)
             current_title = next_title
+            current_category = next_category
             started_at = ended_at
     except KeyboardInterrupt:
-        log_activity(app, current_title, started_at, datetime.utcnow())
+        log_activity(app, current_category, started_at, datetime.utcnow())
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app import create_app
 from app.services.notifications import notification_center
+from app.services.atomic_storage import atomic_write_text
 
 
 STATE_PATH = Path(os.getenv("AIOS_WORKER_STATE_PATH", ".aios_worker_state.json"))
@@ -24,7 +25,7 @@ def load_state():
 
 
 def save_state(state):
-    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    atomic_write_text(STATE_PATH, json.dumps(state, indent=2))
 
 
 def check_reminders(app, state):

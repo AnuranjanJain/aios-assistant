@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 
 from app.services.analytics import analytics_report
 from app.services.knowledge_graph import build_knowledge_graph
+from app.services.local_security import LocalSecurityError, safe_ollama_url
 
 
 QUESTION_INTENTS = {
@@ -273,8 +274,9 @@ def evidence_domains(context):
 def synthesize_with_ollama(question, answer, context, config):
     if config.get("AI_PROVIDER") != "ollama":
         return ""
-    base_url = str(config.get("OLLAMA_URL") or "http://localhost:11434").rstrip("/")
-    if not is_loopback_url(base_url):
+    try:
+        base_url = safe_ollama_url(config)
+    except LocalSecurityError:
         return ""
     payload = {
         "model": config.get("OLLAMA_MODEL") or "qwen2.5:3b",

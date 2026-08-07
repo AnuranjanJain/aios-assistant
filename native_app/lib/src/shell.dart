@@ -2097,116 +2097,370 @@ class _ReminderRow extends StatelessWidget {
   }
 }
 
-class _InboxPage extends StatelessWidget {
+class _InboxPage extends StatefulWidget {
   const _InboxPage({required this.controller});
   final AiosController controller;
 
   @override
+  State<_InboxPage> createState() => _InboxPageState();
+}
+
+class _InboxPageState extends State<_InboxPage> {
+  String _filter = 'action';
+  String _category = 'all';
+
+  @override
   Widget build(BuildContext context) {
-    final items = _maps(controller.live['inbox_items']);
+    final controller = widget.controller;
+    final data = controller.dataFor('inbox');
+    final items = data.containsKey('items')
+        ? _maps(data['items'])
+        : _maps(controller.live['inbox_items']);
+    final stats = _map(data['stats']);
+    final categories = _maps(data['categories']);
+    final visible = items.where((item) {
+      final matchesFilter = switch (_filter) {
+        'urgent' => _string(item['priority']) == 'urgent' ||
+            _string(item['urgency']) == 'urgent',
+        'high' => {'urgent', 'high'}.contains(_string(item['priority'])),
+        'unread' => item['is_unread'] == true,
+        'all' => true,
+        _ => item['is_actionable'] == true,
+      };
+      final matchesCategory =
+          _category == 'all' || _string(item['category']) == _category;
+      return matchesFilter && matchesCategory;
+    }).toList();
     return _PageColumn(
       children: [
         _Panel(
-          eyebrow: 'CLASSIFIER',
-          title: 'Recent Inbox Intelligence',
-          action: _ActionButton(
-            label: controller.syncing ? 'Syncing...' : 'Sync inbox',
-            icon: Icons.sync_rounded,
-            onTap: controller.syncing ? null : controller.syncAll,
+          eyebrow: 'INBOX AI / LOCAL TRIAGE',
+          title: 'Know what matters before opening every email.',
+          action: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ActionButton(
+                label: controller.syncing ? 'Syncing...' : 'Sync inbox',
+                icon: Icons.sync_rounded,
+                onTap: controller.syncing ? null : controller.syncAll,
+              ),
+              _ActionButton(
+                label: 'Re-score inbox',
+                icon: Icons.auto_awesome_rounded,
+                onTap: controller.syncing
+                    ? null
+                    : controller.rebuildInboxTriage,
+              ),
+            ],
           ),
           child: items.isEmpty
-              ? const _Empty('Classified emails will appear here.')
+              ? const _Empty(
+                  'Classified emails will appear after the first Gmail sync.',
+                )
               : Column(
-                  children: items.indexed.map((entry) {
-                    final item = entry.$2;
-                    final confidence =
-                        ((item['confidence'] as num?)?.toDouble() ?? 0) * 100;
-                    return _Reveal(
-                      index: entry.$1,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _HoverSurface(
-                          color: _Palette.of(context).surfaceRaised,
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: const Color(0x1F75D7FF),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  '${confidence.round()}%',
-                                  style: const TextStyle(
-                                    color: _Palette.info,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w900,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _string(
+                        _map(data['scope'])['label'],
+                        fallback:
+                            'Latest local email window across connected accounts',
+                      ),
+                      style: TextStyle(
+                        color: _Palette.of(context).muted,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _ActionMetricStrip(
+                      metrics: [
+                        (
+                          label: 'Needs action',
+                          value:
+                              '${stats['actionable'] ?? items.where((item) => item['is_actionable'] == true).length}',
+                          caption: 'clear next step',
+                          icon: Icons.bolt_rounded,
+                          color: _Palette.primary,
+                        ),
+                        (
+                          label: 'High priority',
+                          value:
+                              '${stats['high_priority'] ?? items.where((item) => {'urgent', 'high'}.contains(_string(item['priority']))).length}',
+                          caption: 'review first',
+                          icon: Icons.priority_high_rounded,
+                          color: _Palette.danger,
+                        ),
+                        (
+                          label: 'Urgent now',
+                          value:
+                              '${stats['urgent'] ?? items.where((item) => _string(item['priority']) == 'urgent').length}',
+                          caption: 'time-sensitive',
+                          icon: Icons.local_fire_department_outlined,
+                          color: _Palette.warning,
+                        ),
+                        (
+                          label: 'Unread',
+                          value:
+                              '${stats['unread'] ?? items.where((item) => item['is_unread'] == true).length}',
+                          caption: 'across Gmail',
+                          icon: Icons.mark_email_unread_outlined,
+                          color: _Palette.info,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final filter in const [
+                          (id: 'action', label: 'Needs action'),
+                          (id: 'urgent', label: 'Urgent now'),
+                          (id: 'high', label: 'High priority'),
+                          (id: 'unread', label: 'Unread'),
+                          (id: 'all', label: 'All mail'),
+                        ])
+                          _ActionFilterButton(
+                            label: filter.label,
+                            selected: _filter == filter.id,
+                            onTap: () => setState(() => _filter = filter.id),
+                          ),
+                      ],
+                    ),
+                    if (categories.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _ActionFilterButton(
+                            label: 'Every category',
+                            selected: _category == 'all',
+                            onTap: () => setState(() => _category = 'all'),
+                          ),
+                          ...categories
+                              .take(10)
+                              .map(
+                                (category) => _ActionFilterButton(
+                                  label:
+                                      '${_string(category['label'])} - ${category['count'] ?? 0}',
+                                  selected:
+                                      _category == _string(category['id']),
+                                  onTap: () => setState(
+                                    () => _category = _string(category['id']),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 13),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _string(
-                                        item['subject'],
-                                        fallback: 'Email',
-                                      ),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Text(
-                                      '${_string(item['category'])} - ${_string(item['sender'], fallback: 'Local inbox')}',
-                                      style: TextStyle(
-                                        color: _Palette.of(context).muted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    if (_string(
-                                      item['summary'],
-                                    ).isNotEmpty) ...[
-                                      const SizedBox(height: 9),
-                                      Text(
-                                        _string(item['summary']),
-                                        maxLines: 4,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(height: 1.5),
-                                      ),
-                                    ],
-                                    if (_string(
-                                      item['next_action'],
-                                    ).isNotEmpty) ...[
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Next: ${_string(item['next_action'])}',
-                                        style: const TextStyle(
-                                          color: _Palette.primary,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        ],
                       ),
-                    );
-                  }).toList(),
+                    ],
+                    const SizedBox(height: 20),
+                    _SectionLabel(
+                      title:
+                          '${visible.length} ${visible.length == 1 ? 'email' : 'emails'} in this view',
+                      subtitle:
+                          'Priority is based on direct actions, deadlines, sender context, Gmail importance, and local category rules.',
+                    ),
+                    const SizedBox(height: 12),
+                    if (visible.isEmpty)
+                      const _Empty('No emails match these filters.')
+                    else
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final columns = constraints.maxWidth >= 820 ? 2 : 1;
+                          final width =
+                              (constraints.maxWidth - ((columns - 1) * 12)) /
+                              columns;
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: visible.indexed
+                                .map(
+                                  (entry) => SizedBox(
+                                    width: width,
+                                    child: _Reveal(
+                                      index: entry.$1,
+                                      child: _InboxIntelligenceCard(
+                                        item: entry.$2,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          );
+                        },
+                      ),
+                  ],
                 ),
         ),
       ],
     );
   }
+}
+
+class _InboxIntelligenceCard extends StatelessWidget {
+  const _InboxIntelligenceCard({required this.item});
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _Palette.of(context);
+    final tone = _inboxTone(item);
+    final score = (item['attention_score'] as num?)?.toInt() ?? 0;
+    final priority = _string(item['priority'], fallback: 'normal');
+    return _HoverSurface(
+      color: palette.surfaceRaised,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(_inboxIcon(item), color: tone, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _string(item['subject'], fallback: 'Email'),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      _string(item['sender'], fallback: 'Local inbox'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: palette.muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$score',
+                style: TextStyle(
+                  color: tone,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: [
+              _InboxMetaPill(
+                label: _string(
+                  item['category_label'],
+                  fallback: _string(item['category'], fallback: 'Other'),
+                ),
+                color: _Palette.info,
+              ),
+              _InboxMetaPill(label: priority.toUpperCase(), color: tone),
+              if ({'urgent', 'high'}.contains(_string(item['urgency'])))
+                _InboxMetaPill(
+                  label: '${_string(item['urgency']).toUpperCase()} ATTENTION',
+                  color: _Palette.warning,
+                ),
+              if (item['is_unread'] == true)
+                const _InboxMetaPill(label: 'UNREAD', color: _Palette.warning),
+              if (_string(item['account_email']).isNotEmpty)
+                _InboxMetaPill(
+                  label: _string(item['account_email']),
+                  color: palette.muted,
+                ),
+            ],
+          ),
+          if (_string(item['summary']).isNotEmpty) ...[
+            const SizedBox(height: 13),
+            Text(
+              _string(item['summary']),
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(height: 1.48, fontSize: 13),
+            ),
+          ],
+          if (_string(item['priority_reason']).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              _string(item['priority_reason']),
+              style: TextStyle(
+                color: tone,
+                height: 1.4,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          if (_string(item['next_action']).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.arrow_forward_rounded,
+                  color: _Palette.primary,
+                  size: 17,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    _string(item['next_action']),
+                    style: const TextStyle(
+                      color: _Palette.primary,
+                      fontWeight: FontWeight.w800,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _InboxMetaPill extends StatelessWidget {
+  const _InboxMetaPill({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(maxWidth: 240),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900),
+    ),
+  );
 }
 
 class _MemoryPage extends StatefulWidget {
@@ -4170,36 +4424,45 @@ class _ActionFilterButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: selected ? _Palette.primary : _Palette.of(context).surfaceRaised,
-    borderRadius: BorderRadius.circular(10),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        height: 40,
-        constraints: const BoxConstraints(minWidth: 76),
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: selected ? _Palette.primary : _Palette.of(context).border,
-          ),
+  Widget build(BuildContext context) {
+    final width = (label.length * 7.4 + 34).clamp(96.0, 220.0);
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: selected ? _Palette.primary : _Palette.of(context).surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(10),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected
-                ? const Color(0xFF10150C)
-                : _Palette.of(context).text,
-            fontSize: 12,
-            fontWeight: FontWeight.w900,
+          child: Container(
+            height: 40,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: selected
+                    ? _Palette.primary
+                    : _Palette.of(context).border,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected
+                    ? const Color(0xFF10150C)
+                    : _Palette.of(context).text,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _WorkspaceSearch extends StatelessWidget {
@@ -4298,6 +4561,31 @@ IconData _reminderIcon(Map<String, dynamic> item) =>
       'overdue' => Icons.priority_high_rounded,
       'today' => Icons.schedule_rounded,
       _ => Icons.notifications_none,
+    };
+
+Color _inboxTone(Map<String, dynamic> item) =>
+    switch (_string(item['priority'])) {
+      'urgent' => _Palette.danger,
+      'high' => _Palette.warning,
+      'low' => _Palette.success,
+      _ => _Palette.info,
+    };
+
+IconData _inboxIcon(Map<String, dynamic> item) =>
+    switch (_string(item['category'])) {
+      'github' => Icons.code_rounded,
+      'security' => Icons.security_rounded,
+      'internship' || 'career' => Icons.work_outline_rounded,
+      'hackathon' => Icons.emoji_events_outlined,
+      'college' || 'assignment' => Icons.school_outlined,
+      'meeting' => Icons.event_outlined,
+      'finance' => Icons.account_balance_wallet_outlined,
+      'travel' => Icons.flight_outlined,
+      'shopping' => Icons.local_shipping_outlined,
+      'learning' => Icons.menu_book_outlined,
+      'social' => Icons.people_outline_rounded,
+      'newsletter' => Icons.newspaper_outlined,
+      _ => Icons.mail_outline_rounded,
     };
 
 class _Eyebrow extends StatelessWidget {

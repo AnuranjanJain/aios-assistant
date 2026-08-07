@@ -57,6 +57,17 @@ class AutomationAgentTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.engine.create_plan("Find duplicates", {"source": str(outside)})
 
+    def test_symlinked_path_is_rejected(self):
+        target = self.root / "target.txt"
+        target.write_text("private", encoding="utf-8")
+        link = self.root / "linked.txt"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("Symlinks are unavailable in this Windows test environment")
+        with self.assertRaises(ValueError):
+            self.engine.create_plan(f'Delete "{link}"', {"source": str(link)})
+
 
 if __name__ == "__main__":
     unittest.main()

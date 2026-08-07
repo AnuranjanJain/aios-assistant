@@ -1,4 +1,5 @@
 from app.models import Setting, db
+from app.services.local_security import validate_local_url
 
 
 SETTING_KEYS = {
@@ -47,4 +48,7 @@ def get_effective_config(app_config):
 def apply_settings(form):
     for key in SETTING_KEYS:
         if key in form:
-            set_setting(key, form.get(key, "").strip())
+            value = form.get(key, "").strip()
+            if key == "OLLAMA_URL":
+                value = validate_local_url(value)
+            set_setting(key, value)

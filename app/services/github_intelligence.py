@@ -3,6 +3,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import time
 from datetime import date, datetime, timedelta
 
 from flask import current_app
@@ -52,8 +53,33 @@ def github_headers():
 
 def github_json(url, headers=None, timeout=4.0):
     request = urllib.request.Request(url, headers=headers or github_headers())
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            remaining = (exc.headers or {}).get("X-RateLimit-Remaining")
+            transient = exc.code in {429, 500, 502, 503, 504} or (exc.code == 403 and remaining == "0")
+            if not transient or attempt == 2:
+                raise
+            time.sleep(0.25 * (2**attempt))
+
+
+def github_list(url, headers=None, per_page=100, max_pages=10):
+    """Fetch bounded pages so large repositories do not silently look empty."""
+    parsed = urllib.parse.urlsplit(url)
+    query = [(key, value) for key, value in urllib.parse.parse_qsl(parsed.query) if key not in {"page", "per_page"}]
+    items = []
+    for page in range(1, max_pages + 1):
+        page_query = urllib.parse.urlencode([*query, ("page", page), ("per_page", per_page)])
+        page_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, page_query, parsed.fragment))
+        payload = github_json(page_url, headers)
+        if not isinstance(payload, list):
+            break
+        items.extend(payload)
+        if len(payload) < per_page:
+            break
+    return items
 
 
 def discover_repository_urls():
@@ -104,14 +130,14 @@ def fetch_repository_snapshot(repo_full_name):
     headers = github_headers()
     encoded = urllib.parse.quote(repo_full_name, safe="/")
     repo = github_json(f"https://api.github.com/repos/{encoded}", headers)
-    commits = github_json(f"https://api.github.com/repos/{encoded}/commits?per_page=10", headers)
-    pulls = github_json(f"https://api.github.com/repos/{encoded}/pulls?state=all&per_page=10", headers)
-    issues = github_json(f"https://api.github.com/repos/{encoded}/issues?state=all&per_page=20", headers)
-    branches = github_json(f"https://api.github.com/repos/{encoded}/branches?per_page=20", headers)
-    releases = github_json(f"https://api.github.com/repos/{encoded}/releases?per_page=10", headers)
+    commits = github_list(f"https://api.github.com/repos/{encoded}/commits", headers)
+    pulls = github_list(f"https://api.github.com/repos/{encoded}/pulls?state=all", headers)
+    issues = github_list(f"https://api.github.com/repos/{encoded}/issues?state=all", headers)
+    branches = github_list(f"https://api.github.com/repos/{encoded}/branches", headers)
+    releases = github_list(f"https://api.github.com/repos/{encoded}/releases", headers)
     discussions = fetch_discussions(repo_full_name, headers)
     workflows = github_json(f"https://api.github.com/repos/{encoded}/actions/workflows?per_page=20", headers)
-    contributors = github_json(f"https://api.github.com/repos/{encoded}/contributors?per_page=20", headers)
+    contributors = github_list(f"https://api.github.com/repos/{encoded}/contributors", headers)
     return {
         "repo": repo,
         "commits": commits,

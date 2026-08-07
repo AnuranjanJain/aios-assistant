@@ -46,6 +46,7 @@ from app.services.email_intelligence import (
     upsert_gmail_message,
     upsert_email_insight,
 )
+from app.services.email_triage import classify_email_category, triage_email
 from app.services.college_intelligence import pat_college_summary
 from app.services.email_scope import latest_email_ids_combined
 from app.services.email_views import materialize_email_views
@@ -168,6 +169,123 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(Reminder.query.filter(Reminder.source_key.like("email-task:%")).count(), 0)
         materialize_email_views()
         self.assertEqual(InboxItem.query.filter_by(email_message_id=email.id).count(), 1)
+
+    def test_sender_aware_triage_avoids_real_inbox_false_positives(self):
+        github = triage_email(
+            sender="notifications@github.com",
+            subject="[AnuranjanJain/LegalEase] Run failed: Test Suite - main",
+            is_unread=True,
+        )
+        job_alert = triage_email(
+            sender="noreply@match.indeed.com",
+            subject="Software Engineer I @ Indeed",
+            body="Jobs for you. Apply now.",
+            is_unread=True,
+        )
+        security = triage_email(
+            sender="googledevelopers-noreply@google.com",
+            subject="[Action Advised] Manage your unused OAuth clients",
+            is_unread=True,
+        )
+        datathon = triage_email(
+            sender="admin@no-reply.hack2skill.com",
+            subject="3 Days Left to Submit Your Datathon 2026 Prototype",
+            is_unread=True,
+        )
+
+        self.assertEqual(github.category, "github")
+        self.assertEqual(github.priority, "high")
+        self.assertTrue(github.is_actionable)
+        self.assertEqual(job_alert.category, "career")
+        self.assertEqual(job_alert.priority, "low")
+        self.assertFalse(job_alert.is_actionable)
+        self.assertEqual(security.category, "security")
+        self.assertEqual(security.priority, "high")
+        self.assertTrue(security.is_actionable)
+        self.assertEqual(datathon.category, "hackathon")
+        self.assertEqual(datathon.priority, "high")
+        self.assertTrue(datathon.is_actionable)
+        self.assertEqual(
+            classify_email_category(
+                "messages-noreply@linkedin.com",
+                "New skill available: Puzzle solving",
+            ),
+            "social",
+        )
+
+        application_receipt = triage_email(
+            sender="noreply@mail.amazon.jobs",
+            subject="Thank you for Applying to Amazon!",
+            body="We received your application and will contact you if there is a match.",
+            preferred_category="internship",
+            labels=["IMPORTANT"],
+        )
+        self.assertEqual(application_receipt.category, "internship")
+        self.assertEqual(application_receipt.priority, "normal")
+        self.assertFalse(application_receipt.is_actionable)
+
+        quoted_request = triage_email(
+            sender="Placement Office <placementoffice@vitbhopal.ac.in>",
+            subject="Re: Old registration notice",
+            body=(
+                "Thanks, noted.\n\n"
+                "On Mon, Jul 20, 2026 at 7:39 PM Office wrote:\n"
+                "Please submit your resume today."
+            ),
+        )
+        self.assertEqual(quoted_request.category, "college")
+        self.assertEqual(quoted_request.priority, "normal")
+        self.assertFalse(quoted_request.is_actionable)
+
+        stale_countdown = triage_email(
+            sender="admin@no-reply.hack2skill.com",
+            subject="3 Days Left to Submit Your Datathon Prototype",
+            body="Please submit your project today.",
+            sent_at=datetime.now() - timedelta(days=30),
+        )
+        self.assertEqual(stale_countdown.category, "hackathon")
+        self.assertEqual(stale_countdown.priority, "normal")
+        self.assertEqual(stale_countdown.urgency, "normal")
+        self.assertTrue(stale_countdown.is_actionable)
+
+    def test_inbox_overview_exposes_priority_filters_and_accounts(self):
+        account = ConnectedAccount(provider="google", email="triage@example.com", label="Triage")
+        github = EmailMessage(
+            account=account,
+            provider_message_id="github-failure",
+            sender="notifications@github.com",
+            subject="[AnuranjanJain/LegalEase] Run failed: Test Suite - main",
+            snippet="The workflow failed.",
+            is_unread=True,
+            sent_at=datetime.now(),
+        )
+        alert = EmailMessage(
+            account=account,
+            provider_message_id="job-alert",
+            sender="noreply@match.indeed.com",
+            subject="Software Engineer I @ Indeed",
+            snippet="Jobs for you. Apply now.",
+            is_unread=True,
+            sent_at=datetime.now() - timedelta(minutes=1),
+        )
+        db.session.add_all([account, github, alert])
+        db.session.commit()
+
+        analyzed = analyze_pending_emails(limit=10, app_config={"AI_PROVIDER": "rule_based"})
+        materialize_email_views()
+        response = self.client.get("/api/inbox/overview")
+        payload = response.get_json()
+
+        self.assertEqual(analyzed["analyzed"], 2)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["stats"]["total"], 2)
+        self.assertEqual(payload["stats"]["actionable"], 1)
+        self.assertEqual(payload["stats"]["high_priority"], 1)
+        self.assertEqual(payload["stats"]["low_priority"], 1)
+        self.assertEqual(payload["items"][0]["category"], "github")
+        self.assertEqual(payload["items"][0]["account_email"], "triage@example.com")
+        self.assertGreaterEqual(payload["items"][0]["attention_score"], 50)
+        self.assertTrue(payload["items"][0]["priority_reason"])
 
     def test_round_selection_and_promptwars_deadline_become_highlights(self):
         account = ConnectedAccount(provider="google", email="builder@example.com", label="Builder")
@@ -963,7 +1081,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
                 ),
                 labels_json=json.dumps(["INBOX", "IMPORTANT"]),
                 is_unread=True,
-                sent_at=datetime(2026, 7, 6, 9, 0),
+                sent_at=datetime.now() - timedelta(hours=1),
             )
         )
         db.session.commit()
@@ -1102,6 +1220,9 @@ class EmailIntelligenceTestCase(unittest.TestCase):
                 self.assertIn("suggested_actions_json", columns)
                 self.assertIn("life_item", db.inspect(db.engine).get_table_names())
                 self.assertIn("life_item_relation", db.inspect(db.engine).get_table_names())
+                backups = list(database_path.parent.joinpath("backups").glob("legacy.db.*.bak"))
+                self.assertEqual(len(backups), 1)
+                self.assertGreater(backups[0].stat().st_size, 0)
                 db.session.remove()
                 db.engine.dispose()
 

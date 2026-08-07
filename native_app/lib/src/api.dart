@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -8,15 +9,41 @@ class AiosApi {
   final http.Client _client;
   String baseUrl = '';
   String token = '';
+  String pairingSecret = '';
 
   bool get connected => baseUrl.isNotEmpty && token.isNotEmpty;
 
   Future<bool> discover() async {
+    if (connected) {
+      try {
+        final response = await _client
+            .get(
+              Uri.parse('$baseUrl/api/live'),
+              headers: {'X-AiOS-Token': token},
+            )
+            .timeout(const Duration(milliseconds: 650));
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          return true;
+        }
+      } catch (_) {
+        // The saved core may still be starting; continue with discovery.
+      }
+      baseUrl = '';
+      token = '';
+    }
+    if (await _discoverFromRuntimeDescriptor()) return true;
+
     for (var port = 5050; port <= 5069; port += 1) {
       final candidate = 'http://127.0.0.1:$port';
       try {
         final response = await _client
-            .get(Uri.parse('$candidate/api/local/pairing'))
+            .get(
+              Uri.parse('$candidate/api/local/pairing'),
+              headers: {
+                if (pairingSecret.isNotEmpty)
+                  'X-AiOS-Native-Pairing': pairingSecret,
+              },
+            )
             .timeout(const Duration(milliseconds: 650));
         if (response.statusCode != 200) continue;
         final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -28,6 +55,38 @@ class AiosApi {
         return true;
       } catch (_) {
         // The native core may still be starting. Try the next port.
+      }
+    }
+    return false;
+  }
+
+  Future<bool> _discoverFromRuntimeDescriptor() async {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    final xdgDataHome = Platform.environment['XDG_DATA_HOME'];
+    final home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
+    final candidates = <String>[
+      if (localAppData != null && localAppData.isNotEmpty)
+        '$localAppData${Platform.pathSeparator}AiOS Assistant${Platform.pathSeparator}runtime.json',
+      if (xdgDataHome != null && xdgDataHome.isNotEmpty)
+        '$xdgDataHome${Platform.pathSeparator}aios-assistant${Platform.pathSeparator}runtime.json',
+      if (home != null && home.isNotEmpty)
+        '$home${Platform.pathSeparator}.local${Platform.pathSeparator}share${Platform.pathSeparator}aios-assistant${Platform.pathSeparator}runtime.json',
+    ];
+
+    for (final path in candidates) {
+      try {
+        final decoded = jsonDecode(await File(path).readAsString());
+        if (decoded is! Map<String, dynamic> || decoded['service'] != 'aios-assistant') {
+          continue;
+        }
+        // The runtime descriptor is intentionally metadata-only. Credentials
+        // come from the native preferences file or one-time process pairing.
+        final runtimeUrl = decoded['base_url']?.toString() ?? '';
+        if (runtimeUrl.isEmpty || token.isEmpty) continue;
+        baseUrl = _normalizeLoopback(runtimeUrl);
+        return true;
+      } catch (_) {
+        // The desktop core may still be starting.
       }
     }
     return false;

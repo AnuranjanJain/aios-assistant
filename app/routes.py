@@ -1,5 +1,6 @@
 from datetime import date, datetime, time
 from hmac import compare_digest
+from io import BytesIO
 from pathlib import Path
 import secrets
 from threading import Lock
@@ -42,6 +43,7 @@ from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.daily_planner import build_daily_plan
 from app.services.daily_assistant import evening_checkin_prompt, generate_morning_briefing, submit_evening_checkin
 from app.services.email_intelligence import (
+    analyze_recent_emails_combined,
     generate_daily_plan as generate_email_daily_plan,
     generate_weekly_plan as generate_email_weekly_plan,
     intelligence_summary,
@@ -54,6 +56,8 @@ from app.services.email_intelligence import (
     sync_account_intelligence,
     update_account as update_email_account,
 )
+from app.services.email_scope import EMAIL_PORTFOLIO_LIMIT, latest_email_ids_combined
+from app.services.email_triage import CATEGORY_LABELS
 from app.services.executive_assistant import answer_executive_question, executive_briefing
 from app.services.hackathons import ingest_hackathon_signal, serialize_hackathon
 from app.services.goal_planner import (
@@ -65,6 +69,7 @@ from app.services.goal_planner import (
     update_task,
 )
 from app.services.knowledge_graph import build_knowledge_graph, query_knowledge_graph
+from app.services.local_security import LocalSecurityError, safe_ollama_url
 from app.services.memory_engine import (
     answer_memory_question,
     memory_graph,
@@ -87,6 +92,13 @@ from app.services.oauth_sign_in import (
     continue_google_sign_in,
     get_google_sign_in,
     start_google_sign_in,
+)
+from app.services.pairing import (
+    approve_challenge,
+    consume_approved_token,
+    consume_native_secret,
+    challenge_status,
+    issue_challenge,
 )
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
@@ -143,15 +155,37 @@ def inject_desktop_shell_context():
 
 
 def is_trusted_browser_origin(origin):
-    if origin in TRUSTED_BROWSER_ORIGINS:
-        return True
+    parsed = urlsplit(origin or "")
+    if not parsed.scheme or not parsed.netloc:
+        return False
+    normalized = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    configured = {
+        _normalize_origin(item)
+        for item in current_app.config.get("AIOS_UI_ORIGINS", "").split(",")
+        if item.strip()
+    }
+    allowed = configured or TRUSTED_BROWSER_ORIGINS
+    return normalized in allowed
 
-    origin_url = urlsplit(origin)
+
+def _normalize_origin(value):
+    parsed = urlsplit(str(value or "").strip())
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/") if parsed.scheme and parsed.netloc else ""
+
+
+def is_same_local_origin(origin):
+    if origin == "null":
+        referer = request.headers.get("Referer", "")
+        return bool(referer) and is_same_local_origin(_normalize_origin(referer))
+    origin_url = urlsplit(origin or "")
     app_url = urlsplit(request.host_url)
+    if not origin_url.scheme or not origin_url.netloc:
+        return False
+    if _normalize_origin(origin) == _normalize_origin(request.host_url):
+        return True
     loopback_hosts = {"127.0.0.1", "localhost", "::1"}
     return (
-        origin_url.scheme in {"http", "https"}
-        and origin_url.scheme == app_url.scheme
+        origin_url.scheme == app_url.scheme
         and origin_url.hostname in loopback_hosts
         and app_url.hostname in loopback_hosts
         and origin_url.port == app_url.port
@@ -167,10 +201,15 @@ def is_trusted_same_origin_navigation(origin):
         return True
 
     referer = request.headers.get("Referer", "")
+    referer_origin = ""
+    if referer:
+        parsed_referer = urlsplit(referer)
+        if parsed_referer.scheme and parsed_referer.netloc:
+            referer_origin = f"{parsed_referer.scheme}://{parsed_referer.netloc}"
     return (
         request.headers.get("Sec-Fetch-Site", "").lower() == "same-origin"
-        and bool(referer)
-        and is_trusted_browser_origin(referer)
+        and bool(referer_origin)
+        and is_trusted_browser_origin(referer_origin)
     )
 
 
@@ -236,12 +275,21 @@ def require_ui_auth():
         get_local_form_token()
 
     origin = request.headers.get("Origin", "")
-    if origin and not is_trusted_same_origin_navigation(origin):
+    if origin:
         extension_preflight = request.method == "OPTIONS" and is_extension_origin(origin)
         extension_with_token = is_extension_origin(origin) and has_valid_api_token(request, current_app.config)
         local_form_with_token = request.method not in SAFE_REQUEST_METHODS and has_valid_local_form_token()
         api_with_token = request.path.startswith("/api/") and has_valid_api_token(request, current_app.config)
-        if not extension_preflight and not extension_with_token and not local_form_with_token and not api_with_token:
+        same_origin = is_same_local_origin(origin)
+        trusted_origin = is_trusted_same_origin_navigation(origin)
+        unsafe_cross_origin = request.method not in SAFE_REQUEST_METHODS and not same_origin
+        if (
+            not extension_preflight
+            and not extension_with_token
+            and not api_with_token
+            and not local_form_with_token
+            and (not trusted_origin or unsafe_cross_origin)
+        ):
             current_app.logger.warning(
                 "Blocked browser origin origin=%r host=%r remote=%r method=%s path=%s",
                 origin,
@@ -293,7 +341,6 @@ def add_local_api_headers(response):
     )
     if is_trusted_browser_origin(origin) or allow_extension:
         response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Vary"] = "Origin"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-AiOS-Token, X-AiOS-Form-Token"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, OPTIONS"
@@ -943,11 +990,26 @@ def save_profile():
     if upload and upload.filename:
         suffix = Path(secure_filename(upload.filename)).suffix.lower()
         if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
-            profile_dir = get_runtime_paths().data_dir / "profile"
-            profile_dir.mkdir(parents=True, exist_ok=True)
-            photo_path = profile_dir / f"avatar{suffix}"
-            upload.save(photo_path)
-            set_setting("PROFILE_PHOTO_PATH", str(photo_path))
+            raw = upload.stream.read(5 * 1024 * 1024 + 1)
+            if len(raw) <= 5 * 1024 * 1024:
+                try:
+                    from PIL import Image, ImageOps
+
+                    image = Image.open(BytesIO(raw))
+                    image.load()
+                    image = ImageOps.exif_transpose(image)
+                    image.thumbnail((1024, 1024))
+                    if image.mode not in {"RGB", "RGBA"}:
+                        image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+                    profile_dir = get_runtime_paths().data_dir / "profile"
+                    profile_dir.mkdir(parents=True, exist_ok=True)
+                    photo_path = profile_dir / "avatar.png"
+                    sanitized = BytesIO()
+                    image.save(sanitized, format="PNG", optimize=True)
+                    photo_path.write_bytes(sanitized.getvalue())
+                    set_setting("PROFILE_PHOTO_PATH", str(photo_path))
+                except (OSError, ValueError, Image.DecompressionBombError):
+                    pass
 
     db.session.commit()
     return render_template("profile.html", profile=get_user_profile(), saved=True)
@@ -992,32 +1054,35 @@ def save_settings():
     elif pin_action == "clear_pin":
         clear_pin()
 
-    if settings_action == "save_startup":
-        startup_result = save_startup_settings(request.form)
-    elif settings_action == "test_ollama":
-        apply_settings(request.form)
-        db.session.commit()
-        ai_result = test_ollama_status(get_effective_config(current_app.config))
-    elif settings_action in {
-        "sync_email_account",
-        "pause_email_account",
-        "resume_email_account",
-        "rename_email_account",
-        "remove_email_account",
-    }:
-        account_id = int(request.form.get("account_id", "0") or 0)
-        if settings_action == "sync_email_account":
-            email_result = sync_account_intelligence(account_id, get_effective_config(current_app.config))
-        elif settings_action == "pause_email_account":
-            email_result = update_email_account(account_id, sync_enabled=False)
-        elif settings_action == "resume_email_account":
-            email_result = update_email_account(account_id, sync_enabled=True)
-        elif settings_action == "rename_email_account":
-            email_result = update_email_account(account_id, label=request.form.get("label", ""))
-        elif settings_action == "remove_email_account":
-            email_result = remove_email_account(account_id)
-    else:
-        apply_settings(request.form)
+    try:
+        if settings_action == "save_startup":
+            startup_result = save_startup_settings(request.form)
+        elif settings_action == "test_ollama":
+            apply_settings(request.form)
+            db.session.commit()
+            ai_result = test_ollama_status(get_effective_config(current_app.config))
+        elif settings_action in {
+            "sync_email_account",
+            "pause_email_account",
+            "resume_email_account",
+            "rename_email_account",
+            "remove_email_account",
+        }:
+            account_id = int(request.form.get("account_id", "0") or 0)
+            if settings_action == "sync_email_account":
+                email_result = sync_account_intelligence(account_id, get_effective_config(current_app.config))
+            elif settings_action == "pause_email_account":
+                email_result = update_email_account(account_id, sync_enabled=False)
+            elif settings_action == "resume_email_account":
+                email_result = update_email_account(account_id, sync_enabled=True)
+            elif settings_action == "rename_email_account":
+                email_result = update_email_account(account_id, label=request.form.get("label", ""))
+            elif settings_action == "remove_email_account":
+                email_result = remove_email_account(account_id)
+        else:
+            apply_settings(request.form)
+    except LocalSecurityError as exc:
+        ai_result = {"ok": False, "message": f"Ollama URL must stay on loopback. {exc}"}
 
     db.session.commit()
     values = get_effective_config(current_app.config)
@@ -1038,7 +1103,10 @@ def save_settings():
 
 
 def test_ollama_status(values):
-    base_url = (values.get("OLLAMA_URL") or "http://localhost:11434").rstrip("/")
+    try:
+        base_url = safe_ollama_url(values)
+    except LocalSecurityError as exc:
+        return {"ok": False, "message": str(exc)}
     model = values.get("OLLAMA_MODEL") or "qwen2.5:3b"
     try:
         parsed = urlsplit(base_url)
@@ -1141,7 +1209,12 @@ def build_dashboard_context():
     )
     inbox_items = (
         InboxItem.query.filter(InboxItem.email_message_id.in_(active_email_ids))
-        .order_by(InboxItem.occurred_at.desc(), InboxItem.created_at.desc())
+        .order_by(
+            InboxItem.is_actionable.desc(),
+            InboxItem.attention_score.desc(),
+            InboxItem.occurred_at.desc(),
+            InboxItem.created_at.desc(),
+        )
         .limit(50)
         .all()
         if active_email_ids
@@ -1294,6 +1367,87 @@ def api_reminders_overview():
             "updated_at": datetime.utcnow().isoformat(),
         }
     )
+
+
+@bp.get("/api/inbox/overview")
+def api_inbox_overview():
+    return jsonify(_inbox_overview_payload())
+
+
+@bp.post("/api/inbox/reclassify")
+def api_reclassify_inbox():
+    triage_config = {
+        **get_effective_config(current_app.config),
+        "AI_PROVIDER": "rule_based",
+    }
+    analysis = analyze_recent_emails_combined(
+        limit=EMAIL_PORTFOLIO_LIMIT,
+        app_config=triage_config,
+        force=True,
+    )
+    from app.services.email_views import materialize_email_views
+
+    views = materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT)
+    _invalidate_wdyd_snapshot()
+    return jsonify({**_inbox_overview_payload(), "analysis": analysis, "views": views})
+
+
+def _inbox_overview_payload():
+    active_email_ids = latest_email_ids_combined(EMAIL_PORTFOLIO_LIMIT)
+    items = (
+        InboxItem.query.filter(InboxItem.email_message_id.in_(active_email_ids))
+        .order_by(
+            InboxItem.is_actionable.desc(),
+            InboxItem.attention_score.desc(),
+            InboxItem.occurred_at.desc(),
+        )
+        .limit(150)
+        .all()
+        if active_email_ids
+        else []
+    )
+    serialized = [serialize_inbox_item(item) for item in items]
+    categories = {}
+    priorities = {"urgent": 0, "high": 0, "normal": 0, "low": 0}
+    urgencies = {"urgent": 0, "high": 0, "normal": 0, "low": 0}
+    for item in serialized:
+        category = item["category"]
+        categories[category] = categories.get(category, 0) + 1
+        priorities[item["priority"]] = priorities.get(item["priority"], 0) + 1
+        urgencies[item["urgency"]] = urgencies.get(item["urgency"], 0) + 1
+    return {
+        "ok": True,
+        "items": serialized,
+        "stats": {
+            "total": len(serialized),
+            "actionable": sum(item["is_actionable"] for item in serialized),
+            "high_priority": sum(item["priority"] in {"urgent", "high"} for item in serialized),
+            "unread": sum(item["is_unread"] for item in serialized),
+            "low_priority": sum(item["priority"] == "low" for item in serialized),
+            "urgent": sum(item["priority"] == "urgent" for item in serialized),
+            "due_attention": sum(item["urgency"] in {"urgent", "high"} for item in serialized),
+            "average_attention": round(
+                sum(item["attention_score"] for item in serialized) / len(serialized)
+            )
+            if serialized
+            else 0,
+        },
+        "priority_breakdown": priorities,
+        "urgency_breakdown": urgencies,
+        "categories": [
+            {
+                "id": category,
+                "label": CATEGORY_LABELS.get(category, category.replace("_", " ").title()),
+                "count": count,
+            }
+            for category, count in sorted(categories.items(), key=lambda value: (-value[1], value[0]))
+        ],
+        "scope": {
+            "combined_limit": EMAIL_PORTFOLIO_LIMIT,
+            "label": f"Latest {EMAIL_PORTFOLIO_LIMIT} emails across connected accounts",
+        },
+        "updated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @bp.post("/seed")
@@ -2128,17 +2282,67 @@ def api_update_planning_event(event_id):
 def api_local_pairing():
     if request.headers.get("Origin") or request.remote_addr not in {"127.0.0.1", "::1"}:
         return jsonify({"error": "loopback_only"}), 403
-    token = get_effective_config(current_app.config)["LOCAL_API_TOKEN"]
+    native_secret = request.headers.get("X-AiOS-Native-Pairing", "")
+    if consume_native_secret(current_app.config.get("NATIVE_PAIRING_SECRET", ""), native_secret):
+        current_app.config["NATIVE_PAIRING_SECRET"] = ""
+        token = get_effective_config(current_app.config)["LOCAL_API_TOKEN"]
+        return jsonify(
+            {
+                "ok": bool(token),
+                "service": "aios-assistant",
+                "base_url": request.host_url.rstrip("/"),
+                "api_token": token,
+                "capabilities": {"wdyd_snapshot": 1},
+                "snapshot_path": "/api/wdyd/snapshot",
+            }
+        )
+    challenge = request.args.get("challenge", "").strip()
+    if challenge:
+        token = consume_approved_token(challenge)
+        if not token:
+            return jsonify({"ok": False, "error": "pairing_pending"}), 409
+        return jsonify(
+            {
+                "ok": True,
+                "service": "aios-assistant",
+                "base_url": request.host_url.rstrip("/"),
+                "api_token": token,
+                "capabilities": {"wdyd_snapshot": 1},
+                "snapshot_path": "/api/wdyd/snapshot",
+            }
+        )
+    pairing_challenge = issue_challenge()
     return jsonify(
         {
-            "ok": bool(token),
+            "ok": False,
+            "error": "pairing_required",
             "service": "aios-assistant",
             "base_url": request.host_url.rstrip("/"),
-            "api_token": token,
+            "challenge": pairing_challenge,
+            "expires_in": 120,
             "capabilities": {"wdyd_snapshot": 1},
             "snapshot_path": "/api/wdyd/snapshot",
         }
-    )
+    ), 409
+
+
+@bp.post("/api/local/pairing/approve")
+def api_local_pairing_approve():
+    if not has_valid_local_form_token() and not session.get("is_unlocked"):
+        return jsonify({"ok": False, "error": "ui_approval_required"}), 403
+    payload = request.get_json(silent=True) or {}
+    challenge = str(payload.get("challenge") or "").strip()
+    if not challenge:
+        return jsonify({"ok": False, "error": "challenge_required"}), 400
+    if challenge_status(challenge) is None:
+        return jsonify({"ok": False, "error": "pairing_expired"}), 409
+    token = secrets.token_urlsafe(32)
+    from app.services.settings import set_setting
+
+    set_setting("LOCAL_API_TOKEN", token)
+    db.session.commit()
+    approve_challenge(challenge, token)
+    return jsonify({"ok": True, "challenge": challenge, "message": "Native client approved once."})
 
 
 @bp.get("/api/oauth/google/status")
@@ -2397,6 +2601,14 @@ def serialize_inbox_item(item):
         "sender": item.sender,
         "subject": item.subject,
         "category": item.category,
+        "category_label": CATEGORY_LABELS.get(item.category, item.category.replace("_", " ").title()),
+        "priority": item.priority,
+        "urgency": item.urgency,
+        "attention_score": item.attention_score,
+        "priority_reason": item.priority_reason or "",
+        "is_actionable": item.is_actionable,
+        "is_unread": item.is_unread,
+        "account_email": item.account_email or "",
         "confidence": item.confidence,
         "summary": item.summary or item.body or "",
         "next_action": item.next_action or "",

@@ -36,8 +36,24 @@ class LocalIntegrationTestCase(unittest.TestCase):
 
     def test_loopback_pairing_and_activity_ingest(self):
         pairing = self.client.get("/api/local/pairing")
-        self.assertEqual(pairing.status_code, 200)
-        self.assertEqual(pairing.get_json()["api_token"], "local-test-token")
+        self.assertEqual(pairing.status_code, 409)
+        pairing_payload = pairing.get_json()
+        self.assertEqual(pairing_payload["error"], "pairing_required")
+        self.assertNotIn("api_token", pairing_payload)
+
+        self.client.get("/settings", base_url="http://127.0.0.1:5050")
+        form_token = self.client.get_cookie("aios_form_token").value
+        approved = self.client.post(
+            "/api/local/pairing/approve",
+            headers={"X-AiOS-Form-Token": form_token},
+            json={"challenge": pairing_payload["challenge"]},
+        )
+        self.assertEqual(approved.status_code, 200)
+        claimed = self.client.get(
+            f"/api/local/pairing?challenge={pairing_payload['challenge']}"
+        )
+        self.assertEqual(claimed.status_code, 200)
+        api_token = claimed.get_json()["api_token"]
 
         blocked = self.client.get(
             "/api/local/pairing",
@@ -111,7 +127,7 @@ class LocalIntegrationTestCase(unittest.TestCase):
 
         activity = self.client.post(
             "/api/wellbeing/activity",
-            headers={"X-AiOS-Token": "local-test-token"},
+            headers={"X-AiOS-Token": api_token},
             json={
                 "source": "what-do-you-do-collector",
                 "app_name": "Codex",

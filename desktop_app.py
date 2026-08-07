@@ -286,7 +286,9 @@ class RuntimeDescriptor(threading.Thread):
         self.stop_event = threading.Event()
 
     def write(self):
-        self.path.write_text(json.dumps(self.payload, indent=2), encoding="utf-8")
+        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
+        temporary.write_text(json.dumps(self.payload, indent=2), encoding="utf-8")
+        temporary.replace(self.path)
         try:
             os.chmod(self.path, 0o600)
         except OSError:
@@ -391,7 +393,6 @@ def main():
         {
             "service": "aios-assistant",
             "base_url": base_url,
-            "api_token": api_token,
             "pid": os.getpid(),
             "started_at": datetime.now(timezone.utc).isoformat(),
             "capabilities": {"wdyd_snapshot": 1},
@@ -405,8 +406,8 @@ def main():
     register_service("watch_imports", "Import watcher", "Imports files added to watch folders.", watch_worker)
     register_service(
         "opportunities",
-        "Opportunity monitor",
-        "Refreshes Gmail, hackathon, NeoPat, and placement updates.",
+        "Hackathon and job source monitor",
+        "Refreshes hackathon and job portal imports without duplicating Gmail sync.",
         opportunity_worker,
     )
     register_service(
