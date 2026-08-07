@@ -70,6 +70,7 @@ from app.services.goal_planner import (
 )
 from app.services.knowledge_graph import build_knowledge_graph, query_knowledge_graph
 from app.services.local_security import LocalSecurityError, safe_ollama_url
+from app.services.time_utils import mail_time_details
 from app.services.memory_engine import (
     answer_memory_question,
     memory_graph,
@@ -2594,6 +2595,7 @@ def serialize_activity(item):
 
 
 def serialize_inbox_item(item):
+    timing = mail_time_details(item.occurred_at)
     return {
         "id": item.id,
         "source_key": item.source_key,
@@ -2612,7 +2614,11 @@ def serialize_inbox_item(item):
         "confidence": item.confidence,
         "summary": item.summary or item.body or "",
         "next_action": item.next_action or "",
-        "occurred_at": item.occurred_at.isoformat() if item.occurred_at else None,
+        "occurred_at": timing["timestamp_utc"],
+        "occurred_at_local": timing["timestamp_local"],
+        "age_label": timing["age_label"],
+        "is_today": timing["is_today"],
+        "timezone": timing["timezone"],
         "created_at": item.created_at.isoformat(),
     }
 

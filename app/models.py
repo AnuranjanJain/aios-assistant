@@ -143,6 +143,7 @@ class ConnectedAccount(db.Model):
     sync_enabled = db.Column(db.Boolean, default=True, nullable=False, index=True)
     last_sync_at = db.Column(db.DateTime, nullable=True)
     sync_cursor = db.Column(db.String(240), nullable=True)
+    mail_time_version = db.Column(db.Integer, nullable=False, default=0, server_default="0")
     last_error = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(

@@ -8,6 +8,7 @@ from flask import current_app
 from sqlalchemy import or_
 
 from app.models import EmailMessage, PlanningEvent
+from app.services.time_utils import mail_time_details
 from runtime_paths import get_runtime_paths
 
 
@@ -241,12 +242,17 @@ def _serialize_pat_email(email, today):
     lowered = f" {clean_text.lower()} "
     cancelled = any(term in lowered for term in ("cancelled", "canceled", "no pat class", "class is postponed"))
     anchor = email.sent_at or datetime.utcnow()
+    timing = mail_time_details(email.sent_at)
     event_date = _event_date(email.subject or "", anchor, today) or _event_date(clean_text, anchor, today)
     return {
         "email_id": email.id,
         "subject": email.subject,
         "sender": email.sender or "",
-        "timestamp": email.sent_at.isoformat() if email.sent_at else None,
+        "timestamp": timing["timestamp_utc"],
+        "timestamp_local": timing["timestamp_local"],
+        "age_label": timing["age_label"],
+        "is_today": timing["is_today"],
+        "timezone": timing["timezone"],
         "event_date": event_date.isoformat() if event_date else None,
         "status": "cancelled" if cancelled else "scheduled",
         "time": _extract_time(clean_text),

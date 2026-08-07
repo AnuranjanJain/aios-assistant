@@ -11,7 +11,7 @@ import webbrowser
 import wsgiref.simple_server
 import wsgiref.util
 from datetime import date, datetime, timedelta
-from email.utils import parseaddr, parsedate_to_datetime
+from email.utils import parseaddr
 from pathlib import Path
 from time import monotonic
 import time as time_module
@@ -51,6 +51,14 @@ from app.services.email_triage import (
 )
 from app.services.atomic_storage import atomic_write_text
 from app.services.local_security import LocalSecurityError, safe_ollama_url
+from app.services.time_utils import (
+    local_today,
+    local_timezone_label,
+    machine_clock,
+    mail_time_details,
+    normalize_gmail_datetime,
+    utc_now_naive,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -62,6 +70,7 @@ GMAIL_SCOPES = [
 
 EMAIL_CATEGORIES = set(CATEGORY_LABELS)
 ANALYSIS_MODEL_VERSION = "local_triage_v4"
+MAIL_TIME_VERSION = 1
 
 IMPORTANT_CATEGORIES = {
     "internship",
@@ -135,6 +144,7 @@ def list_accounts():
 
 
 def serialize_account(account):
+    sync_time = mail_time_details(account.last_sync_at)
     return {
         "id": account.id,
         "provider": account.provider,
@@ -142,7 +152,9 @@ def serialize_account(account):
         "display_name": account.display_name or "",
         "label": account.label or account.email,
         "sync_enabled": account.sync_enabled,
-        "last_sync_at": account.last_sync_at.isoformat() if account.last_sync_at else None,
+        "last_sync_at": sync_time["timestamp_utc"],
+        "last_sync_at_local": sync_time["timestamp_local"],
+        "local_timezone": local_timezone_label(),
         "last_error": account.last_error or "",
         "status": "attention" if account.last_error else "paused" if not account.sync_enabled else "connected",
         "token_expires_at": account.oauth_token.expires_at.isoformat() if account.oauth_token and account.oauth_token.expires_at else None,
@@ -448,7 +460,8 @@ def sync_account(account, limit=EMAIL_BACKFILL_LIMIT_PER_ACCOUNT):
         if deleted_ids:
             _remove_deleted_messages(account, deleted_ids)
         stored_count = EmailMessage.query.filter_by(account_id=account.id).count()
-        if stored_count < limit:
+        repair_mail_times = (account.mail_time_version or 0) < MAIL_TIME_VERSION
+        if stored_count < limit or repair_mail_times:
             recent_ids = _gmail_recent_message_ids(service, limit)
             existing_ids = {
                 provider_id
@@ -466,9 +479,9 @@ def sync_account(account, limit=EMAIL_BACKFILL_LIMIT_PER_ACCOUNT):
                 for provider_id in recent_ids
                 if provider_id not in existing_ids
             ]
-            message_ids = list(
-                dict.fromkeys(message_ids + backfill_ids)
-            )[:limit]
+            message_ids = list(dict.fromkeys(
+                (recent_ids if repair_mail_times else message_ids) + backfill_ids + message_ids
+            ))[:limit]
         imported = 0
         for provider_message_id in message_ids:
             try:
@@ -484,7 +497,8 @@ def sync_account(account, limit=EMAIL_BACKFILL_LIMIT_PER_ACCOUNT):
                     continue
                 raise
             imported += int(upsert_gmail_message(account, message))
-        account.last_sync_at = datetime.utcnow()
+        account.last_sync_at = utc_now_naive()
+        account.mail_time_version = MAIL_TIME_VERSION
         account.last_error = None
         db.session.commit()
         return {"ok": True, "account": serialize_account(account), "seen": len(message_ids), "imported": imported}
@@ -709,14 +723,7 @@ def _attachments_from_payload(payload):
 
 
 def _parse_gmail_date(header_date, internal_date):
-    if header_date:
-        try:
-            return parsedate_to_datetime(header_date).replace(tzinfo=None)
-        except Exception:
-            pass
-    if internal_date:
-        return datetime.fromtimestamp(int(internal_date) / 1000)
-    return datetime.utcnow()
+    return normalize_gmail_datetime(header_date, internal_date)
 
 
 def analyze_pending_emails(limit=25, app_config=None):
@@ -1328,7 +1335,7 @@ def parse_deadline_text(value, anchor=None):
 
 
 def generate_daily_plan(plan_date=None):
-    plan_date = plan_date or date.today()
+    plan_date = plan_date or local_today()
     recent_email_ids = latest_email_ids_combined(EMAIL_PORTFOLIO_LIMIT)
     urgent = (
         EmailInsight.query.join(EmailMessage)
@@ -1373,7 +1380,7 @@ def generate_daily_plan(plan_date=None):
 
 
 def generate_weekly_plan(week_start=None):
-    today = date.today()
+    today = local_today()
     week_start = week_start or (today - timedelta(days=today.weekday()))
     items = [
         {"day": "Monday", "focus": "Email triage and project planning"},
@@ -1416,7 +1423,7 @@ def refresh_suggestions():
 
 
 def intelligence_today():
-    daily = DailyPlan.query.filter_by(plan_date=date.today()).first()
+    daily = DailyPlan.query.filter_by(plan_date=local_today()).first()
     if daily is None:
         return generate_daily_plan()
     return serialize_daily_plan(daily)
@@ -1477,6 +1484,7 @@ def intelligence_summary(*, refresh_planner=True):
     github_daily = generate_daily_summary()
     db.session.commit()
     return {
+        "clock": machine_clock(),
         "accounts": accounts,
         "unread_emails": unread,
         "urgent_emails": urgent,
@@ -1531,12 +1539,19 @@ def semantic_search(query, limit=8):
 
 
 def serialize_email(email):
+    timing = mail_time_details(email.sent_at)
     return {
         "id": email.id,
         "account": email.account.email if email.account else "",
         "sender": email.sender or "",
         "subject": email.subject,
-        "timestamp": email.sent_at.isoformat() if email.sent_at else None,
+        "timestamp": timing["timestamp_utc"],
+        "timestamp_local": timing["timestamp_local"],
+        "local_date": timing["local_date"],
+        "is_today": timing["is_today"],
+        "age_seconds": timing["age_seconds"],
+        "age_label": timing["age_label"],
+        "timezone": timing["timezone"],
         "labels": _json(email.labels_json),
         "snippet": email.snippet or "",
         "insight": serialize_insight(email.insight) if email.insight else None,

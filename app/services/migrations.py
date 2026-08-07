@@ -105,6 +105,16 @@ MIGRATIONS: tuple[MigrationSpec, ...] = (
             ColumnAddition("reminder", "notification_claimed_until", "ALTER TABLE reminder ADD COLUMN notification_claimed_until DATETIME"),
         ),
     ),
+    MigrationSpec(
+        "2026-08-08-mail-time-normalization-v1",
+        (
+            ColumnAddition(
+                "connected_account",
+                "mail_time_version",
+                "ALTER TABLE connected_account ADD COLUMN mail_time_version INTEGER NOT NULL DEFAULT 0",
+            ),
+        ),
+    ),
 )
 
 

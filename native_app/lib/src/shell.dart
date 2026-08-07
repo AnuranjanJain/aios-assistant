@@ -3081,7 +3081,7 @@ class _AccountRow extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         _string(
-                          item['last_sync_at'],
+                          item['last_sync_at_local'] ?? item['last_sync_at'],
                           fallback: 'Connected locally',
                         ),
                         maxLines: 1,

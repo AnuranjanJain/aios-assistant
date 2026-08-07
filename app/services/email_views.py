@@ -11,6 +11,7 @@ from app.services.email_scope import (
     clamp_email_limit,
     latest_emails_combined,
 )
+from app.services.time_utils import local_today
 
 
 def _json(value):
@@ -151,7 +152,7 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
             opportunity.notes = _summary_lines(email, insight)[:2000]
 
     email_ids = [email.id for email in emails]
-    today = date.today()
+    today = local_today()
     active_keys = set()
     seen_tasks = set()
     tasks = (
@@ -231,5 +232,5 @@ def _first_task_due_at(email):
 def _task_due_at(task, today=None):
     if task.due_at:
         return task.due_at
-    today = today or date.today()
+    today = today or local_today()
     return datetime.combine(today, time(18, 0))

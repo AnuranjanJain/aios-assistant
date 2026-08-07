@@ -131,6 +131,67 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertIn("connect it again", result["suggested_fix"])
         self.assertIsNotNone(db.session.get(ConnectedAccount, account.id))
 
+    def test_sync_repairs_old_mail_timestamps_from_latest_gmail_window(self):
+        class Execute:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def execute(self):
+                return self.payload
+
+        message = {
+            "id": "latest-mail",
+            "threadId": "latest-thread",
+            "historyId": "500",
+            "labelIds": ["INBOX"],
+            "internalDate": "1786132800000",
+            "payload": {
+                "headers": [
+                    {"name": "Date", "value": "Fri, 07 Aug 2026 20:00:00 +0000"},
+                    {"name": "From", "value": "updates@example.com"},
+                    {"name": "Subject", "value": "Latest update"},
+                ]
+            },
+        }
+
+        class Messages:
+            def list(self, **_kwargs):
+                return Execute({"messages": [{"id": "latest-mail"}]})
+
+            def get(self, **_kwargs):
+                return Execute(message)
+
+        class Users:
+            def messages(self):
+                return Messages()
+
+        class FakeService:
+            def users(self):
+                return Users()
+
+        account = ConnectedAccount(
+            provider="google",
+            email="repair@example.com",
+            label="Repair",
+            mail_time_version=0,
+        )
+        db.session.add(account)
+        db.session.commit()
+
+        with mock.patch(
+            "app.services.email_intelligence.credentials_for_account",
+            return_value=object(),
+        ), mock.patch(
+            "googleapiclient.discovery.build",
+            return_value=FakeService(),
+        ):
+            result = sync_account(account, limit=1)
+
+        refreshed = EmailMessage.query.filter_by(provider_message_id="latest-mail").one()
+        self.assertTrue(result["ok"])
+        self.assertEqual(account.mail_time_version, 1)
+        self.assertEqual(refreshed.sent_at, datetime(2026, 8, 7, 20, 0))
+
     def test_gmail_insights_feed_inbox_opportunities_and_reminders(self):
         account = ConnectedAccount(provider="google", email="student@example.com", label="Student")
         email = EmailMessage(
