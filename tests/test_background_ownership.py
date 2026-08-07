@@ -1,4 +1,8 @@
 from hackathon_monitor_worker import scan_once
+from app.services import background_services
+from desktop_app import PollingWorker
+import threading
+import time
 
 
 def test_opportunity_worker_does_not_claim_gmail(monkeypatch):
@@ -34,3 +38,29 @@ def test_opportunity_worker_does_not_claim_gmail(monkeypatch):
 
     scan_once(FakeApp())
     assert seen == ["hackathon_platforms", "job_portals"]
+
+
+def test_polling_worker_backs_off_after_transient_failure(monkeypatch):
+    background_services._services.clear()
+    background_services.register_service("test", "Test", "Test worker")
+    calls = []
+    stop = threading.Event()
+
+    def callback(_state):
+        calls.append(time.monotonic())
+        if len(calls) == 2:
+            stop.set()
+        raise RuntimeError("temporary Gmail outage")
+
+    worker = PollingWorker("test", callback, {}, lambda _state: None, interval=0.01)
+    monkeypatch.setattr(worker, "stop_event", stop)
+    worker.start()
+    worker.join(timeout=1)
+
+    status = background_services.list_background_services()[0]
+    assert len(calls) == 2
+    assert calls[1] - calls[0] >= 0.015
+    assert status["failure_count"] == 2
+    assert status["last_error"] == "temporary Gmail outage"
+    assert status["next_run_at"] is not None
+    background_services._services.clear()

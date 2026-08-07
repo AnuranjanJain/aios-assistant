@@ -262,17 +262,32 @@ class PollingWorker(threading.Thread):
 
     def run(self):
         while not self.stop_event.is_set():
+            started = time.monotonic()
             try:
                 self.callback(self.state)
                 self.save_callback(self.state)
                 from app.services.background_services import record_service_run
 
-                record_service_run(self.service_id)
+                record_service_run(
+                    self.service_id,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                )
+                delay = self.interval
             except Exception as exc:
                 from app.services.background_services import record_service_run
 
-                record_service_run(self.service_id, exc)
-            self.stop_event.wait(self.interval)
+                failures = int(getattr(self, "failure_count", 0)) + 1
+                self.failure_count = failures
+                delay = min(self.interval * (2 ** min(failures, 3)), self.interval * 8)
+                record_service_run(
+                    self.service_id,
+                    exc,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                    retry_after=delay,
+                )
+            else:
+                self.failure_count = 0
+            self.stop_event.wait(delay)
 
     def shutdown(self):
         self.stop_event.set()
