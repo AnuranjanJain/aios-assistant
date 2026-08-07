@@ -512,7 +512,11 @@ def _gmail_message_ids(service, account, limit):
         try:
             page_token = None
             newest_history_id = account.sync_cursor
-            while len(found) < limit:
+            history_pages = 0
+            while True:
+                history_pages += 1
+                if history_pages > 100:
+                    raise RuntimeError("Gmail history pagination exceeded the safety limit.")
                 kwargs = {
                     "userId": "me",
                     "startHistoryId": account.sync_cursor,
@@ -533,9 +537,8 @@ def _gmail_message_ids(service, account, limit):
                         message_id = change.get("message", {}).get("id")
                         if message_id and message_id not in seen:
                             seen.add(message_id)
-                            found.append(message_id)
-                            if len(found) >= limit:
-                                break
+                            if len(found) < limit:
+                                found.append(message_id)
                     for change in item.get("messagesDeleted", []):
                         message_id = change.get("message", {}).get("id")
                         if message_id:
@@ -599,8 +602,19 @@ def _remove_deleted_messages(account, provider_ids):
         EmailMessage.account_id == account.id,
         EmailMessage.provider_message_id.in_(set(provider_ids)),
     ).all()
+    thread_ids = {message.thread_id for message in messages if message.thread_id}
     for message in messages:
         db.session.delete(message)
+    if messages:
+        db.session.flush()
+    if thread_ids:
+        orphaned_threads = EmailThread.query.filter(
+            EmailThread.account_id == account.id,
+            EmailThread.id.in_(thread_ids),
+            ~EmailThread.messages.any(),
+        ).all()
+        for thread in orphaned_threads:
+            db.session.delete(thread)
     return len(messages)
 
 

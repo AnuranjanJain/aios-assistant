@@ -35,6 +35,7 @@ from app.models import (
 )
 from app.services.email_intelligence import (
     _gmail_message_ids,
+    _remove_deleted_messages,
     analyze_pending_emails,
     decrypt_token_json,
     encrypt_token_json,
@@ -1009,6 +1010,34 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         account = ConnectedAccount(provider="google", email="pages@example.com", sync_cursor="100")
         self.assertEqual(_gmail_message_ids(FakeService(), account, limit=10), ["m-1", "m-2"])
         self.assertEqual(account.sync_cursor, "240")
+
+    def test_deleted_gmail_messages_and_orphaned_threads_are_removed(self):
+        account = ConnectedAccount(provider="google", email="deleted@example.com", label="Deleted")
+        db.session.add(account)
+        db.session.flush()
+        for message_id in ("deleted-1", "deleted-2"):
+            upsert_gmail_message(
+                account,
+                {
+                    "id": message_id,
+                    "threadId": "deleted-thread",
+                    "historyId": "300",
+                    "labelIds": ["INBOX"],
+                    "snippet": "Deleted test message",
+                    "payload": {"headers": [{"name": "Subject", "value": message_id}]},
+                },
+            )
+        db.session.commit()
+        thread = EmailThread.query.filter_by(provider_thread_id="deleted-thread").one()
+
+        self.assertEqual(_remove_deleted_messages(account, {"deleted-1"}), 1)
+        db.session.commit()
+        self.assertIsNone(EmailMessage.query.filter_by(provider_message_id="deleted-1").first())
+        self.assertIsNotNone(db.session.get(EmailThread, thread.id))
+
+        self.assertEqual(_remove_deleted_messages(account, {"deleted-2"}), 1)
+        db.session.commit()
+        self.assertIsNone(db.session.get(EmailThread, thread.id))
 
     def test_google_desktop_oauth_client_status_hides_client_secret(self):
         target = Path(self.temp_dir.name) / "credentials" / "google_client_secret.json"
