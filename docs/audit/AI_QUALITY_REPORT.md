@@ -12,11 +12,15 @@ AiOS is primarily deterministic and local, with optional Ollama JSON generation.
 - Ollama is loopback-only and unsafe URLs fail before network I/O.
 - Classifier categories are allow-listed; confidence is finite and clamped to `[0, 1]`.
 - AI-generated suggestions do not directly submit forms or external actions; browser submission remains approval-gated.
-- `scripts/ai_quality_gate.py` runs deterministic personal-interview, job-alert, and prompt-injection cases in CI.
+- `scripts/ai_quality_gate.py` runs a 16-case redacted synthetic corpus in CI and reports category precision/recall/F1, macro F1, actionable precision/recall/F1, expected calibration error, abstention rate, and prompt-injection safety.
+
+## Current gate result
+
+The 2026-08-08 gate passes with macro F1 `1.0000`, actionable F1 `1.0000`, ECE `0.1869`, abstention `0.1250`, and a safe prompt-injection result. The fixture is intentionally synthetic and contains no private mailbox content. It is a deterministic regression gate, not a claim of production accuracy.
 
 ## Remaining quality gap
 
-The smoke gate is not a calibrated evaluation. AiOS still needs a locally stored, redacted, user-labeled corpus covering hackathons, placements, NeoPat, deadlines, applied/opening state, interviews, and ignore cases. The release gate should track per-class precision, recall, F1, deadline extraction accuracy, false-notification rate, calibration error, and abstention rate.
+AiOS still needs a consented, locally stored, redacted, user-labeled corpus covering hackathons, placements, NeoPat, deadlines, applied/opening state, interviews, and ignore cases. The release gate should add deadline extraction accuracy, false-notification rate, and drift comparisons over time. The synthetic gate must remain in place even after real labels are added.
 
 Every AI-produced field should retain:
 

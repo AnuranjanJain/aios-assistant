@@ -8,7 +8,7 @@ The Flutter shell has one shared navigation frame, icon-based navigation, page t
 
 ## Evidence gap
 
-Flutter 3.44.2 is installed. Analyzer, 9 widget tests, compact-layout checks, a clean Windows package, and packaged-core smoke pass. High-DPI screenshots, keyboard navigation, screen-reader behavior, forced-colors behavior, and installer upgrade/uninstall still need manual desktop verification.
+Flutter 3.44.2 is installed. Analyzer, 10 widget tests including high-DPI layout, compact-layout checks, a clean Windows package, packaged-core smoke, and isolated installer upgrade/uninstall pass. Keyboard navigation, screen-reader behavior, forced-colors behavior, and manual desktop verification remain.
 
 ## Remaining UX work
 

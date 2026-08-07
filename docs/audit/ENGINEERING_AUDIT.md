@@ -4,13 +4,14 @@ Audit date: 2026-08-08
 
 ## Summary
 
-AiOS now has a meaningful local-first hardening baseline: 109 Python tests pass, dependency audits are clean, core API boundaries are authenticated, Gmail sync has recovery behavior, background ownership is explicit, and release artifacts can be hashed and SBOM-checked. The remaining readiness gap is evidence around the native Windows package and production operations, not the original unauthenticated/local-egress design flaws.
+AiOS now has a meaningful local-first hardening baseline: 116 Python tests pass, dependency audits are clean, core API boundaries are authenticated, Gmail sync has recovery behavior, background ownership is explicit, migrations are checksummed and rollback-tested, and release artifacts can be hashed and SBOM-checked. The remaining readiness gap is evidence around signing, real integrations, native accessibility, and production operations, not the original unauthenticated/local-egress design flaws.
 
 ## Evidence
 
-- `python -m pytest -q`: 111 passed, 1 platform-dependent symlink test skipped.
-- `python -m coverage run --branch -m pytest -q`: 111 passed; 72% combined coverage.
-- `python scripts/ai_quality_gate.py`: passed three deterministic cases, including prompt injection.
+- `python -m pytest -q`: 116 passed, 1 platform-dependent symlink test skipped.
+- `python -m coverage run --branch -m pytest -q`: 116 passed; 73% combined coverage.
+- `python scripts/ai_quality_gate.py`: passed 16 redacted synthetic cases; macro F1 1.00, actionable F1 1.00, ECE 0.1869, abstention 0.125, prompt injection safe.
+- `python scripts/performance_smoke.py`: passed synthetic 10,000-message benchmark; `/api/live` p95 213.67 ms and inbox p95 23.83 ms.
 - `python -m compileall -q app automation_agent browser_agent career_agent desktop_app.py run.py`: passed.
 - `python -m pip_audit -r requirements.txt`: no known vulnerabilities.
 - `python -m pip_audit -r requirements-memory.txt`: no known vulnerabilities.
@@ -34,11 +35,11 @@ AiOS now has a meaningful local-first hardening baseline: 109 Python tests pass,
 
 ## Remaining engineering risks
 
-1. Flutter 3.44.2 is now installed and the native client passes analyzer, 9 widget tests, a clean Windows build, and packaged core pairing/live smoke. High-DPI, accessibility, installer upgrade, and manual shutdown behavior still need a real desktop review.
+1. Flutter 3.44.2 is now installed and the native client passes analyzer, 10 widget tests including high-DPI layout, a clean Windows build, packaged core pairing/live smoke, and isolated install/upgrade/uninstall smoke. Accessibility and manual shutdown behavior still need a real desktop review.
 2. Public release signing and certificate verification are not configured.
-3. The migration runner is safer but still handwritten; Alembic or a versioned migration ledger with rollback should replace it.
-4. Coverage is 72% overall and low in lifecycle/native/connector modules; no critical-module threshold is enforced.
-5. AI quality has a deterministic smoke gate, but no redacted labeled corpus, calibration, or abstention metric.
+3. The migration runner is now a checksummed versioned ledger with explicit offline rollback; Alembic remains a future multi-device option.
+4. Coverage is 73% overall and low in lifecycle/native/connector modules; no critical-module threshold is enforced.
+5. AI quality has a deterministic synthetic gate with calibration and abstention metrics, but no consented user-labeled corpus or drift measurement.
 6. WDYD remains the owner of desktop activity collection; AiOS intentionally consumes a privacy-minimized snapshot instead of silently duplicating surveillance.
 
 ## Recommendation
