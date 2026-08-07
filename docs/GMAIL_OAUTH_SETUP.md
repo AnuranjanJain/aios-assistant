@@ -12,6 +12,10 @@ It requests only `gmail.readonly`; it cannot send, edit, or delete email.
 4. Choose a Gmail address in the system browser and approve read-only access.
 5. Use **Add another Google account** to connect more mailboxes.
 
+The sign-in state is checkpointed in the local AiOS database for its short
+15-minute lifetime. If the desktop core restarts while the browser is open,
+the waiting screen can recover the same job instead of losing the session.
+
 The installed AiOS release reads its desktop OAuth client configuration from
 the user app-data directory. The JSON is intentionally not embedded in the
 executable or committed to the repository.

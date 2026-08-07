@@ -172,6 +172,21 @@ class OAuthToken(db.Model):
     )
 
 
+class OAuthSignInJob(db.Model):
+    id = db.Column(db.String(160), primary_key=True)
+    status = db.Column(db.String(30), nullable=False, index=True)
+    message = db.Column(db.Text, nullable=False)
+    authorization_url = db.Column(db.Text, nullable=True)
+    result_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
 class EmailThread(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     account_id = db.Column(db.Integer, db.ForeignKey("connected_account.id"), nullable=False, index=True)
