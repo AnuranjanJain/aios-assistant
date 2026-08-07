@@ -53,6 +53,10 @@ class ProductionHardeningTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertNotIn("api_token", response.get_json())
 
+    def test_app_startup_reaches_a_ready_flask_application(self):
+        self.assertIsNotNone(self.app.url_map)
+        self.assertIn("/api/live", {rule.rule for rule in self.app.url_map.iter_rules()})
+
     def test_loopback_ai_policy_blocks_remote_destinations(self):
         self.assertTrue(is_loopback_url("http://localhost:11434"))
         self.assertTrue(is_loopback_url("http://127.0.0.1:9"))
