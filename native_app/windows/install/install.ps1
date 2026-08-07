@@ -43,8 +43,19 @@ if (-not (Test-Path -LiteralPath (Join-Path $sourceDir "AiOS-Core.exe"))) {
   throw "AiOS-Core.exe is missing from the native release."
 }
 
-Get-Process aios_assistant, AiOS-Core, AiOS-Assistant -ErrorAction SilentlyContinue |
-  Stop-Process -Force -ErrorAction SilentlyContinue
+$managedRoots = @($sourceDir, $installDir) | ForEach-Object {
+  [System.IO.Path]::GetFullPath($_).TrimEnd('\') + '\'
+}
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object {
+    $process = $_
+    $process.Name -in @("aios_assistant.exe", "AiOS-Core.exe", "AiOS-Assistant.exe") -and
+      $process.ExecutablePath -and
+      ($managedRoots | Where-Object {
+        $process.ExecutablePath.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase)
+      }).Count -gt 0
+  } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Milliseconds 500
 
 Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue

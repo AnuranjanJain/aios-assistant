@@ -30,7 +30,16 @@ $startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Star
 $startupShortcut = Join-Path $startupDir "AiOS Assistant.lnk"
 $startupLauncher = Join-Path $startupDir "AiOS Assistant Startup.cmd"
 
-Get-Process AiOS-Assistant -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object {
+        $process = $_
+        $process.Name -eq 'AiOS-Assistant.exe' -and $process.ExecutablePath -and
+            $process.ExecutablePath.StartsWith(
+                [System.IO.Path]::GetFullPath($installDir).TrimEnd('\\') + '\\',
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+    } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Milliseconds 500
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null

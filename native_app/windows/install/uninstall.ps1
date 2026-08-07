@@ -24,8 +24,14 @@ $legacyStartMenuDir = Join-Path $startMenuDir "AiOS Assistant"
 $startupLauncher = Join-Path $startMenuDir "Startup\AiOS Assistant Startup.cmd"
 $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AiOS Assistant Native"
 
-Get-Process aios_assistant, AiOS-Core, AiOS-Assistant -ErrorAction SilentlyContinue |
-  Stop-Process -Force -ErrorAction SilentlyContinue
+$managedRoot = [System.IO.Path]::GetFullPath($installDir).TrimEnd('\') + '\'
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object {
+    $_.Name -in @("aios_assistant.exe", "AiOS-Core.exe", "AiOS-Assistant.exe") -and
+      $_.ExecutablePath -and
+      $_.ExecutablePath.StartsWith($managedRoot, [System.StringComparison]::OrdinalIgnoreCase)
+  } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Milliseconds 300
 
 if (-not $NoShortcuts) {
