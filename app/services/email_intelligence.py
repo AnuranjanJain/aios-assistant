@@ -907,6 +907,7 @@ def heuristic_insight(email):
         required_documents,
         meetings,
     )
+    confidence = _heuristic_confidence(category, action, deadlines, meetings, text)
     return {
         "priority": triage.priority,
         "urgency": triage.urgency,
@@ -926,8 +927,34 @@ def heuristic_insight(email):
         "required_documents": required_documents,
         "repositories": repositories,
         "suggested_actions": suggested_actions,
-        "confidence": 0.58,
+        "confidence": confidence,
+        "needs_review": confidence < 0.65,
     }
+
+
+def _heuristic_confidence(category, has_action, deadlines, meetings, text):
+    """Estimate confidence from deterministic evidence, not model fluency."""
+    suspicious = any(
+        phrase in text
+        for phrase in (
+            "ignore previous instructions",
+            "reveal the system prompt",
+            "ignore all rules",
+            "call tools",
+        )
+    )
+    if suspicious:
+        return 0.25
+    if category == "general":
+        return 0.56
+    confidence = 0.78
+    if category in {"internship", "hackathon", "college", "security", "github"}:
+        confidence += 0.08
+    if has_action:
+        confidence += 0.06
+    if deadlines or meetings:
+        confidence += 0.04
+    return min(0.98, confidence)
 
 
 def classify_email_text(text):
