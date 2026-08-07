@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import json
 import sqlite3
+import urllib.parse
 from unittest import mock
 from pathlib import Path
 from datetime import date, datetime, time, timedelta
@@ -54,7 +55,12 @@ from app.services.email_views import materialize_email_views
 from app.services.application_intelligence import application_overview
 from app.routes import build_dashboard_context
 from app.services.project_context import create_project, project_context, update_project
-from app.services.github_intelligence import update_all_repositories, update_repository
+from app.services.github_intelligence import (
+    fetch_discussions,
+    github_object_list,
+    update_all_repositories,
+    update_repository,
+)
 from app.services.learning_intelligence import evening_questions, learning_summary, record_learning_progress, upsert_learning_item
 from app.services.daily_assistant import (
     evening_checkin_prompt,
@@ -1981,6 +1987,59 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(len(json.loads(repo.discussions_json)), 1)
         self.assertEqual(len(json.loads(repo.workflows_json)), 1)
         self.assertEqual(len(json.loads(repo.contributors_json)), 1)
+
+    def test_github_discussions_and_workflows_follow_pagination(self):
+        class Response:
+            def __init__(self, payload):
+                self.payload = json.dumps(payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return self.payload
+
+        def open_url(request, timeout=4.0):
+            if request.full_url.endswith("graphql"):
+                body = json.loads(request.data.decode("utf-8"))
+                after = body["variables"]["after"]
+                if after is None:
+                    return Response({
+                        "data": {
+                            "repository": {
+                                "discussions": {
+                                    "nodes": [{"title": "First"}],
+                                    "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                                }
+                            }
+                        }
+                    })
+                return Response({
+                    "data": {
+                        "repository": {
+                            "discussions": {
+                                "nodes": [{"title": "Second"}],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            }
+                        }
+                    }
+                })
+            page = int(urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)["page"][0])
+            return Response({"workflows": ([{"name": str(index)} for index in range(50)] if page == 1 else [{"name": "last"}])})
+
+        with mock.patch("app.services.github_intelligence.urllib.request.urlopen", side_effect=open_url):
+            discussions = fetch_discussions("example/project", {"Accept": "application/json"})
+            workflows = github_object_list(
+                "https://api.github.com/repos/example/project/actions/workflows",
+                "workflows",
+                per_page=50,
+            )
+
+        self.assertEqual([item["title"] for item in discussions], ["First", "Second"])
+        self.assertEqual(len(workflows), 51)
 
     def test_github_intelligence_updates_all_repositories_and_daily_summary(self):
         item = LifeItem(

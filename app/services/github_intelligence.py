@@ -82,6 +82,26 @@ def github_list(url, headers=None, per_page=100, max_pages=10):
     return items
 
 
+def github_object_list(url, key, headers=None, per_page=100, max_pages=10):
+    """Fetch a bounded paginated list nested inside a GitHub response object."""
+    parsed = urllib.parse.urlsplit(url)
+    query = [(name, value) for name, value in urllib.parse.parse_qsl(parsed.query) if name not in {"page", "per_page"}]
+    items = []
+    for page in range(1, max_pages + 1):
+        page_query = urllib.parse.urlencode([*query, ("page", page), ("per_page", per_page)])
+        page_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, page_query, parsed.fragment))
+        payload = github_json(page_url, headers)
+        if not isinstance(payload, dict):
+            break
+        page_items = payload.get(key) or []
+        if not isinstance(page_items, list):
+            break
+        items.extend(page_items)
+        if len(page_items) < per_page:
+            break
+    return items
+
+
 def discover_repository_urls():
     urls = set()
     for event in PlanningEvent.query.filter(PlanningEvent.repo_url.isnot(None)).all():
@@ -136,7 +156,12 @@ def fetch_repository_snapshot(repo_full_name):
     branches = github_list(f"https://api.github.com/repos/{encoded}/branches", headers)
     releases = github_list(f"https://api.github.com/repos/{encoded}/releases", headers)
     discussions = fetch_discussions(repo_full_name, headers)
-    workflows = github_json(f"https://api.github.com/repos/{encoded}/actions/workflows?per_page=20", headers)
+    workflows = github_object_list(
+        f"https://api.github.com/repos/{encoded}/actions/workflows",
+        "workflows",
+        headers,
+        per_page=50,
+    )
     contributors = github_list(f"https://api.github.com/repos/{encoded}/contributors", headers)
     return {
         "repo": repo,
@@ -146,33 +171,45 @@ def fetch_repository_snapshot(repo_full_name):
         "branches": branches,
         "releases": releases,
         "discussions": discussions,
-        "workflows": workflows.get("workflows", []) if isinstance(workflows, dict) else workflows,
+        "workflows": workflows,
         "contributors": contributors,
     }
 
 
 def fetch_discussions(repo_full_name, headers):
     owner, repo = repo_full_name.split("/", 1)
-    query = {
-        "query": (
-            "query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){"
-            "discussions(first:10,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{title,url,createdAt,updatedAt,answerChosenAt}}}}"
-        ),
-        "variables": {"owner": owner, "repo": repo},
-    }
-    request = urllib.request.Request(
-        "https://api.github.com/graphql",
-        data=json.dumps(query).encode("utf-8"),
-        headers={**headers, "Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=4.0) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
-        return []
-    nodes = payload.get("data", {}).get("repository", {}).get("discussions", {}).get("nodes", [])
-    return nodes or []
+    nodes = []
+    cursor = None
+    for _ in range(5):
+        query = {
+            "query": (
+                "query($owner:String!,$repo:String!,$after:String){repository(owner:$owner,name:$repo){"
+                "discussions(first:50,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){"
+                "nodes{title,url,createdAt,updatedAt,answerChosenAt}"
+                "pageInfo{hasNextPage,endCursor}}}}"
+            ),
+            "variables": {"owner": owner, "repo": repo, "after": cursor},
+        }
+        request = urllib.request.Request(
+            "https://api.github.com/graphql",
+            data=json.dumps(query).encode("utf-8"),
+            headers={**headers, "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=4.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
+            return nodes
+        if payload.get("errors"):
+            return nodes
+        discussion_data = payload.get("data", {}).get("repository", {}).get("discussions", {})
+        nodes.extend(discussion_data.get("nodes") or [])
+        page_info = discussion_data.get("pageInfo") or {}
+        if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+            break
+        cursor = page_info["endCursor"]
+    return nodes
 
 
 def apply_repository_snapshot(row, snapshot):
