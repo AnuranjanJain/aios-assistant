@@ -1,6 +1,7 @@
+import json
+import sqlite3
 import tempfile
 import unittest
-import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from app import create_app
-from app.models import Reminder, db
+from app.models import ActivityEvent, ConnectedAccount, OAuthToken, Reminder, Setting, db
 from app.services.email_intelligence import analyze_email, ollama_generate_json
 from app.services.local_security import LocalSecurityError, is_loopback_url, safe_ollama_url
 from app.services.migrations import (
@@ -20,6 +21,8 @@ from app.services.migrations import (
     restore_sqlite_backup,
 )
 from app.services.notifications import dispatch_due_notifications, upsert_notification
+from app.services.privacy import export_local_data, privacy_overview, purge_data, set_retention_days
+from runtime_paths import RuntimePaths
 
 
 class ProductionHardeningTestCase(unittest.TestCase):
@@ -190,6 +193,68 @@ class ProductionHardeningTestCase(unittest.TestCase):
             source = (root / filename).read_text(encoding="utf-8")
             self.assertNotIn("AIOS_GOOGLE_OAUTH_BUNDLE", source)
             self.assertNotIn("app_credentials", source)
+        core_spec = (root / "aios_core.spec").read_text(encoding="utf-8")
+        self.assertIn('"app.services.migrations"', core_spec)
+
+    def test_native_release_verification_and_startup_install_are_fail_closed(self):
+        root = Path(__file__).resolve().parents[1]
+        verifier = (root / "scripts" / "verify-native-release.ps1").read_text(encoding="utf-8")
+        self.assertIn("Manifest does not record the source commit", verifier)
+        self.assertIn("Size mismatch", verifier)
+        installer = (root / "native_app" / "windows" / "install" / "install.ps1").read_text(encoding="utf-8")
+        self.assertIn("[switch]$EnableStartup", installer)
+        self.assertIn("AiOS Assistant Startup.cmd", installer)
+        self.assertIn("--hidden", installer)
+        self.assertIn("/api/desktop/exit", installer)
+        self.assertIn("127\\.0\\.0\\.1", installer)
+        smoke = (root / "scripts" / "smoke-native-installer.ps1").read_text(encoding="utf-8")
+        self.assertIn("-EnableStartup", smoke)
+        self.assertIn("Startup launcher was not created", smoke)
+
+    def test_privacy_inventory_and_export_redact_secrets(self):
+        paths = RuntimePaths(
+            data_dir=Path(self.temp_dir.name) / "data",
+            config_dir=Path(self.temp_dir.name) / "config",
+            cache_dir=Path(self.temp_dir.name) / "cache",
+            logs_dir=Path(self.temp_dir.name) / "logs",
+            imports_dir=Path(self.temp_dir.name) / "imports",
+            credentials_dir=Path(self.temp_dir.name) / "credentials",
+            instance_dir=Path(self.temp_dir.name) / "instance",
+        )
+        with self.app.app_context(), patch("app.services.privacy.get_runtime_paths", return_value=paths):
+            account = ConnectedAccount(provider="google", email="private@example.com")
+            db.session.add(account)
+            db.session.flush()
+            db.session.add(OAuthToken(account_id=account.id, token_json_encrypted="bearer-secret"))
+            db.session.add(Setting(key="GITHUB_TOKEN", value="github-secret"))
+            db.session.add(Setting(key="OPENAI_API_KEY", value="openai-secret"))
+            db.session.add(Setting(key="TELEGRAM_BOT_TOKEN", value="telegram-secret"))
+            db.session.commit()
+
+            overview = privacy_overview()
+            self.assertGreaterEqual(overview["categories"]["email"], 2)
+            result = export_local_data()
+            payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+            exported = json.dumps(payload)
+            self.assertIn("[redacted]", exported)
+            self.assertNotIn("bearer-secret", exported)
+            self.assertNotIn("github-secret", exported)
+            self.assertNotIn("openai-secret", exported)
+            self.assertNotIn("telegram-secret", exported)
+
+    def test_privacy_purge_is_scoped_and_retention_is_bounded(self):
+        with self.app.app_context():
+            db.session.add(ActivityEvent(source="test", category="focus"))
+            db.session.add(Setting(key="OPENAI_API_KEY", value="purge-me"))
+            db.session.commit()
+            result = purge_data("activity")
+            self.assertEqual(result["scope"], "activity")
+            self.assertEqual(ActivityEvent.query.count(), 0)
+            self.assertEqual(set_retention_days(90)["retention_days"], 90)
+            with self.assertRaises(ValueError):
+                set_retention_days(1)
+            purge_data("everything")
+            self.assertEqual(db.session.get(Setting, "OPENAI_API_KEY").value, "")
 
 
 if __name__ == "__main__":

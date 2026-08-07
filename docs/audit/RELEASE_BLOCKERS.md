@@ -11,22 +11,22 @@ Audit date: 2026-08-08
 | RB-005 activity ownership | High | Resolved by scope | WDYD owns desktop activity collection; AiOS consumes a minimized snapshot and does not silently collect windows/keystrokes. |
 | RB-006 unsafe schema upgrade | High | Closed with evidence | Named checksummed migration steps, one consistent pre-upgrade backup, checksum refusal, explicit offline restore, and idempotent upgrade/restore tests pass. |
 | RB-007 Gmail sync incompleteness | High | Closed in code | Deleted history, transient retries, checkpoint recovery, and deleted-message cleanup are implemented; live provider testing remains. |
-| RB-008 unreproducible native build | High | Closed with evidence | Clean Flutter 3.44.2/Python 3.13.14 build passed on 2026-08-08; manifest and SHA-256 checksums are generated. |
+| RB-008 unreproducible native build | High | Partially closed | A clean Flutter 3.44.2/Python 3.13.14 build passed earlier; the current plugin-enabled rebuild is correctly blocked by missing Windows Developer Mode and the build script now fails closed instead of copying stale binaries. |
 | RB-009 unsigned artifacts | High | Open | Build emits an explicit unsigned marker and supports `-RequireSigning`; configure certificate thumbprint and verify Authenticode. |
 | RB-010 browser redirect bypass | High | Closed in code | Final URL is validated after navigation and before extraction/download. |
 | RB-011 no AI evaluation gate | High | Partially closed | Sixteen redacted synthetic cases pass macro F1 1.00, actionable F1 1.00, ECE 0.1869, abstention 0.125, and prompt-injection safety. Consent-based user labels and drift monitoring remain. |
-| RB-012 native verification gap | High | Partially closed | Flutter analyze, 10 widget tests including high-DPI layout, packaged core pairing/live smoke, and isolated install/upgrade/uninstall smoke pass. Real-desktop accessibility, keyboard, forced-colors, and manual shutdown review remain. |
-| RB-013 triage reproducibility | High | Closed for current suite | 116 tests pass in the direct and coverage runs; one platform-dependent symlink test is skipped; repeat clean subprocess runs after dependency installation remain recommended. |
+| RB-012 native verification gap | High | Partially closed | Flutter analyze, 10 widget tests including high-DPI layout, packaged core pairing/live smoke, and isolated install/upgrade/uninstall smoke pass. The current environment cannot rebuild the plugin-enabled shell without Windows Developer Mode; real-desktop accessibility, keyboard, forced-colors, and manual shutdown review remain. |
+| RB-013 triage reproducibility | High | Closed for current suite | 124 tests pass in the direct suite; one platform-dependent symlink test is skipped; repeat clean subprocess runs after dependency installation remain recommended. |
 | RB-014 vulnerable dependency pins | Critical | Closed for declared requirements | Both `pip-audit` requirements files report no known vulnerabilities; run the audit against the final packaged environment too. |
 | RB-015 broad localhost trust | High | Closed in code | Exact origins, form/API tokens, secure cookie controls, and explicit LAN guard are implemented. |
 | RB-016 notification race/state reset | High | Closed in code | Completed state stays completed and dispatch uses an atomic claim lease. |
-| RB-017 unbounded work | High | Closed with bounded evidence | Import, upload, analytics, browser, profile, and FastAPI limits plus provider retry budgets exist; synthetic 10k-message warm reads pass with `/api/live` p95 213.67 ms and inbox p95 23.83 ms. 100k/24-hour/live-account measurements remain. |
+| RB-017 unbounded work | High | Closed with bounded evidence | Import, upload, analytics, browser, profile, and FastAPI limits plus provider retry budgets exist; synthetic 100k-message warm reads pass with `/api/live` p95 265.51 ms and inbox p95 50.10 ms. 24-hour/live-account measurements remain. |
 
 ## Public release checklist
 
 - [x] Flutter analyzer, widget tests, build, and packaged core smoke pass.
 - [x] Isolated native installer payload and uninstaller smoke pass.
-- [ ] Native startup, high-DPI, keyboard, screen-reader, forced-colors, and reduced-motion checks pass on a real desktop.
+- [ ] Native startup, high-DPI, keyboard, screen-reader, forced-colors, and reduced-motion checks pass on a real desktop after a fresh Flutter build.
 - [ ] Native artifact is Authenticode-signed and signature verification is recorded.
 - [ ] OAuth JSON is external and absent from the executable/archive.
 - [ ] Live Gmail multi-account, expiry, deletion, and rate-limit fixtures pass.

@@ -27,6 +27,7 @@ hiddenimports = (
         "hackathon_monitor_worker",
         "local_worker",
         "watch_import_worker",
+        "app.services.migrations",
     ]
 )
 

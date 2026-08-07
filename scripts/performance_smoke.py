@@ -7,6 +7,7 @@ against a 10,000-message SQLite mailbox and never touches the user's data.
 from __future__ import annotations
 
 import json
+import argparse
 import statistics
 import sys
 import tempfile
@@ -31,10 +32,10 @@ def _percentile(values, percentile):
     return statistics.quantiles(values, n=100, method="inclusive")[percentile - 1]
 
 
-def _measure(client, path):
+def _measure(client, path, samples):
     client.get(path, headers={"X-AiOS-Token": "performance-smoke-token"})
     values = []
-    for _ in range(SAMPLES):
+    for _ in range(samples):
         started = time.perf_counter()
         response = client.get(path, headers={"X-AiOS-Token": "performance-smoke-token"})
         elapsed = (time.perf_counter() - started) * 1000
@@ -49,7 +50,15 @@ def _measure(client, path):
     }
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Run a synthetic local AiOS dashboard benchmark.")
+    parser.add_argument("--dataset-size", type=int, default=DATASET_SIZE)
+    parser.add_argument("--samples", type=int, default=SAMPLES)
+    parser.add_argument("--p95-limit-ms", type=float, default=P95_LIMIT_MS)
+    args = parser.parse_args(argv)
+    if args.dataset_size < 1 or args.samples < 2:
+        parser.error("dataset size must be positive and samples must be at least 2")
+
     with tempfile.TemporaryDirectory(prefix="aios-performance-") as directory:
         database = Path(directory) / "performance.db"
 
@@ -84,7 +93,7 @@ def main():
                     is_unread=index % 7 == 0,
                     sent_at=now - timedelta(minutes=index),
                 )
-                for index in range(DATASET_SIZE)
+                for index in range(args.dataset_size)
             ]
             db.session.bulk_save_objects(records)
             db.session.commit()
@@ -93,19 +102,19 @@ def main():
             engine = db.engine
             with app.test_client() as client:
                 measurements = {
-                    "/api/live": _measure(client, "/api/live"),
-                    "/api/inbox/overview": _measure(client, "/api/inbox/overview"),
+                    "/api/live": _measure(client, "/api/live", args.samples),
+                    "/api/inbox/overview": _measure(client, "/api/inbox/overview", args.samples),
                 }
             db.session.remove()
             engine.dispose()
 
-    passed = all(item["p95_ms"] <= P95_LIMIT_MS for item in measurements.values())
+    passed = all(item["p95_ms"] <= args.p95_limit_ms for item in measurements.values())
     payload = {
         "ok": passed,
         "synthetic": True,
-        "dataset_messages": DATASET_SIZE,
-        "samples_per_route": SAMPLES,
-        "p95_limit_ms": P95_LIMIT_MS,
+        "dataset_messages": args.dataset_size,
+        "samples_per_route": args.samples,
+        "p95_limit_ms": args.p95_limit_ms,
         "routes": measurements,
     }
     print(json.dumps(payload, indent=2))

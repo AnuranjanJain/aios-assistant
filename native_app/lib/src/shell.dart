@@ -3434,6 +3434,125 @@ class _SettingsPage extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          _PrivacyPanel(controller: controller),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivacyPanel extends StatelessWidget {
+  const _PrivacyPanel({required this.controller});
+  final AiosController controller;
+
+  Future<void> _confirmPurge(
+    BuildContext context,
+    String scope,
+    String label,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete $label?'),
+        content: Text(
+          'This removes the selected data from this device. Google mail is not changed. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete local data'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await controller.purgePrivacyData(scope);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _map(controller.dataFor('settings'));
+    final categories = _map(data['categories']);
+    final retention = (data['retention_days'] as num?)?.toInt() ?? 365;
+    return _Panel(
+      eyebrow: 'PRIVACY',
+      title: 'Your data, your controls',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Everything stays on this device. Exports redact tokens, and deletion is scoped and confirmed.',
+            style: TextStyle(color: _Palette.of(context).muted, height: 1.45),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: categories.entries
+                .map(
+                  (entry) => _InfoChip(
+                    label: '${entry.key}: ${entry.value}',
+                    color: _Palette.primary,
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _ActionButton(
+                label: 'Export local data',
+                icon: Icons.download_outlined,
+                primary: true,
+                onTap: controller.isActionBusy('privacy:export')
+                    ? null
+                    : controller.exportPrivacyData,
+              ),
+              _ActionButton(
+                label: retention == 0
+                    ? 'Retention off'
+                    : 'Keep $retention days',
+                icon: Icons.schedule_outlined,
+                onTap: controller.isActionBusy('privacy:retention')
+                    ? null
+                    : () => controller.setRetentionDays(
+                        retention == 365 ? 90 : 365,
+                      ),
+              ),
+              _ActionButton(
+                label: 'Delete email data',
+                icon: Icons.mail_outline,
+                danger: true,
+                onTap: controller.isActionBusy('privacy:purge:email')
+                    ? null
+                    : () => _confirmPurge(
+                        context,
+                        'email',
+                        'Gmail and inbox data',
+                      ),
+              ),
+              _ActionButton(
+                label: 'Delete activity',
+                icon: Icons.timeline_outlined,
+                danger: true,
+                onTap: controller.isActionBusy('privacy:purge:activity')
+                    ? null
+                    : () => _confirmPurge(
+                        context,
+                        'activity',
+                        'activity history',
+                      ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -3527,6 +3646,33 @@ class _PageColumn extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: children,
   );
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _Palette.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.32)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: palette.text,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
 }
 
 class _Panel extends StatelessWidget {

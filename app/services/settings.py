@@ -19,6 +19,7 @@ SETTING_KEYS = {
     "WATCH_IMPORT_DIR": "Watch import folder",
     "GITHUB_TOKEN": "GitHub token for private repo activity",
     "LOCAL_API_TOKEN": "Local API token",
+    "LOCAL_RETENTION_DAYS": "Operational history retention (days, 0 disables)",
 }
 
 

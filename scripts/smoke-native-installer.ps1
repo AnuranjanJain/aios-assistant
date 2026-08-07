@@ -23,14 +23,21 @@ if (-not $installDir.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgn
 }
 
 try {
-    & $installer -InstallDirectory $installDir -NoLaunch -NoShortcuts -NoRegistry
+    & $installer -InstallDirectory $installDir -NoLaunch -NoShortcuts -NoRegistry -EnableStartup
     foreach ($required in @("aios_assistant.exe", "AiOS-Core.exe", "flutter_windows.dll", "data\flutter_assets")) {
         if (-not (Test-Path -LiteralPath (Join-Path $installDir $required))) {
             throw "Installed payload is missing: $required"
         }
     }
+    $startupLauncher = Join-Path $installDir "_start-menu\Startup\AiOS Assistant Startup.cmd"
+    if (-not (Test-Path -LiteralPath $startupLauncher)) {
+        throw "Startup launcher was not created: $startupLauncher"
+    }
+    if (-not ((Get-Content -LiteralPath $startupLauncher -Raw) -match "--hidden")) {
+        throw "Startup launcher does not start AiOS in hidden mode."
+    }
     $firstCoreHash = (Get-FileHash -LiteralPath (Join-Path $installDir "AiOS-Core.exe") -Algorithm SHA256).Hash
-    & $installer -InstallDirectory $installDir -NoLaunch -NoShortcuts -NoRegistry
+    & $installer -InstallDirectory $installDir -NoLaunch -NoShortcuts -NoRegistry -EnableStartup
     $secondCoreHash = (Get-FileHash -LiteralPath (Join-Path $installDir "AiOS-Core.exe") -Algorithm SHA256).Hash
     if ($firstCoreHash -ne $secondCoreHash) {
         throw "Installer upgrade changed the core payload unexpectedly."

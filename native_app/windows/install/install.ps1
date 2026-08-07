@@ -2,7 +2,8 @@ param(
   [string]$InstallDirectory = "",
   [switch]$NoLaunch,
   [switch]$NoShortcuts,
-  [switch]$NoRegistry
+  [switch]$NoRegistry,
+  [switch]$EnableStartup
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,7 +47,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $sourceDir "AiOS-Core.exe"))) {
 $managedRoots = @($sourceDir, $installDir) | ForEach-Object {
   [System.IO.Path]::GetFullPath($_).TrimEnd('\') + '\'
 }
-Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+$managedProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
   Where-Object {
     $process = $_
     $process.Name -in @("aios_assistant.exe", "AiOS-Core.exe", "AiOS-Assistant.exe") -and
@@ -54,9 +55,27 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
       ($managedRoots | Where-Object {
         $process.ExecutablePath.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase)
       }).Count -gt 0
-  } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  })
+
+# Ask the managed core to flush SQLite and stop its workers before using the
+# forced fallback. Runtime metadata is accepted only for a process already
+# proven to belong to this install operation.
+$runtimePath = Join-Path $env:LOCALAPPDATA "AiOS Assistant\runtime.json"
+if (Test-Path -LiteralPath $runtimePath) {
+  try {
+    $runtime = Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json
+    $runtimePid = [int]$runtime.pid
+    $managedRuntime = $managedProcesses | Where-Object { $_.ProcessId -eq $runtimePid } | Select-Object -First 1
+    if ($managedRuntime -and [string]$runtime.base_url -match '^http://127\.0\.0\.1:\d+$') {
+      Invoke-WebRequest -Uri "$($runtime.base_url)/api/desktop/exit" -Method Post -TimeoutSec 2 -UseBasicParsing | Out-Null
+    }
+  } catch {
+    # The forced process cleanup below remains the recovery path.
+  }
+}
 Start-Sleep -Milliseconds 500
+
+$managedProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $legacyStartMenuDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -87,6 +106,17 @@ if (-not $NoShortcuts -and (Test-Path -LiteralPath $startupLauncher)) {
   ) | Set-Content -LiteralPath $startupLauncher -Encoding Ascii
 }
 
+if ($EnableStartup) {
+  $startupDirectory = Split-Path -Parent $startupLauncher
+  New-Item -ItemType Directory -Path $startupDirectory -Force | Out-Null
+  @(
+    "@echo off",
+    "set AIOS_START_PATH=/",
+    "set AIOS_START_HIDDEN=1",
+    "start `"`" /min `"$installedExe`" --hidden"
+  ) | Set-Content -LiteralPath $startupLauncher -Encoding Ascii
+}
+
 if (-not $NoRegistry) {
   Remove-Item -LiteralPath $oldUninstallKey -Recurse -Force -ErrorAction SilentlyContinue
   New-Item -Path $uninstallKey -Force | Out-Null
@@ -105,4 +135,7 @@ if (-not $NoLaunch) {
   Write-Output "Installed and launched: $installedExe"
 } else {
   Write-Output "Installed without launch: $installedExe"
+}
+if (-not $NoShortcuts -and (Test-Path -LiteralPath $startupLauncher)) {
+  Write-Output "Startup launcher: $startupLauncher"
 }

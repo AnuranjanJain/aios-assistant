@@ -525,6 +525,64 @@ class AiosController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> exportPrivacyData() async {
+    const key = 'privacy:export';
+    if (isActionBusy(key)) return;
+    busyActions.add(key);
+    notifyListeners();
+    try {
+      final result = await api.post('/api/privacy/export');
+      message =
+          'Local export created at ${result['path'] ?? 'the AiOS data folder'}.';
+      await refreshPageData('settings', silent: true);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      busyActions.remove(key);
+      notifyListeners();
+    }
+  }
+
+  Future<void> setRetentionDays(int days) async {
+    const key = 'privacy:retention';
+    if (isActionBusy(key)) return;
+    busyActions.add(key);
+    notifyListeners();
+    try {
+      await api.post('/api/privacy/retention', {'days': days});
+      message = days == 0
+          ? 'Operational history retention disabled.'
+          : 'Operational history retention set to $days days.';
+      await refreshPageData('settings', silent: true);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      busyActions.remove(key);
+      notifyListeners();
+    }
+  }
+
+  Future<void> purgePrivacyData(String scope) async {
+    final key = 'privacy:purge:$scope';
+    if (isActionBusy(key)) return;
+    busyActions.add(key);
+    notifyListeners();
+    try {
+      final result = await api.post('/api/privacy/purge', {
+        'scope': scope,
+        'confirm': 'PURGE',
+      });
+      message = 'Removed ${result['total_deleted'] ?? 0} local records.';
+      await refresh(silent: true);
+      await refreshPageData('settings', silent: true);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      busyActions.remove(key);
+      notifyListeners();
+    }
+  }
+
   void selectPage(String page) {
     if (page == activePage) return;
     activePage = page;
@@ -660,6 +718,7 @@ class AiosController extends ChangeNotifier {
     'inbox': '/api/inbox/overview',
     'memory': '/api/memory',
     'connectors': '/api/connectors',
+    'settings': '/api/privacy',
   };
 
   String _friendly(Object error) => error.toString().replaceFirst(

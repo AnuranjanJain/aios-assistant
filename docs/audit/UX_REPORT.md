@@ -13,7 +13,7 @@ Flutter 3.44.2 is installed. Analyzer, 10 widget tests including high-DPI layout
 ## Remaining UX work
 
 - Use one operation status model for OAuth, Gmail sync, browser plans, and workers: progress, checkpoint, retry, cancel, and last success.
-- Add a data inventory with export, retention, and purge controls.
+- Data inventory, export, retention, and scoped purge controls are now available in browser and native Settings; final keyboard and screen-reader review remains.
 - Distinguish WDYD activity states: not connected, paused, permission denied, stale, and live.
 - Label partial coverage for generic job-site selectors, GitHub depth, and connector imports.
 - Verify 100%, 125%, 150%, and 200% Windows scaling, keyboard order, visible focus, and reduced motion on the packaged app.

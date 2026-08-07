@@ -17,6 +17,7 @@ The protected assets are Gmail metadata/bodies, OAuth tokens, reminders, activit
 - Browser final URLs and extension API destinations are revalidated. Automation rejects symlink/reparse-point paths.
 - Profile images are decoded, resized, re-encoded as PNG, and stripped of source metadata. Request, upload, import, archive, analytics, and agent body limits are enforced.
 - OAuth client JSON is external app data and is never bundled into PyInstaller output.
+- Local data export redacts OAuth tokens plus provider/API/bot credentials stored in settings; destructive purge requires explicit confirmation and does not contact Gmail.
 - Declared Python requirements pass `pip-audit` with no known vulnerabilities.
 
 ## Remaining risks
@@ -29,7 +30,7 @@ The protected assets are Gmail metadata/bodies, OAuth tokens, reminders, activit
 
 **SEC-003: live integration security is unverified.** Gmail OAuth expiry, multi-account isolation, GitHub token scope, browser extension permissions, and packaged installer behavior still need fixture or clean-machine verification.
 
-**SEC-004: local data retention and purge are incomplete.** Raw email bodies and histories remain on disk until normal application cleanup. Add inventory, export, retention, and purge controls before public release.
+**SEC-004: OS-level retention verification remains.** The desktop now exposes a data inventory, secret-redacted export, scoped purge controls, and an operational-history retention setting. A release sign-off still needs a clean-account verification of ACLs and the configured retention behavior.
 
 ## Security gates
 

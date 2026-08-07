@@ -86,6 +86,13 @@ from app.services.memory_engine import (
     upsert_entity,
 )
 from app.services.notifications import notification_center, reschedule_notification, snooze_notification
+from app.services.privacy import (
+    apply_retention,
+    export_local_data,
+    privacy_overview,
+    purge_data,
+    set_retention_days,
+)
 from app.services.college_intelligence import pat_college_summary, save_college_event
 from app.services.oauth_sign_in import (
     cancel_google_sign_in,
@@ -900,6 +907,8 @@ def settings():
         email_accounts=list_email_accounts(),
         google_client=google_client_status(values),
         readiness=readiness_summary(values),
+        privacy=privacy_overview(),
+        privacy_result=None,
     )
 
 
@@ -1049,6 +1058,7 @@ def save_settings():
     startup_result = None
     email_result = None
     ai_result = None
+    privacy_result = None
 
     if pin_action == "set_pin" and new_pin:
         set_pin(new_pin)
@@ -1080,10 +1090,22 @@ def save_settings():
                 email_result = update_email_account(account_id, label=request.form.get("label", ""))
             elif settings_action == "remove_email_account":
                 email_result = remove_email_account(account_id)
+        elif settings_action == "export_data":
+            privacy_result = export_local_data()
+        elif settings_action == "save_retention":
+            privacy_result = set_retention_days(request.form.get("retention_days", "365"))
+            privacy_result["cleanup"] = apply_retention()
+        elif settings_action == "purge_data":
+            if request.form.get("confirm", "") != "PURGE":
+                raise ValueError("Type PURGE to confirm local data deletion.")
+            privacy_result = purge_data(request.form.get("scope", ""))
+            _invalidate_wdyd_snapshot()
         else:
             apply_settings(request.form)
     except LocalSecurityError as exc:
         ai_result = {"ok": False, "message": f"Ollama URL must stay on loopback. {exc}"}
+    except (TypeError, ValueError) as exc:
+        privacy_result = {"ok": False, "message": str(exc)}
 
     db.session.commit()
     values = get_effective_config(current_app.config)
@@ -1100,6 +1122,8 @@ def save_settings():
         email_accounts=list_email_accounts(),
         google_client=google_client_status(values),
         readiness=readiness_summary(values),
+        privacy=privacy_overview(),
+        privacy_result=privacy_result,
     )
 
 
@@ -1970,6 +1994,40 @@ def api_desktop_exit():
         return jsonify({"ok": False, "error": "Desktop exit is unavailable in browser mode."}), 400
     callback()
     return jsonify({"ok": True})
+
+
+@bp.get("/api/privacy")
+def api_privacy_overview():
+    return jsonify(privacy_overview())
+
+
+@bp.post("/api/privacy/export")
+def api_privacy_export():
+    return jsonify(export_local_data()), 201
+
+
+@bp.post("/api/privacy/retention")
+def api_privacy_retention():
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = set_retention_days(payload.get("days", 365))
+        cleanup = apply_retention()
+    except (TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "message": str(exc)}), 400
+    return jsonify({"ok": True, "retention": result, "cleanup": cleanup})
+
+
+@bp.post("/api/privacy/purge")
+def api_privacy_purge():
+    payload = request.get_json(silent=True) or {}
+    if payload.get("confirm") != "PURGE":
+        return jsonify({"ok": False, "message": "Type PURGE to confirm local data deletion."}), 400
+    try:
+        result = purge_data(payload.get("scope"))
+    except ValueError as exc:
+        return jsonify({"ok": False, "message": str(exc)}), 400
+    _invalidate_wdyd_snapshot()
+    return jsonify(result)
 
 
 @bp.post("/api/desktop/show")

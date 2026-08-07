@@ -4,7 +4,7 @@ Audit date: 2026-08-08
 
 ## Current evidence
 
-The Python suite completes 116 tests in roughly 35 seconds on this workstation. Branch coverage is 73% combined. A synthetic 10,000-message SQLite benchmark now measures warm dashboard reads without touching user data.
+The Python suite completes 124 tests in roughly 52 seconds on this workstation. Branch coverage is 69% combined. The default synthetic 10,000-message SQLite benchmark measures warm dashboard reads without touching user data; an explicit 100,000-message run is recorded below.
 
 ### Synthetic benchmark evidence
 
@@ -12,10 +12,19 @@ The Python suite completes 116 tests in roughly 35 seconds on this workstation. 
 
 | Route | p50 | p95 | Max |
 | --- | ---: | ---: | ---: |
-| `/api/live` | 176.94 ms | 213.67 ms | 252.88 ms |
-| `/api/inbox/overview` | 17.11 ms | 23.83 ms | 25.24 ms |
+| `/api/live` | 192.32 ms | 228.02 ms | 251.86 ms |
+| `/api/inbox/overview` | 20.78 ms | 27.29 ms | 27.49 ms |
 
 The fixture is synthetic metadata only; it is evidence for bounded local dashboard reads, not a 100k-message or 24-hour memory claim.
+
+The same harness also passed a 100,000-message run with 7 samples per route:
+
+| Route | p50 | p95 | Max |
+| --- | ---: | ---: | ---: |
+| `/api/live` | 262.68 ms | 265.51 ms | 266.18 ms |
+| `/api/inbox/overview` | 47.47 ms | 50.10 ms | 50.98 ms |
+
+This closes the 100k warm-read gate. Provider outage recovery, multi-account load, and 24-hour memory/CPU behavior remain operational tests.
 
 ## Implemented budgets
 
@@ -30,7 +39,7 @@ The fixture is synthetic metadata only; it is evidence for bounded local dashboa
 
 ## Remaining performance risks
 
-**PERF-001: scale evidence is incomplete.** The 10k warm dashboard benchmark passes, but dashboard projections, local vector fallback, GitHub analysis, and Gmail analysis are not yet measured at 100k messages or after 24 hours.
+**PERF-001: scale evidence is incomplete.** The 100k warm dashboard benchmark passes, but dashboard projections, local vector fallback, GitHub analysis, and Gmail analysis are not yet measured after 24 hours.
 
 **PERF-002: source files are still revisited.** Platform and job-import connectors are bounded and idempotent at the record level, but a fingerprint ledger would reduce repeated parsing for unchanged files.
 

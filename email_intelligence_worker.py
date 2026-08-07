@@ -3,6 +3,7 @@ import time
 from app import create_app
 from app.services.daily_assistant import run_daily_assistant_cycle
 from app.services.email_intelligence import run_email_intelligence_cycle
+from app.services.privacy import apply_retention
 from app.services.settings import get_effective_config
 
 
@@ -13,11 +14,13 @@ MIN_INTERVAL_MINUTES = 2
 def scan_once(app, state=None):
     with app.app_context():
         result = run_email_intelligence_cycle(get_effective_config(app.config))
+        retention = apply_retention()
         assistant = run_daily_assistant_cycle()
         if state is not None:
             state["last_result"] = result
+            state["last_retention"] = retention
             state["last_assistant"] = assistant
-        return result | {"assistant": assistant}
+        return result | {"retention": retention, "assistant": assistant}
 
 
 def sync_interval_seconds(app):
