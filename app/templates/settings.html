@@ -51,6 +51,15 @@
       </section>
     {% endif %}
 
+    {% if privacy_result %}
+      <section class="panel glass {{ 'memory-error' if not privacy_result.ok else '' }}">
+        <p class="eyebrow">Privacy action</p>
+        <h2>{{ privacy_result.message or ("Export created" if privacy_result.filename else "Privacy settings updated") }}</h2>
+        {% if privacy_result.path %}<p class="source-note">Saved locally: {{ privacy_result.path }}</p>{% endif %}
+        {% if privacy_result.total_deleted is defined %}<p class="source-note">Removed {{ privacy_result.total_deleted }} local records from {{ privacy_result.scope }}.</p>{% endif %}
+      </section>
+    {% endif %}
+
     <section id="connected-accounts" class="panel glass settings-section google-account-section">
       <div class="google-account-intro">
         <p class="eyebrow">Email intelligence</p>
@@ -104,7 +113,10 @@
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Real-life readiness</p>
-          <h2>{{ readiness.ready }}/{{ readiness.total }} systems ready</h2>
+          <h2>{{ readiness.required_ready }}/{{ readiness.required_total }} core systems ready</h2>
+          <p class="section-note">
+            Optional integrations: {{ readiness.optional_ready }}/{{ readiness.optional_total }} ready.
+          </p>
         </div>
         <span class="status-pill {{ 'on' if readiness.all_ready else '' }}">
           {{ "Ready" if readiness.all_ready else "Setup needed" }}
@@ -248,9 +260,53 @@
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Privacy</p>
-          <h2>Local PIN Lock</h2>
+          <h2>Private data controls</h2>
         </div>
       </div>
+      <p class="source-note">AiOS keeps this data on this device. Export it for backup, choose how long operational history stays, or remove a specific category. OAuth tokens are never included in exports.</p>
+      <div class="privacy-inventory-grid">
+        {% for category, count in privacy.categories.items() %}
+          <div class="privacy-inventory-item"><strong>{{ count }}</strong><span>{{ category|replace('_', ' ')|title }} records</span></div>
+        {% endfor %}
+      </div>
+      <div class="privacy-actions">
+        <form class="settings-form" method="post" action="{{ url_for('main.save_settings') }}">
+          <label>
+            <span>Operational history retention</span>
+            <input name="retention_days" type="number" min="0" max="3650" value="{{ privacy.retention_days }}">
+            <small>Use 0 to keep history indefinitely. Cleanup affects logs and decisions, not email or memories.</small>
+          </label>
+          <button type="submit" name="settings_action" value="save_retention">Save retention</button>
+        </form>
+        <form class="settings-form" method="post" action="{{ url_for('main.save_settings') }}">
+          <span class="form-label">Portable local backup</span>
+          <p class="source-note">Exports every local table with secrets redacted.</p>
+          <button type="submit" name="settings_action" value="export_data" class="ghost-button">Export my data</button>
+        </form>
+      </div>
+      <details class="privacy-danger-zone">
+        <summary>Delete local data</summary>
+        <form class="settings-form" method="post" action="{{ url_for('main.save_settings') }}">
+          <label>
+            <span>Category</span>
+            <select name="scope">
+              <option value="activity">Activity history</option>
+              <option value="email">Gmail and inbox data</option>
+              <option value="opportunities">Opportunities and reminders</option>
+              <option value="memory">Memory and planning data</option>
+              <option value="everything">Everything except app configuration</option>
+            </select>
+          </label>
+          <label>
+            <span>Type PURGE to confirm</span>
+            <input name="confirm" autocomplete="off" required pattern="PURGE">
+          </label>
+          <button type="submit" name="settings_action" value="purge_data" class="ghost-button danger-button">Delete selected data</button>
+        </form>
+      </details>
+      <p class="source-note">Database: {{ privacy.paths.database }} · Credentials: {{ privacy.paths.credentials }}</p>
+      <hr class="settings-divider">
+      <p class="eyebrow">Device lock</p>
       <form class="settings-form" method="post" action="{{ url_for('main.save_settings') }}">
         <label>
           <span>{{ "Change PIN" if pin_enabled else "Set PIN" }}</span>

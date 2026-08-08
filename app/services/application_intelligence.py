@@ -9,6 +9,7 @@ from email.utils import parseaddr
 from app.models import ConnectedAccount, EmailMessage, LifeItem, Opportunity, db
 from app.services.email_scope import EMAIL_PORTFOLIO_LIMIT, latest_emails_combined
 from app.services.placements import is_neopat_signal
+from app.services.time_utils import mail_time_details
 
 
 ACTIVE_APPLICATION_LIMIT = 100
@@ -939,12 +940,17 @@ def _portfolio_summary(group, stage, response_status):
 
 
 def _serialize_source_email(email, platform):
+    timing = mail_time_details(email.sent_at or email.created_at)
     return {
         "id": email.id,
         "account_email": email.account.email if email.account else "",
         "sender": email.sender or "",
         "subject": email.subject or "",
-        "received_at": (email.sent_at or email.created_at).isoformat(),
+        "received_at": timing["timestamp_utc"],
+        "received_at_local": timing["timestamp_local"],
+        "age_label": timing["age_label"],
+        "is_today": timing["is_today"],
+        "timezone": timing["timezone"],
         "platform": platform,
     }
 

@@ -12,6 +12,7 @@ class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///aios_assistant.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    MAX_CONTENT_LENGTH = int(os.getenv("AIOS_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
     SQLALCHEMY_ENGINE_OPTIONS = {
         "connect_args": {
             "timeout": 30,
@@ -19,7 +20,8 @@ class Config:
         }
     }
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SAMESITE = "Strict"
+    SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
     HOST = os.getenv("HOST", "127.0.0.1")
     PORT = int(os.getenv("PORT", "5000"))
     AI_PROVIDER = os.getenv("AI_PROVIDER", "rule_based")
@@ -42,3 +44,4 @@ class Config:
     HACKATHON_SCAN_INTERVAL_MINUTES = os.getenv("HACKATHON_SCAN_INTERVAL_MINUTES", "15")
     WATCH_IMPORT_DIR = os.getenv("WATCH_IMPORT_DIR", "imports/watch")
     LOCAL_API_TOKEN = os.getenv("LOCAL_API_TOKEN", "")
+    NATIVE_PAIRING_SECRET = os.getenv("AIOS_NATIVE_PAIRING_SECRET", "")

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
 import 'core_manager.dart';
@@ -23,6 +24,8 @@ class AiosController extends ChangeNotifier {
   final AiosApi api;
   final File? _preferencesFileOverride;
   final File? _snapshotFileOverride;
+  static const _apiTokenKey = 'aios.core.api_token';
+  static const _secureStorage = FlutterSecureStorage();
   late final CoreManager core;
   static const _lifecycle = MethodChannel('aios/window_lifecycle');
 
@@ -61,6 +64,9 @@ class AiosController extends ChangeNotifier {
     }
     try {
       await core.ensureRunning();
+      // Persist only the bearer token in the OS credential store after the
+      // first one-time native pairing succeeds.
+      await _savePreferences();
       await refresh();
       await refreshPageData(activePage, silent: true);
     } catch (error) {
@@ -154,6 +160,27 @@ class AiosController extends ChangeNotifier {
           '${analysis['analyzed'] ?? 0} analyzed locally.';
       await refresh(silent: true);
       await refreshPageData(activePage, silent: true);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> rebuildInboxTriage() async {
+    if (syncing) return;
+    syncing = true;
+    message = 'Re-scoring the latest inbox with local priority rules...';
+    notifyListeners();
+    try {
+      final result = await api.post('/api/inbox/reclassify');
+      pageData['inbox'] = result;
+      final analysis = result['analysis'] as Map<String, dynamic>? ?? const {};
+      message =
+          'Inbox re-scored locally. ${analysis['analyzed'] ?? 0} messages updated.';
+      await _saveSnapshot();
+      await refresh(silent: true);
     } catch (error) {
       message = _friendly(error);
     } finally {
@@ -498,6 +525,64 @@ class AiosController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> exportPrivacyData() async {
+    const key = 'privacy:export';
+    if (isActionBusy(key)) return;
+    busyActions.add(key);
+    notifyListeners();
+    try {
+      final result = await api.post('/api/privacy/export');
+      message =
+          'Local export created at ${result['path'] ?? 'the AiOS data folder'}.';
+      await refreshPageData('settings', silent: true);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      busyActions.remove(key);
+      notifyListeners();
+    }
+  }
+
+  Future<void> setRetentionDays(int days) async {
+    const key = 'privacy:retention';
+    if (isActionBusy(key)) return;
+    busyActions.add(key);
+    notifyListeners();
+    try {
+      await api.post('/api/privacy/retention', {'days': days});
+      message = days == 0
+          ? 'Operational history retention disabled.'
+          : 'Operational history retention set to $days days.';
+      await refreshPageData('settings', silent: true);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      busyActions.remove(key);
+      notifyListeners();
+    }
+  }
+
+  Future<void> purgePrivacyData(String scope) async {
+    final key = 'privacy:purge:$scope';
+    if (isActionBusy(key)) return;
+    busyActions.add(key);
+    notifyListeners();
+    try {
+      final result = await api.post('/api/privacy/purge', {
+        'scope': scope,
+        'confirm': 'PURGE',
+      });
+      message = 'Removed ${result['total_deleted'] ?? 0} local records.';
+      await refresh(silent: true);
+      await refreshPageData('settings', silent: true);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      busyActions.remove(key);
+      notifyListeners();
+    }
+  }
+
   void selectPage(String page) {
     if (page == activePage) return;
     activePage = page;
@@ -519,15 +604,49 @@ class AiosController extends ChangeNotifier {
   }
 
   Future<void> _loadPreferences() async {
+    Map<String, dynamic> data = const {};
     try {
-      final data = jsonDecode(await _preferencesFile.readAsString());
-      darkMode = data['darkMode'] != false;
+      final decoded = jsonDecode(await _preferencesFile.readAsString());
+      if (decoded is Map) {
+        data = Map<String, dynamic>.fromEntries(
+          decoded.entries.map(
+            (entry) => MapEntry(entry.key.toString(), entry.value),
+          ),
+        );
+      }
     } catch (_) {}
+    darkMode = data['darkMode'] != false;
+    api.baseUrl = data['apiBaseUrl']?.toString() ?? '';
+
+    String? storedToken;
+    try {
+      storedToken = await _secureStorage.read(key: _apiTokenKey);
+    } catch (_) {
+      // Widget tests and unsupported platforms may not expose a secure store.
+    }
+    final legacyToken = data['apiToken']?.toString() ?? '';
+    api.token = storedToken?.isNotEmpty == true ? storedToken! : legacyToken;
+    if (storedToken?.isNotEmpty != true && legacyToken.isNotEmpty) {
+      try {
+        await _secureStorage.write(key: _apiTokenKey, value: legacyToken);
+      } catch (_) {
+        // Keep the legacy token in memory for this run; the next successful
+        // native startup will migrate it to the OS credential store.
+      }
+    }
   }
 
   Future<void> _savePreferences() async {
     await _preferencesFile.parent.create(recursive: true);
-    await _preferencesFile.writeAsString(jsonEncode({'darkMode': darkMode}));
+    if (api.token.isNotEmpty) {
+      await _secureStorage.write(key: _apiTokenKey, value: api.token);
+    }
+    await _preferencesFile.writeAsString(
+      jsonEncode({
+        'darkMode': darkMode,
+        if (api.baseUrl.isNotEmpty) 'apiBaseUrl': api.baseUrl,
+      }),
+    );
   }
 
   Future<bool> _loadSnapshot() async {
@@ -596,8 +715,10 @@ class AiosController extends ChangeNotifier {
   static const _pageEndpoints = <String, String>{
     'opportunities': '/api/applications',
     'reminders': '/api/reminders/overview',
+    'inbox': '/api/inbox/overview',
     'memory': '/api/memory',
     'connectors': '/api/connectors',
+    'settings': '/api/privacy',
   };
 
   String _friendly(Object error) => error.toString().replaceFirst(

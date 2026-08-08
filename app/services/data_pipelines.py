@@ -9,9 +9,19 @@ from app.services.agent_ingest import ingest_message
 
 
 SUPPORTED_IMPORTS = {".eml", ".mbox", ".json", ".csv"}
+MAX_IMPORT_BYTES = 50 * 1024 * 1024
+MAX_IMPORT_RECORDS = 5000
+
+
+def _check_import_file(path):
+    path = Path(path)
+    if path.stat().st_size > MAX_IMPORT_BYTES:
+        raise ValueError(f"Import is larger than the {MAX_IMPORT_BYTES // (1024 * 1024)} MB safety limit.")
+    return path
 
 
 def import_source_file(path, classifier, provider, model=None, limit=100):
+    path = _check_import_file(path)
     suffix = Path(path).suffix.lower()
     if suffix not in SUPPORTED_IMPORTS:
         raise ValueError(f"Unsupported file type: {suffix}")
@@ -26,7 +36,7 @@ def import_source_file(path, classifier, provider, model=None, limit=100):
         messages = parse_csv(path, limit=limit)
 
     imported = []
-    for message in messages[:limit]:
+    for message in messages[: min(limit, MAX_IMPORT_RECORDS)]:
         subject = clean_value(message.get("subject")) or "Untitled imported message"
         imported.append(
             ingest_message(
@@ -70,6 +80,7 @@ def parse_mbox(path, limit=100):
 
 
 def parse_json(path, limit=100):
+    path = _check_import_file(path)
     with open(path, "r", encoding="utf-8") as file:
         payload = json.load(file)
 
@@ -80,7 +91,7 @@ def parse_json(path, limit=100):
             "subject": item.get("subject") or item.get("title") or "",
             "body": item.get("body") or item.get("content") or item.get("text") or "",
         }
-        for item in items[:limit]
+        for item in items[: min(limit, MAX_IMPORT_RECORDS)]
         if isinstance(item, dict)
     ]
 

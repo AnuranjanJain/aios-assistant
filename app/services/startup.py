@@ -13,8 +13,8 @@ STARTUP_ENTRY_NAME = "AiOS Assistant Startup"
 CORE_DESKTOP_SERVICES = (
     "Reminder service",
     "Import watcher",
-    "Opportunity monitor",
-    "Desktop activity tracker",
+    "Hackathon and job source monitor",
+    "Email intelligence planner",
 )
 
 

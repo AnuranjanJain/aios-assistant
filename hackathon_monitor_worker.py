@@ -13,7 +13,9 @@ def scan_once(app, interactive=False):
         classifier = get_classifier(values["AI_PROVIDER"], values["OLLAMA_URL"], values["OLLAMA_MODEL"])
         results = []
 
-        for connector_id in ("gmail", "hackathon_platforms", "job_portals"):
+        # Gmail is owned by email_intelligence_worker. Keeping platform/export
+        # sources here prevents two background loops from syncing the same inbox.
+        for connector_id in ("hackathon_platforms", "job_portals"):
             result = run_connector(
                 connector_id,
                 values,

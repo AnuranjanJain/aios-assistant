@@ -56,7 +56,27 @@ def load_state():
 
 
 def save_state(state):
-    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = STATE_PATH.with_suffix(STATE_PATH.suffix + ".tmp")
+    temporary.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    temporary.replace(STATE_PATH)
+
+
+def _desktop_runtime_running():
+    runtime_path = Path(os.getenv("AIOS_DATA_DIR", ".")) / "runtime.json"
+    if not os.getenv("AIOS_DATA_DIR", "").strip():
+        try:
+            from runtime_paths import get_runtime_paths
+
+            runtime_path = get_runtime_paths().data_dir / "runtime.json"
+        except Exception:
+            return False
+    try:
+        payload = json.loads(runtime_path.read_text(encoding="utf-8"))
+        pid = payload.get("pid")
+    except (OSError, json.JSONDecodeError):
+        return False
+    return bool(pid and is_pid_running(pid))
 
 
 def list_worker_status():
@@ -106,6 +126,12 @@ def start_worker(worker_id):
 
     state = load_state()
     current = worker_status(worker, state)
+    if worker_id in WORKERS and _desktop_runtime_running():
+        return {
+            "status": "already_running",
+            "message": f"{worker.name} is owned by the running desktop scheduler.",
+            "worker": current | {"running": True, "managed": True},
+        }
     try:
         from app.services.background_services import list_background_services
 
@@ -128,7 +154,7 @@ def start_worker(worker_id):
     else:
         command = [sys.executable, worker.script]
     kwargs = {
-        "cwd": Path.cwd(),
+        "cwd": Path(__file__).resolve().parents[2],
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
         "stdin": subprocess.DEVNULL,

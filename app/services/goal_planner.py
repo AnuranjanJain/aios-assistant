@@ -5,6 +5,7 @@ from urllib.request import Request, urlopen
 
 from app.models import GoalPlan, MemoryEntity, PlanTask, PlanTaskSession, db
 from app.services.memory_engine import remember, upsert_entity
+from app.services.local_security import LocalSecurityError, safe_ollama_url
 
 
 VALID_CADENCES = {"daily", "weekly", "monthly"}
@@ -109,7 +110,7 @@ def generate_with_ollama(goal, cadence, duration, config):
     }
     try:
         request = Request(
-            f"{str(config.get('OLLAMA_URL') or 'http://localhost:11434').rstrip('/')}/api/generate",
+            f"{safe_ollama_url(config)}/api/generate",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -119,7 +120,7 @@ def generate_with_ollama(goal, cadence, duration, config):
         periods = json.loads(result.get("response", "{}")).get("periods")
         if isinstance(periods, list) and periods:
             return periods[:duration]
-    except (OSError, URLError, ValueError, json.JSONDecodeError):
+    except (LocalSecurityError, OSError, URLError, ValueError, json.JSONDecodeError):
         return None
     return None
 

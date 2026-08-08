@@ -79,5 +79,14 @@ function normalizePageUrl(value) {
 }
 
 function normalizeApiBase(value) {
-  return (value || "http://127.0.0.1:5000").replace(/\/+$/, "");
+  const candidate = value || "http://127.0.0.1:5000";
+  const url = new URL(candidate);
+  const loopback = ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+  if (!loopback && url.protocol !== "https:") {
+    throw new Error("AiOS extension destinations must be loopback HTTP or explicit HTTPS.");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error("AiOS extension destinations cannot include credentials or query state.");
+  }
+  return url.toString().replace(/\/+$/, "");
 }

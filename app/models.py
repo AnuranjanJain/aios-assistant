@@ -38,6 +38,8 @@ class Reminder(db.Model):
     is_read = db.Column(db.Boolean, default=False, nullable=False)
     notified_at = db.Column(db.DateTime, nullable=True)
     snoozed_until = db.Column(db.DateTime, nullable=True, index=True)
+    notification_claim_id = db.Column(db.String(80), nullable=True, index=True)
+    notification_claimed_until = db.Column(db.DateTime, nullable=True, index=True)
     metadata_json = db.Column(db.Text, nullable=True)
     opportunity_id = db.Column(db.Integer, db.ForeignKey("opportunity.id"), nullable=True)
     opportunity = db.relationship("Opportunity", backref="reminders")
@@ -51,6 +53,13 @@ class InboxItem(db.Model):
     subject = db.Column(db.String(240), nullable=False)
     body = db.Column(db.Text, nullable=True)
     category = db.Column(db.String(80), nullable=False, default="general")
+    priority = db.Column(db.String(40), nullable=False, default="normal", index=True)
+    urgency = db.Column(db.String(40), nullable=False, default="normal", index=True)
+    attention_score = db.Column(db.Integer, nullable=False, default=0, index=True)
+    priority_reason = db.Column(db.Text, nullable=True)
+    is_actionable = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_unread = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    account_email = db.Column(db.String(240), nullable=True, index=True)
     confidence = db.Column(db.Float, nullable=False, default=0.0)
     summary = db.Column(db.Text, nullable=True)
     next_action = db.Column(db.Text, nullable=True)
@@ -134,6 +143,7 @@ class ConnectedAccount(db.Model):
     sync_enabled = db.Column(db.Boolean, default=True, nullable=False, index=True)
     last_sync_at = db.Column(db.DateTime, nullable=True)
     sync_cursor = db.Column(db.String(240), nullable=True)
+    mail_time_version = db.Column(db.Integer, nullable=False, default=0, server_default="0")
     last_error = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
@@ -155,6 +165,21 @@ class OAuthToken(db.Model):
     scopes_json = db.Column(db.Text, nullable=True)
     expires_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class OAuthSignInJob(db.Model):
+    id = db.Column(db.String(160), primary_key=True)
+    status = db.Column(db.String(30), nullable=False, index=True)
+    message = db.Column(db.Text, nullable=False)
+    authorization_url = db.Column(db.Text, nullable=True)
+    result_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = db.Column(
         db.DateTime,
         default=datetime.utcnow,
@@ -232,6 +257,9 @@ class EmailInsight(db.Model):
     life_item = db.relationship("LifeItem", backref=db.backref("email_insights", cascade="all, delete-orphan"))
     priority = db.Column(db.String(40), nullable=False, default="normal", index=True)
     urgency = db.Column(db.String(40), nullable=False, default="normal", index=True)
+    attention_score = db.Column(db.Integer, nullable=False, default=0, index=True)
+    priority_reason = db.Column(db.Text, nullable=True)
+    is_actionable = db.Column(db.Boolean, nullable=False, default=False, index=True)
     category = db.Column(db.String(80), nullable=False, default="general", index=True)
     summary = db.Column(db.Text, nullable=True)
     action_items_json = db.Column(db.Text, nullable=True)

@@ -151,6 +151,25 @@ paste keys or import JSON. The browser flow uses PKCE, a random loopback port,
 account selection, and read-only Gmail access. See
 [Gmail OAuth](docs/GMAIL_OAUTH_SETUP.md) for privacy and release-maintainer notes.
 
+### First five minutes
+
+1. Launch **AiOS Assistant** from Windows Search and keep it running in the
+   tray; its local workers start with the desktop app.
+2. Open **Settings -> Readiness** and follow the checklist. Connect one or
+   more Gmail accounts with **Sign in with Google**.
+3. Run **Sync All Now** and wait for the account result to finish. One account
+   failing does not discard data from the others.
+4. Use **Inbox AI**, **Applications**, and **Reminders** to review the first
+   local results. Treat suggested priorities and deadlines as drafts until you
+   confirm them.
+5. Open WDYD and use **AI Agent -> Sync now** to pull the approved summaries
+   into the activity dashboard.
+
+If Gmail is not connected yet, AiOS still works with manual planner rows,
+local imports, deterministic email rules, memory, and WDYD activity summaries.
+The dashboard exposes the unfinished setup items instead of hiding them behind
+empty cards.
+
 Set `EMAIL_SYNC_INTERVAL_MINUTES` in Settings to control continuous background sync. The worker enforces a 2-minute minimum to avoid hammering Gmail.
 
 ## Native Windows Shell

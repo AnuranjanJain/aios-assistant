@@ -22,6 +22,8 @@ CODING_CATEGORIES = {"coding", "development", "programming", "code", "deep_work"
 LEARNING_CATEGORIES = {"learning", "study", "course", "research", "notes"}
 FOCUS_CATEGORIES = {"coding", "development", "programming", "deep_work", "focus", "productivity", "learning", "study"}
 VALID_PERIODS = {"daily", "weekly", "monthly", "yearly"}
+MAX_METRIC_ROWS = 10000
+MAX_REPOSITORIES = 2000
 
 
 def analytics_report(period="daily", anchor=None):
@@ -63,16 +65,16 @@ def analytics_overview(anchor=None):
 def collect_metrics(start, end):
     start_dt = datetime.combine(start, time.min)
     end_dt = datetime.combine(end, time.max)
-    activities = ActivityEvent.query.filter(ActivityEvent.created_at.between(start_dt, end_dt)).all()
-    sessions = PlanTaskSession.query.filter(PlanTaskSession.started_at.between(start_dt, end_dt)).all()
-    events = PlanningEvent.query.filter(PlanningEvent.updated_at.between(start_dt, end_dt)).all()
-    emails = EmailMessage.query.filter(EmailMessage.created_at.between(start_dt, end_dt)).all()
-    learning = LearningItem.query.filter(LearningItem.updated_at.between(start_dt, end_dt)).all()
-    opportunities = Opportunity.query.filter(Opportunity.updated_at.between(start_dt, end_dt)).all()
-    plans = GoalPlan.query.filter(GoalPlan.updated_at.between(start_dt, end_dt)).all()
-    assistant = DailyAssistantEntry.query.filter(DailyAssistantEntry.entry_date.between(start, end)).all()
-    repos = GitHubRepository.query.all()
-    life_items = LifeItem.query.filter(LifeItem.updated_at.between(start_dt, end_dt)).all()
+    activities = ActivityEvent.query.filter(ActivityEvent.created_at.between(start_dt, end_dt)).order_by(ActivityEvent.created_at.desc()).limit(MAX_METRIC_ROWS).all()
+    sessions = PlanTaskSession.query.filter(PlanTaskSession.started_at.between(start_dt, end_dt)).order_by(PlanTaskSession.started_at.desc()).limit(MAX_METRIC_ROWS).all()
+    events = PlanningEvent.query.filter(PlanningEvent.updated_at.between(start_dt, end_dt)).order_by(PlanningEvent.updated_at.desc()).limit(MAX_METRIC_ROWS).all()
+    emails = EmailMessage.query.filter(EmailMessage.created_at.between(start_dt, end_dt)).order_by(EmailMessage.created_at.desc()).limit(MAX_METRIC_ROWS).all()
+    learning = LearningItem.query.filter(LearningItem.updated_at.between(start_dt, end_dt)).order_by(LearningItem.updated_at.desc()).limit(MAX_METRIC_ROWS).all()
+    opportunities = Opportunity.query.filter(Opportunity.updated_at.between(start_dt, end_dt)).order_by(Opportunity.updated_at.desc()).limit(MAX_METRIC_ROWS).all()
+    plans = GoalPlan.query.filter(GoalPlan.updated_at.between(start_dt, end_dt)).order_by(GoalPlan.updated_at.desc()).limit(MAX_METRIC_ROWS).all()
+    assistant = DailyAssistantEntry.query.filter(DailyAssistantEntry.entry_date.between(start, end)).order_by(DailyAssistantEntry.entry_date.desc()).limit(MAX_METRIC_ROWS).all()
+    repos = GitHubRepository.query.order_by(GitHubRepository.updated_at.desc()).limit(MAX_REPOSITORIES).all()
+    life_items = LifeItem.query.filter(LifeItem.updated_at.between(start_dt, end_dt)).order_by(LifeItem.updated_at.desc()).limit(MAX_METRIC_ROWS).all()
 
     activity_minutes = sum(max(0, item.duration_minutes or 0) for item in activities)
     session_minutes = sum(max(0, item.duration_minutes or 0) for item in sessions)
@@ -85,7 +87,7 @@ def collect_metrics(start, end):
     completed_tasks = PlanTask.query.filter(
         PlanTask.completed_at.isnot(None),
         PlanTask.completed_at.between(start_dt, end_dt),
-    ).all()
+    ).order_by(PlanTask.completed_at.desc()).limit(MAX_METRIC_ROWS).all()
 
     projects = {
         item.project
@@ -238,7 +240,7 @@ def latest_activity_date():
         max_date(PlanningEvent.updated_at),
         max_date(PlanTask.completed_at),
         max_date(EmailMessage.created_at),
-        max_commit_date(GitHubRepository.query.all()),
+        max_commit_date(GitHubRepository.query.order_by(GitHubRepository.updated_at.desc()).limit(MAX_REPOSITORIES).all()),
         max_date(LearningItem.updated_at),
     ]:
         if value:

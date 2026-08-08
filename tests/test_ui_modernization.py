@@ -136,7 +136,7 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertIn("Ollama loopback", html)
         self.assertIn("Planner rows", html)
         self.assertIn("Desktop services started by the app", html)
-        self.assertIn("Desktop activity tracker", html)
+        self.assertIn("Email intelligence planner", html)
         self.assertIn("Save Startup", html)
         self.assertIn("Connect Gmail to AiOS", html)
         self.assertIn("Sign in with Google", html)
@@ -158,8 +158,11 @@ class UiModernizationTestCase(unittest.TestCase):
 
     def test_wdyd_snapshot_is_versioned_and_keeps_raw_email_private(self):
         pairing = self.client.get("/api/local/pairing")
-        self.assertEqual(pairing.status_code, 200)
+        self.assertEqual(pairing.status_code, 409)
         pairing_payload = pairing.get_json()
+        self.assertEqual(pairing_payload["error"], "pairing_required")
+        self.assertEqual(pairing_payload["native_contract_version"], 2)
+        self.assertNotIn("api_token", pairing_payload)
         self.assertEqual(pairing_payload["capabilities"]["wdyd_snapshot"], 1)
         self.assertEqual(pairing_payload["snapshot_path"], "/api/wdyd/snapshot")
 

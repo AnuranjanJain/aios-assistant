@@ -11,6 +11,7 @@ from app.services.email_scope import (
     clamp_email_limit,
     latest_emails_combined,
 )
+from app.services.time_utils import local_today
 
 
 def _json(value):
@@ -53,7 +54,10 @@ def _summary_lines(email, insight):
         lines.append(f"This mail is classified as {category.lower()} and should be reviewed in context.")
     actions = _json(insight.suggested_actions_json) + _json(insight.action_items_json) if insight else []
     action = _first(actions, "Review the message and decide the next action.")
-    lines.append(f"Next: {_clean_text(action)[:190]}")
+    if insight and insight.is_actionable:
+        lines.append(f"Next: {_clean_text(action)[:190]}")
+    else:
+        lines.append("No immediate action detected; keep it as reference or archive it.")
     deadline = _deadline_from_email(email)
     if deadline:
         lines.append(f"Deadline: {deadline.strftime('%a, %d %b %Y at %I:%M %p')}.")
@@ -112,11 +116,19 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
         inbox.subject = email.subject or "Untitled email"
         inbox.body = email.body_text or email.snippet
         inbox.category = insight.category if insight else "general"
+        inbox.priority = insight.priority if insight else "normal"
+        inbox.urgency = insight.urgency if insight else "normal"
+        inbox.attention_score = insight.attention_score if insight else 0
+        inbox.priority_reason = insight.priority_reason if insight else ""
+        inbox.is_actionable = bool(insight and insight.is_actionable)
+        inbox.is_unread = bool(email.is_unread)
+        inbox.account_email = email.account.email if email.account else ""
         inbox.confidence = insight.confidence if insight else 0.35
         inbox.summary = _summary_lines(email, insight)
-        inbox.next_action = _first(
-            _json(insight.suggested_actions_json) + _json(insight.action_items_json) if insight else [],
-            "Review this email" if email.is_unread else "",
+        inbox.next_action = (
+            _first(_json(insight.suggested_actions_json) + _json(insight.action_items_json))
+            if insight and insight.is_actionable
+            else ""
         )
         inbox.occurred_at = email.sent_at
 
@@ -140,7 +152,7 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
             opportunity.notes = _summary_lines(email, insight)[:2000]
 
     email_ids = [email.id for email in emails]
-    today = date.today()
+    today = local_today()
     active_keys = set()
     seen_tasks = set()
     tasks = (
@@ -190,7 +202,12 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
         )
         counts["today_reminders"] += 1
 
-    stale_query = Reminder.query.filter(Reminder.source_key.like("email-task:%"))
+    # Keep completed history. Only open projections may be removed when an
+    # email falls outside the bounded active window.
+    stale_query = Reminder.query.filter(
+        Reminder.source_key.like("email-task:%"),
+        Reminder.is_done.is_(False),
+    )
     if active_keys:
         stale_query = stale_query.filter(Reminder.source_key.notin_(active_keys))
     for reminder in stale_query.all():
@@ -215,5 +232,5 @@ def _first_task_due_at(email):
 def _task_due_at(task, today=None):
     if task.due_at:
         return task.due_at
-    today = today or date.today()
+    today = today or local_today()
     return datetime.combine(today, time(18, 0))

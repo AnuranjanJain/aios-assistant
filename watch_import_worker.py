@@ -6,6 +6,7 @@ from pathlib import Path
 from app import create_app
 from app.models import db
 from app.services.ai_classifier import get_classifier
+from app.services.atomic_storage import atomic_write_text
 from app.services.data_pipelines import SUPPORTED_IMPORTS, import_source_file
 from app.services.settings import get_effective_config
 
@@ -25,7 +26,7 @@ def load_state():
 
 
 def save_state(state):
-    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    atomic_write_text(STATE_PATH, json.dumps(state, indent=2))
 
 
 def file_key(path):

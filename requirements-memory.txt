@@ -1,5 +1,6 @@
 -r requirements.txt
 
 # Optional vector acceleration. SQLite remains the source of truth.
-chromadb>=1.0,<2
+# ChromaDB is intentionally excluded from the production dependency set while
+# PYSEC-2026-311 has no fixed release. SQLite remains the source of truth.
 faiss-cpu>=1.11,<2

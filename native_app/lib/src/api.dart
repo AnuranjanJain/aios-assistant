@@ -1,36 +1,114 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
 class AiosApi {
   AiosApi({http.Client? client}) : _client = client ?? http.Client();
 
+  static const nativeContractVersion = 2;
+
   final http.Client _client;
   String baseUrl = '';
   String token = '';
+  String pairingSecret = '';
 
   bool get connected => baseUrl.isNotEmpty && token.isNotEmpty;
 
   Future<bool> discover() async {
+    if (connected) {
+      if (await _probeCore(baseUrl, token)) return true;
+      baseUrl = '';
+      token = '';
+    }
+    if (await _discoverFromRuntimeDescriptor()) return true;
+
     for (var port = 5050; port <= 5069; port += 1) {
       final candidate = 'http://127.0.0.1:$port';
       try {
         final response = await _client
-            .get(Uri.parse('$candidate/api/local/pairing'))
+            .get(
+              Uri.parse('$candidate/api/local/pairing'),
+              headers: {
+                if (pairingSecret.isNotEmpty)
+                  'X-AiOS-Native-Pairing': pairingSecret,
+              },
+            )
             .timeout(const Duration(milliseconds: 650));
         if (response.statusCode != 200) continue;
         final body = jsonDecode(response.body) as Map<String, dynamic>;
         if (body['ok'] != true || body['service'] != 'aios-assistant') continue;
         final nextToken = body['api_token']?.toString() ?? '';
         if (nextToken.isEmpty) continue;
-        baseUrl = _normalizeLoopback(body['base_url']?.toString() ?? candidate);
-        token = nextToken;
-        return true;
+        final nextBaseUrl = _normalizeLoopback(
+          body['base_url']?.toString() ?? candidate,
+        );
+        if (await _probeCore(nextBaseUrl, nextToken)) return true;
       } catch (_) {
         // The native core may still be starting. Try the next port.
       }
     }
     return false;
+  }
+
+  Future<bool> _discoverFromRuntimeDescriptor() async {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    final xdgDataHome = Platform.environment['XDG_DATA_HOME'];
+    final home =
+        Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
+    final candidates = <String>[
+      if (localAppData != null && localAppData.isNotEmpty)
+        '$localAppData${Platform.pathSeparator}AiOS Assistant${Platform.pathSeparator}runtime.json',
+      if (xdgDataHome != null && xdgDataHome.isNotEmpty)
+        '$xdgDataHome${Platform.pathSeparator}aios-assistant${Platform.pathSeparator}runtime.json',
+      if (home != null && home.isNotEmpty)
+        '$home${Platform.pathSeparator}.local${Platform.pathSeparator}share${Platform.pathSeparator}aios-assistant${Platform.pathSeparator}runtime.json',
+    ];
+
+    for (final path in candidates) {
+      try {
+        final decoded = jsonDecode(await File(path).readAsString());
+        if (decoded is! Map<String, dynamic> ||
+            decoded['service'] != 'aios-assistant') {
+          continue;
+        }
+        // The runtime descriptor is intentionally metadata-only. Credentials
+        // come from the native preferences file or one-time process pairing.
+        final runtimeUrl = decoded['base_url']?.toString() ?? '';
+        if (runtimeUrl.isEmpty || token.isEmpty) continue;
+        final runtimeBaseUrl = _normalizeLoopback(runtimeUrl);
+        if (await _probeCore(runtimeBaseUrl, token)) return true;
+      } catch (_) {
+        // The desktop core may still be starting.
+      }
+    }
+    return false;
+  }
+
+  Future<bool> _probeCore(
+    String candidateBaseUrl,
+    String candidateToken,
+  ) async {
+    try {
+      final response = await _client
+          .get(
+            Uri.parse('$candidateBaseUrl/api/live'),
+            headers: {'X-AiOS-Token': candidateToken},
+          )
+          .timeout(const Duration(milliseconds: 650));
+      if (response.statusCode < 200 || response.statusCode >= 300) return false;
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map ||
+          decoded['native_contract_version'] != nativeContractVersion) {
+        return false;
+      }
+      baseUrl = candidateBaseUrl;
+      token = candidateToken;
+      return true;
+    } catch (_) {
+      // The saved core may still be starting or may be an older build.
+      return false;
+    }
   }
 
   Future<Map<String, dynamic>> get(String path) => _request('GET', path);

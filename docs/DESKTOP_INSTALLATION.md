@@ -11,11 +11,30 @@ Build the executable:
 .\scripts\build-windows-native.ps1
 ```
 
+Flutter's Windows plugins require Developer Mode for symlink support. If the
+build reports that symlinks are unavailable, run
+`start ms-settings:developers`, enable **Developer Mode**, and retry. The
+build script stops on any failed dependency, core, Flutter, or SBOM command so
+an old native executable cannot be packaged accidentally.
+
 Install it for the current user:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\native_app\windows\install\install.ps1
 ```
+
+To enable the local background services at Windows sign-in during installation,
+add `-EnableStartup`. This creates a per-user hidden launcher; the same setting
+can also be changed later from the native Settings screen.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\native_app\windows\install\install.ps1 -EnableStartup
+```
+
+For a safe release-folder lifecycle check that does not touch the real install,
+run `.\scripts\smoke-native-installer.ps1`. It installs and removes the
+full payload under `%TEMP%`, verifies the startup launcher, and avoids real
+shortcuts and registry changes.
 
 This creates:
 
@@ -69,7 +88,17 @@ Linux config:  $XDG_CONFIG_HOME/aios-assistant
 
 Credentials, Gmail tokens, SQLite databases, logs, imports, and memory vectors stay local to those runtime folders.
 
-For Gmail, open **Accounts** and select **Sign in with Google**, then approve
-read-only access in the system browser. No keys or JSON files are required.
-Connect each mailbox separately. See
+Settings also provides a local data inventory, secret-redacted export, scoped
+purge controls, and operational-history retention cleanup. Purge never edits
+or deletes messages in Gmail itself.
+
+The native API bearer token is kept in Windows Credential Manager by the
+Flutter client. The JSON preferences file does not intentionally store it;
+older JSON tokens are migrated when the client next starts successfully.
+
+For Gmail, place the private Desktop OAuth client JSON at
+`%APPDATA%\AiOS Assistant\credentials\google_client_secret.json`, then open
+**Accounts** and select **Sign in with Google**. Approve read-only access in the
+system browser and connect each mailbox separately. The build never embeds this
+file. See
 [Gmail OAuth Setup](GMAIL_OAUTH_SETUP.md).

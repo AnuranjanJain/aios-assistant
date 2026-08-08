@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 
 from app.models import MemoryEntity, MemoryFact, MemoryRelation, WorkCheckpoint, db
 from app.services.vector_store import rank_vectors
+from app.services.local_security import LocalSecurityError, safe_ollama_url
 
 
 ENTITY_TYPES = {
@@ -421,7 +422,10 @@ def embed_text(text, config):
     text = str(text or "").strip()
     if not text:
         return []
-    base_url = str(config.get("OLLAMA_URL") or "http://localhost:11434").rstrip("/")
+    try:
+        base_url = safe_ollama_url(config)
+    except LocalSecurityError:
+        return []
     model = str(config.get("OLLAMA_EMBED_MODEL") or "nomic-embed-text").strip()
     payload = {"model": model, "input": text[:8000]}
     request = Request(

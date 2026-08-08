@@ -1764,6 +1764,66 @@ textarea {
   color: var(--green);
 }
 
+.readiness-banner {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 20px;
+}
+
+.readiness-copy {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.readiness-items {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.readiness-item {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid rgba(255, 209, 102, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 209, 102, 0.07);
+  padding: 12px;
+}
+
+.readiness-item strong,
+.readiness-item small {
+  display: block;
+}
+
+.readiness-item small {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.readiness-icon {
+  display: grid;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: #14150f;
+  font-weight: 950;
+}
+
+@media (max-width: 900px) {
+  .readiness-items {
+    grid-template-columns: 1fr;
+  }
+}
+
 .toggle-row {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -2487,6 +2547,67 @@ button:disabled {
   .automation-action {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+.privacy-inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.privacy-inventory-item {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.privacy-inventory-item strong {
+  color: var(--green);
+  font-size: 24px;
+}
+
+.privacy-inventory-item span,
+.form-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.privacy-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.privacy-danger-zone {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.privacy-danger-zone summary {
+  cursor: pointer;
+  color: #ffb3b3;
+  font-weight: 700;
+}
+
+.privacy-danger-zone .settings-form {
+  margin-top: 14px;
+}
+
+.settings-divider {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 22px 0;
+}
+
+@media (max-width: 760px) {
+  .privacy-actions {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -262,68 +262,76 @@ class _SidebarItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = _Palette.of(context);
-    return Tooltip(
-      message: compact ? item.label : '',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 240),
-            curve: const Cubic(0.2, 0.8, 0.2, 1),
-            height: 38,
-            decoration: BoxDecoration(
-              color: selected ? _Palette.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
+    return Semantics(
+      button: true,
+      label: item.label,
+      hint: 'Open ${item.label}',
+      selected: selected,
+      child: Tooltip(
+        message: compact ? item.label : '',
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 240),
+              curve: const Cubic(0.2, 0.8, 0.2, 1),
+              height: 38,
+              decoration: BoxDecoration(
                 color: selected ? _Palette.primary : Colors.transparent,
-              ),
-            ),
-            padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 10),
-            child: Row(
-              mainAxisAlignment: compact
-                  ? MainAxisAlignment.center
-                  : MainAxisAlignment.start,
-              children: [
-                AnimatedScale(
-                  duration: const Duration(milliseconds: 240),
-                  scale: selected ? 1 : 0.96,
-                  child: Container(
-                    width: 26,
-                    height: 26,
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? const Color(0x14000000)
-                          : palette.surfaceRaised,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    alignment: Alignment.center,
-                    child: Icon(
-                      item.icon,
-                      size: 19,
-                      color: selected ? const Color(0xFF10150C) : palette.text,
-                    ),
-                  ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected ? _Palette.primary : Colors.transparent,
                 ),
-                if (!compact) ...[
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      item.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+              ),
+              padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 10),
+              child: Row(
+                mainAxisAlignment: compact
+                    ? MainAxisAlignment.center
+                    : MainAxisAlignment.start,
+                children: [
+                  AnimatedScale(
+                    duration: const Duration(milliseconds: 240),
+                    scale: selected ? 1 : 0.96,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? const Color(0x14000000)
+                            : palette.surfaceRaised,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        item.icon,
+                        size: 19,
                         color: selected
                             ? const Color(0xFF10150C)
-                            : palette.muted,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                            : palette.text,
                       ),
                     ),
                   ),
+                  if (!compact) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: selected
+                              ? const Color(0xFF10150C)
+                              : palette.muted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -500,23 +508,28 @@ class _TopBar extends StatelessWidget {
           ],
           Expanded(child: _TopRail(controller: controller)),
           const SizedBox(width: 14),
-          Tooltip(
-            message: 'Settings and profile',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(24),
-              onTap: () => controller.selectPage('settings'),
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: palette.surface,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: palette.border),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  'A',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+          Semantics(
+            button: true,
+            label: 'Settings and profile',
+            hint: 'Open settings and profile',
+            child: Tooltip(
+              message: 'Settings and profile',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: () => controller.selectPage('settings'),
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: palette.surface,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: palette.border),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text(
+                    'A',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+                  ),
                 ),
               ),
             ),
@@ -742,6 +755,11 @@ class _OverviewPage extends StatelessWidget {
           connectedAccounts: _maps(controller.accounts['accounts']).length,
         ),
         const SizedBox(height: 16),
+        _ReadinessPanel(
+          controller: controller,
+          readiness: _map(controller.live['readiness']),
+        ),
+        const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 820;
@@ -936,6 +954,159 @@ class _MetricGrid extends StatelessWidget {
       );
     },
   );
+}
+
+class _ReadinessPanel extends StatelessWidget {
+  const _ReadinessPanel({required this.controller, required this.readiness});
+
+  final AiosController controller;
+  final Map<String, dynamic> readiness;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _maps(readiness['items']);
+    final requiredReady = readiness['required_ready'] ?? 0;
+    final requiredTotal = readiness['required_total'] ?? 0;
+    final optionalReady = readiness['optional_ready'] ?? 0;
+    final optionalTotal = readiness['optional_total'] ?? 0;
+    final coreReady = requiredTotal > 0 && requiredReady == requiredTotal;
+    return _Panel(
+      eyebrow: 'SETUP CHECK',
+      title: '$requiredReady/$requiredTotal core systems ready',
+      action: _MiniButton(
+        label: controller.syncing ? 'Syncing...' : 'Sync now',
+        onTap: controller.syncing ? null : controller.syncAll,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            coreReady
+                ? 'AiOS can keep your daily workflow current in the background.'
+                : 'Finish the items below before relying on AiOS for live planning.',
+            style: TextStyle(color: _Palette.of(context).muted, height: 1.45),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '$optionalReady/$optionalTotal optional integrations ready',
+            style: TextStyle(
+              color: _Palette.of(context).muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (items.isEmpty)
+            const _Empty(
+              'Readiness details will appear after the local core connects.',
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 800 ? 2 : 1;
+                final width =
+                    (constraints.maxWidth - ((columns - 1) * 12)) / columns;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: items.map((item) {
+                    return SizedBox(
+                      width: width,
+                      child: _ReadinessItem(
+                        item: item,
+                        onOpen: _readinessDestination(
+                          controller,
+                          _string(item['id']),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReadinessItem extends StatelessWidget {
+  const _ReadinessItem({required this.item, required this.onOpen});
+
+  final Map<String, dynamic> item;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = item['ok'] == true;
+    final isRequired = item['required'] == true;
+    final palette = _Palette.of(context);
+    final statusColor = ok
+        ? _Palette.success
+        : isRequired
+        ? _Palette.warning
+        : palette.muted;
+    return _HoverSurface(
+      color: palette.surfaceRaised,
+      borderColor: ok ? palette.border : statusColor.withValues(alpha: 0.5),
+      padding: const EdgeInsets.all(13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                ok ? Icons.check_circle_outline : Icons.info_outline,
+                size: 18,
+                color: statusColor,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _string(item['label'], fallback: 'System check'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              _MetaPill(
+                ok
+                    ? 'Ready'
+                    : isRequired
+                    ? 'Setup'
+                    : 'Optional',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _string(item['detail']),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: palette.muted, fontSize: 12, height: 1.45),
+          ),
+          if (!ok && onOpen != null) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _MiniButton(label: 'Open setup', onTap: onOpen),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+VoidCallback? _readinessDestination(AiosController controller, String id) {
+  final destination = switch (id) {
+    'gmail_account' || 'gmail_sync' => 'sources',
+    'email_worker' => 'workers',
+    'planner' => 'memory',
+    'privacy' || 'ollama' || 'github' => 'settings',
+    _ => null,
+  };
+  return destination == null ? null : () => controller.selectPage(destination);
 }
 
 class _LeadSection extends StatelessWidget {
@@ -2097,116 +2268,371 @@ class _ReminderRow extends StatelessWidget {
   }
 }
 
-class _InboxPage extends StatelessWidget {
+class _InboxPage extends StatefulWidget {
   const _InboxPage({required this.controller});
   final AiosController controller;
 
   @override
+  State<_InboxPage> createState() => _InboxPageState();
+}
+
+class _InboxPageState extends State<_InboxPage> {
+  String _filter = 'action';
+  String _category = 'all';
+
+  @override
   Widget build(BuildContext context) {
-    final items = _maps(controller.live['inbox_items']);
+    final controller = widget.controller;
+    final data = controller.dataFor('inbox');
+    final items = data.containsKey('items')
+        ? _maps(data['items'])
+        : _maps(controller.live['inbox_items']);
+    final stats = _map(data['stats']);
+    final categories = _maps(data['categories']);
+    final visible = items.where((item) {
+      final matchesFilter = switch (_filter) {
+        'urgent' =>
+          _string(item['priority']) == 'urgent' ||
+              _string(item['urgency']) == 'urgent',
+        'high' => {'urgent', 'high'}.contains(_string(item['priority'])),
+        'unread' => item['is_unread'] == true,
+        'all' => true,
+        _ => item['is_actionable'] == true,
+      };
+      final matchesCategory =
+          _category == 'all' || _string(item['category']) == _category;
+      return matchesFilter && matchesCategory;
+    }).toList();
     return _PageColumn(
       children: [
         _Panel(
-          eyebrow: 'CLASSIFIER',
-          title: 'Recent Inbox Intelligence',
-          action: _ActionButton(
-            label: controller.syncing ? 'Syncing...' : 'Sync inbox',
-            icon: Icons.sync_rounded,
-            onTap: controller.syncing ? null : controller.syncAll,
+          eyebrow: 'INBOX AI / LOCAL TRIAGE',
+          title: 'Know what matters before opening every email.',
+          action: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ActionButton(
+                label: controller.syncing ? 'Syncing...' : 'Sync inbox',
+                icon: Icons.sync_rounded,
+                onTap: controller.syncing ? null : controller.syncAll,
+              ),
+              _ActionButton(
+                label: 'Re-score inbox',
+                icon: Icons.auto_awesome_rounded,
+                onTap: controller.syncing
+                    ? null
+                    : controller.rebuildInboxTriage,
+              ),
+            ],
           ),
           child: items.isEmpty
-              ? const _Empty('Classified emails will appear here.')
+              ? const _Empty(
+                  'Classified emails will appear after the first Gmail sync.',
+                )
               : Column(
-                  children: items.indexed.map((entry) {
-                    final item = entry.$2;
-                    final confidence =
-                        ((item['confidence'] as num?)?.toDouble() ?? 0) * 100;
-                    return _Reveal(
-                      index: entry.$1,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _HoverSurface(
-                          color: _Palette.of(context).surfaceRaised,
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: const Color(0x1F75D7FF),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  '${confidence.round()}%',
-                                  style: const TextStyle(
-                                    color: _Palette.info,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w900,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _string(
+                        _map(data['scope'])['label'],
+                        fallback:
+                            'Latest local email window across connected accounts',
+                      ),
+                      style: TextStyle(
+                        color: _Palette.of(context).muted,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _ActionMetricStrip(
+                      metrics: [
+                        (
+                          label: 'Needs action',
+                          value:
+                              '${stats['actionable'] ?? items.where((item) => item['is_actionable'] == true).length}',
+                          caption: 'clear next step',
+                          icon: Icons.bolt_rounded,
+                          color: _Palette.primary,
+                        ),
+                        (
+                          label: 'High priority',
+                          value:
+                              '${stats['high_priority'] ?? items.where((item) => {'urgent', 'high'}.contains(_string(item['priority']))).length}',
+                          caption: 'review first',
+                          icon: Icons.priority_high_rounded,
+                          color: _Palette.danger,
+                        ),
+                        (
+                          label: 'Urgent now',
+                          value:
+                              '${stats['urgent'] ?? items.where((item) => _string(item['priority']) == 'urgent').length}',
+                          caption: 'time-sensitive',
+                          icon: Icons.local_fire_department_outlined,
+                          color: _Palette.warning,
+                        ),
+                        (
+                          label: 'Unread',
+                          value:
+                              '${stats['unread'] ?? items.where((item) => item['is_unread'] == true).length}',
+                          caption: 'across Gmail',
+                          icon: Icons.mark_email_unread_outlined,
+                          color: _Palette.info,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final filter in const [
+                          (id: 'action', label: 'Needs action'),
+                          (id: 'urgent', label: 'Urgent now'),
+                          (id: 'high', label: 'High priority'),
+                          (id: 'unread', label: 'Unread'),
+                          (id: 'all', label: 'All mail'),
+                        ])
+                          _ActionFilterButton(
+                            label: filter.label,
+                            selected: _filter == filter.id,
+                            onTap: () => setState(() => _filter = filter.id),
+                          ),
+                      ],
+                    ),
+                    if (categories.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _ActionFilterButton(
+                            label: 'Every category',
+                            selected: _category == 'all',
+                            onTap: () => setState(() => _category = 'all'),
+                          ),
+                          ...categories
+                              .take(10)
+                              .map(
+                                (category) => _ActionFilterButton(
+                                  label:
+                                      '${_string(category['label'])} - ${category['count'] ?? 0}',
+                                  selected:
+                                      _category == _string(category['id']),
+                                  onTap: () => setState(
+                                    () => _category = _string(category['id']),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 13),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _string(
-                                        item['subject'],
-                                        fallback: 'Email',
-                                      ),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Text(
-                                      '${_string(item['category'])} - ${_string(item['sender'], fallback: 'Local inbox')}',
-                                      style: TextStyle(
-                                        color: _Palette.of(context).muted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    if (_string(
-                                      item['summary'],
-                                    ).isNotEmpty) ...[
-                                      const SizedBox(height: 9),
-                                      Text(
-                                        _string(item['summary']),
-                                        maxLines: 4,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(height: 1.5),
-                                      ),
-                                    ],
-                                    if (_string(
-                                      item['next_action'],
-                                    ).isNotEmpty) ...[
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Next: ${_string(item['next_action'])}',
-                                        style: const TextStyle(
-                                          color: _Palette.primary,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        ],
                       ),
-                    );
-                  }).toList(),
+                    ],
+                    const SizedBox(height: 20),
+                    _SectionLabel(
+                      title:
+                          '${visible.length} ${visible.length == 1 ? 'email' : 'emails'} in this view',
+                      subtitle:
+                          'Priority is based on direct actions, deadlines, sender context, Gmail importance, and local category rules.',
+                    ),
+                    const SizedBox(height: 12),
+                    if (visible.isEmpty)
+                      const _Empty('No emails match these filters.')
+                    else
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final columns = constraints.maxWidth >= 820 ? 2 : 1;
+                          final width =
+                              (constraints.maxWidth - ((columns - 1) * 12)) /
+                              columns;
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: visible.indexed
+                                .map(
+                                  (entry) => SizedBox(
+                                    width: width,
+                                    child: _Reveal(
+                                      index: entry.$1,
+                                      child: _InboxIntelligenceCard(
+                                        item: entry.$2,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          );
+                        },
+                      ),
+                  ],
                 ),
         ),
       ],
     );
   }
+}
+
+class _InboxIntelligenceCard extends StatelessWidget {
+  const _InboxIntelligenceCard({required this.item});
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _Palette.of(context);
+    final tone = _inboxTone(item);
+    final score = (item['attention_score'] as num?)?.toInt() ?? 0;
+    final priority = _string(item['priority'], fallback: 'normal');
+    return _HoverSurface(
+      color: palette.surfaceRaised,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(_inboxIcon(item), color: tone, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _string(item['subject'], fallback: 'Email'),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      _string(item['sender'], fallback: 'Local inbox'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: palette.muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$score',
+                style: TextStyle(
+                  color: tone,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: [
+              _InboxMetaPill(
+                label: _string(
+                  item['category_label'],
+                  fallback: _string(item['category'], fallback: 'Other'),
+                ),
+                color: _Palette.info,
+              ),
+              _InboxMetaPill(label: priority.toUpperCase(), color: tone),
+              if ({'urgent', 'high'}.contains(_string(item['urgency'])))
+                _InboxMetaPill(
+                  label: '${_string(item['urgency']).toUpperCase()} ATTENTION',
+                  color: _Palette.warning,
+                ),
+              if (item['is_unread'] == true)
+                const _InboxMetaPill(label: 'UNREAD', color: _Palette.warning),
+              if (_string(item['account_email']).isNotEmpty)
+                _InboxMetaPill(
+                  label: _string(item['account_email']),
+                  color: palette.muted,
+                ),
+            ],
+          ),
+          if (_string(item['summary']).isNotEmpty) ...[
+            const SizedBox(height: 13),
+            Text(
+              _string(item['summary']),
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(height: 1.48, fontSize: 13),
+            ),
+          ],
+          if (_string(item['priority_reason']).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              _string(item['priority_reason']),
+              style: TextStyle(
+                color: tone,
+                height: 1.4,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          if (_string(item['next_action']).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.arrow_forward_rounded,
+                  color: _Palette.primary,
+                  size: 17,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    _string(item['next_action']),
+                    style: const TextStyle(
+                      color: _Palette.primary,
+                      fontWeight: FontWeight.w800,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _InboxMetaPill extends StatelessWidget {
+  const _InboxMetaPill({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(maxWidth: 240),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900),
+    ),
+  );
 }
 
 class _MemoryPage extends StatefulWidget {
@@ -2813,7 +3239,7 @@ class _AccountRow extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         _string(
-                          item['last_sync_at'],
+                          item['last_sync_at_local'] ?? item['last_sync_at'],
                           fallback: 'Connected locally',
                         ),
                         maxLines: 1,
@@ -3166,6 +3592,125 @@ class _SettingsPage extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          _PrivacyPanel(controller: controller),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivacyPanel extends StatelessWidget {
+  const _PrivacyPanel({required this.controller});
+  final AiosController controller;
+
+  Future<void> _confirmPurge(
+    BuildContext context,
+    String scope,
+    String label,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete $label?'),
+        content: Text(
+          'This removes the selected data from this device. Google mail is not changed. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete local data'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await controller.purgePrivacyData(scope);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _map(controller.dataFor('settings'));
+    final categories = _map(data['categories']);
+    final retention = (data['retention_days'] as num?)?.toInt() ?? 365;
+    return _Panel(
+      eyebrow: 'PRIVACY',
+      title: 'Your data, your controls',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Everything stays on this device. Exports redact tokens, and deletion is scoped and confirmed.',
+            style: TextStyle(color: _Palette.of(context).muted, height: 1.45),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: categories.entries
+                .map(
+                  (entry) => _InfoChip(
+                    label: '${entry.key}: ${entry.value}',
+                    color: _Palette.primary,
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _ActionButton(
+                label: 'Export local data',
+                icon: Icons.download_outlined,
+                primary: true,
+                onTap: controller.isActionBusy('privacy:export')
+                    ? null
+                    : controller.exportPrivacyData,
+              ),
+              _ActionButton(
+                label: retention == 0
+                    ? 'Retention off'
+                    : 'Keep $retention days',
+                icon: Icons.schedule_outlined,
+                onTap: controller.isActionBusy('privacy:retention')
+                    ? null
+                    : () => controller.setRetentionDays(
+                        retention == 365 ? 90 : 365,
+                      ),
+              ),
+              _ActionButton(
+                label: 'Delete email data',
+                icon: Icons.mail_outline,
+                danger: true,
+                onTap: controller.isActionBusy('privacy:purge:email')
+                    ? null
+                    : () => _confirmPurge(
+                        context,
+                        'email',
+                        'Gmail and inbox data',
+                      ),
+              ),
+              _ActionButton(
+                label: 'Delete activity',
+                icon: Icons.timeline_outlined,
+                danger: true,
+                onTap: controller.isActionBusy('privacy:purge:activity')
+                    ? null
+                    : () => _confirmPurge(
+                        context,
+                        'activity',
+                        'activity history',
+                      ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -3259,6 +3804,33 @@ class _PageColumn extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: children,
   );
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _Palette.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.32)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: palette.text,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
 }
 
 class _Panel extends StatelessWidget {
@@ -3974,22 +4546,27 @@ class _ShellButton extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: double.infinity,
-          height: 38,
-          decoration: BoxDecoration(
-            color: _Palette.of(context).surfaceRaised,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _Palette.of(context).border),
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: tooltip,
+    hint: 'Activate $tooltip',
+    child: Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: double.infinity,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _Palette.of(context).surfaceRaised,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _Palette.of(context).border),
+            ),
+            child: child,
           ),
-          child: child,
         ),
       ),
     ),
@@ -4170,36 +4747,45 @@ class _ActionFilterButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: selected ? _Palette.primary : _Palette.of(context).surfaceRaised,
-    borderRadius: BorderRadius.circular(10),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        height: 40,
-        constraints: const BoxConstraints(minWidth: 76),
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: selected ? _Palette.primary : _Palette.of(context).border,
-          ),
+  Widget build(BuildContext context) {
+    final width = (label.length * 7.4 + 34).clamp(96.0, 220.0);
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: selected ? _Palette.primary : _Palette.of(context).surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(10),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected
-                ? const Color(0xFF10150C)
-                : _Palette.of(context).text,
-            fontSize: 12,
-            fontWeight: FontWeight.w900,
+          child: Container(
+            height: 40,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: selected
+                    ? _Palette.primary
+                    : _Palette.of(context).border,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected
+                    ? const Color(0xFF10150C)
+                    : _Palette.of(context).text,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _WorkspaceSearch extends StatelessWidget {
@@ -4298,6 +4884,31 @@ IconData _reminderIcon(Map<String, dynamic> item) =>
       'overdue' => Icons.priority_high_rounded,
       'today' => Icons.schedule_rounded,
       _ => Icons.notifications_none,
+    };
+
+Color _inboxTone(Map<String, dynamic> item) =>
+    switch (_string(item['priority'])) {
+      'urgent' => _Palette.danger,
+      'high' => _Palette.warning,
+      'low' => _Palette.success,
+      _ => _Palette.info,
+    };
+
+IconData _inboxIcon(Map<String, dynamic> item) =>
+    switch (_string(item['category'])) {
+      'github' => Icons.code_rounded,
+      'security' => Icons.security_rounded,
+      'internship' || 'career' => Icons.work_outline_rounded,
+      'hackathon' => Icons.emoji_events_outlined,
+      'college' || 'assignment' => Icons.school_outlined,
+      'meeting' => Icons.event_outlined,
+      'finance' => Icons.account_balance_wallet_outlined,
+      'travel' => Icons.flight_outlined,
+      'shopping' => Icons.local_shipping_outlined,
+      'learning' => Icons.menu_book_outlined,
+      'social' => Icons.people_outline_rounded,
+      'newsletter' => Icons.newspaper_outlined,
+      _ => Icons.mail_outline_rounded,
     };
 
 class _Eyebrow extends StatelessWidget {

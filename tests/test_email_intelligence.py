@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import json
 import sqlite3
+import urllib.parse
 from unittest import mock
 from pathlib import Path
 from datetime import date, datetime, time, timedelta
@@ -35,6 +36,7 @@ from app.models import (
 )
 from app.services.email_intelligence import (
     _gmail_message_ids,
+    _remove_deleted_messages,
     analyze_pending_emails,
     decrypt_token_json,
     encrypt_token_json,
@@ -46,13 +48,19 @@ from app.services.email_intelligence import (
     upsert_gmail_message,
     upsert_email_insight,
 )
+from app.services.email_triage import classify_email_category, triage_email
 from app.services.college_intelligence import pat_college_summary
 from app.services.email_scope import latest_email_ids_combined
 from app.services.email_views import materialize_email_views
 from app.services.application_intelligence import application_overview
 from app.routes import build_dashboard_context
 from app.services.project_context import create_project, project_context, update_project
-from app.services.github_intelligence import update_all_repositories, update_repository
+from app.services.github_intelligence import (
+    fetch_discussions,
+    github_object_list,
+    update_all_repositories,
+    update_repository,
+)
 from app.services.learning_intelligence import evening_questions, learning_summary, record_learning_progress, upsert_learning_item
 from app.services.daily_assistant import (
     evening_checkin_prompt,
@@ -123,6 +131,67 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertIn("connect it again", result["suggested_fix"])
         self.assertIsNotNone(db.session.get(ConnectedAccount, account.id))
 
+    def test_sync_repairs_old_mail_timestamps_from_latest_gmail_window(self):
+        class Execute:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def execute(self):
+                return self.payload
+
+        message = {
+            "id": "latest-mail",
+            "threadId": "latest-thread",
+            "historyId": "500",
+            "labelIds": ["INBOX"],
+            "internalDate": "1786132800000",
+            "payload": {
+                "headers": [
+                    {"name": "Date", "value": "Fri, 07 Aug 2026 20:00:00 +0000"},
+                    {"name": "From", "value": "updates@example.com"},
+                    {"name": "Subject", "value": "Latest update"},
+                ]
+            },
+        }
+
+        class Messages:
+            def list(self, **_kwargs):
+                return Execute({"messages": [{"id": "latest-mail"}]})
+
+            def get(self, **_kwargs):
+                return Execute(message)
+
+        class Users:
+            def messages(self):
+                return Messages()
+
+        class FakeService:
+            def users(self):
+                return Users()
+
+        account = ConnectedAccount(
+            provider="google",
+            email="repair@example.com",
+            label="Repair",
+            mail_time_version=0,
+        )
+        db.session.add(account)
+        db.session.commit()
+
+        with mock.patch(
+            "app.services.email_intelligence.credentials_for_account",
+            return_value=object(),
+        ), mock.patch(
+            "googleapiclient.discovery.build",
+            return_value=FakeService(),
+        ):
+            result = sync_account(account, limit=1)
+
+        refreshed = EmailMessage.query.filter_by(provider_message_id="latest-mail").one()
+        self.assertTrue(result["ok"])
+        self.assertEqual(account.mail_time_version, 1)
+        self.assertEqual(refreshed.sent_at, datetime(2026, 8, 7, 20, 0))
+
     def test_gmail_insights_feed_inbox_opportunities_and_reminders(self):
         account = ConnectedAccount(provider="google", email="student@example.com", label="Student")
         email = EmailMessage(
@@ -168,6 +237,123 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(Reminder.query.filter(Reminder.source_key.like("email-task:%")).count(), 0)
         materialize_email_views()
         self.assertEqual(InboxItem.query.filter_by(email_message_id=email.id).count(), 1)
+
+    def test_sender_aware_triage_avoids_real_inbox_false_positives(self):
+        github = triage_email(
+            sender="notifications@github.com",
+            subject="[AnuranjanJain/LegalEase] Run failed: Test Suite - main",
+            is_unread=True,
+        )
+        job_alert = triage_email(
+            sender="noreply@match.indeed.com",
+            subject="Software Engineer I @ Indeed",
+            body="Jobs for you. Apply now.",
+            is_unread=True,
+        )
+        security = triage_email(
+            sender="googledevelopers-noreply@google.com",
+            subject="[Action Advised] Manage your unused OAuth clients",
+            is_unread=True,
+        )
+        datathon = triage_email(
+            sender="admin@no-reply.hack2skill.com",
+            subject="3 Days Left to Submit Your Datathon 2026 Prototype",
+            is_unread=True,
+        )
+
+        self.assertEqual(github.category, "github")
+        self.assertEqual(github.priority, "high")
+        self.assertTrue(github.is_actionable)
+        self.assertEqual(job_alert.category, "career")
+        self.assertEqual(job_alert.priority, "low")
+        self.assertFalse(job_alert.is_actionable)
+        self.assertEqual(security.category, "security")
+        self.assertEqual(security.priority, "high")
+        self.assertTrue(security.is_actionable)
+        self.assertEqual(datathon.category, "hackathon")
+        self.assertEqual(datathon.priority, "high")
+        self.assertTrue(datathon.is_actionable)
+        self.assertEqual(
+            classify_email_category(
+                "messages-noreply@linkedin.com",
+                "New skill available: Puzzle solving",
+            ),
+            "social",
+        )
+
+        application_receipt = triage_email(
+            sender="noreply@mail.amazon.jobs",
+            subject="Thank you for Applying to Amazon!",
+            body="We received your application and will contact you if there is a match.",
+            preferred_category="internship",
+            labels=["IMPORTANT"],
+        )
+        self.assertEqual(application_receipt.category, "internship")
+        self.assertEqual(application_receipt.priority, "normal")
+        self.assertFalse(application_receipt.is_actionable)
+
+        quoted_request = triage_email(
+            sender="Placement Office <placementoffice@vitbhopal.ac.in>",
+            subject="Re: Old registration notice",
+            body=(
+                "Thanks, noted.\n\n"
+                "On Mon, Jul 20, 2026 at 7:39 PM Office wrote:\n"
+                "Please submit your resume today."
+            ),
+        )
+        self.assertEqual(quoted_request.category, "college")
+        self.assertEqual(quoted_request.priority, "normal")
+        self.assertFalse(quoted_request.is_actionable)
+
+        stale_countdown = triage_email(
+            sender="admin@no-reply.hack2skill.com",
+            subject="3 Days Left to Submit Your Datathon Prototype",
+            body="Please submit your project today.",
+            sent_at=datetime.now() - timedelta(days=30),
+        )
+        self.assertEqual(stale_countdown.category, "hackathon")
+        self.assertEqual(stale_countdown.priority, "normal")
+        self.assertEqual(stale_countdown.urgency, "normal")
+        self.assertTrue(stale_countdown.is_actionable)
+
+    def test_inbox_overview_exposes_priority_filters_and_accounts(self):
+        account = ConnectedAccount(provider="google", email="triage@example.com", label="Triage")
+        github = EmailMessage(
+            account=account,
+            provider_message_id="github-failure",
+            sender="notifications@github.com",
+            subject="[AnuranjanJain/LegalEase] Run failed: Test Suite - main",
+            snippet="The workflow failed.",
+            is_unread=True,
+            sent_at=datetime.now(),
+        )
+        alert = EmailMessage(
+            account=account,
+            provider_message_id="job-alert",
+            sender="noreply@match.indeed.com",
+            subject="Software Engineer I @ Indeed",
+            snippet="Jobs for you. Apply now.",
+            is_unread=True,
+            sent_at=datetime.now() - timedelta(minutes=1),
+        )
+        db.session.add_all([account, github, alert])
+        db.session.commit()
+
+        analyzed = analyze_pending_emails(limit=10, app_config={"AI_PROVIDER": "rule_based"})
+        materialize_email_views()
+        response = self.client.get("/api/inbox/overview")
+        payload = response.get_json()
+
+        self.assertEqual(analyzed["analyzed"], 2)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["stats"]["total"], 2)
+        self.assertEqual(payload["stats"]["actionable"], 1)
+        self.assertEqual(payload["stats"]["high_priority"], 1)
+        self.assertEqual(payload["stats"]["low_priority"], 1)
+        self.assertEqual(payload["items"][0]["category"], "github")
+        self.assertEqual(payload["items"][0]["account_email"], "triage@example.com")
+        self.assertGreaterEqual(payload["items"][0]["attention_score"], 50)
+        self.assertTrue(payload["items"][0]["priority_reason"])
 
     def test_round_selection_and_promptwars_deadline_become_highlights(self):
         account = ConnectedAccount(provider="google", email="builder@example.com", label="Builder")
@@ -892,6 +1078,34 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(_gmail_message_ids(FakeService(), account, limit=10), ["m-1", "m-2"])
         self.assertEqual(account.sync_cursor, "240")
 
+    def test_deleted_gmail_messages_and_orphaned_threads_are_removed(self):
+        account = ConnectedAccount(provider="google", email="deleted@example.com", label="Deleted")
+        db.session.add(account)
+        db.session.flush()
+        for message_id in ("deleted-1", "deleted-2"):
+            upsert_gmail_message(
+                account,
+                {
+                    "id": message_id,
+                    "threadId": "deleted-thread",
+                    "historyId": "300",
+                    "labelIds": ["INBOX"],
+                    "snippet": "Deleted test message",
+                    "payload": {"headers": [{"name": "Subject", "value": message_id}]},
+                },
+            )
+        db.session.commit()
+        thread = EmailThread.query.filter_by(provider_thread_id="deleted-thread").one()
+
+        self.assertEqual(_remove_deleted_messages(account, {"deleted-1"}), 1)
+        db.session.commit()
+        self.assertIsNone(EmailMessage.query.filter_by(provider_message_id="deleted-1").first())
+        self.assertIsNotNone(db.session.get(EmailThread, thread.id))
+
+        self.assertEqual(_remove_deleted_messages(account, {"deleted-2"}), 1)
+        db.session.commit()
+        self.assertIsNone(db.session.get(EmailThread, thread.id))
+
     def test_google_desktop_oauth_client_status_hides_client_secret(self):
         target = Path(self.temp_dir.name) / "credentials" / "google_client_secret.json"
         config = {"GMAIL_CREDENTIALS_PATH": str(target)}
@@ -963,7 +1177,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
                 ),
                 labels_json=json.dumps(["INBOX", "IMPORTANT"]),
                 is_unread=True,
-                sent_at=datetime(2026, 7, 6, 9, 0),
+                sent_at=datetime.now() - timedelta(hours=1),
             )
         )
         db.session.commit()
@@ -1002,6 +1216,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("readiness", payload)
+        self.assertEqual(payload["native_contract_version"], 2)
         self.assertEqual(payload["readiness"]["total"], 7)
         self.assertIn("items", payload["readiness"])
 
@@ -1102,6 +1317,9 @@ class EmailIntelligenceTestCase(unittest.TestCase):
                 self.assertIn("suggested_actions_json", columns)
                 self.assertIn("life_item", db.inspect(db.engine).get_table_names())
                 self.assertIn("life_item_relation", db.inspect(db.engine).get_table_names())
+                backups = list(database_path.parent.joinpath("backups").glob("legacy.db.*.bak"))
+                self.assertEqual(len(backups), 1)
+                self.assertGreater(backups[0].stat().st_size, 0)
                 db.session.remove()
                 db.engine.dispose()
 
@@ -1136,6 +1354,30 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertIn("Answer waiting questions", items["planner"]["action"])
         self.assertIn("ollama pull qwen2.5:3b", items["ollama"]["action"])
         self.assertEqual(summary["total"], 7)
+        self.assertEqual(summary["required_total"], 4)
+        self.assertEqual(summary["optional_total"], 3)
+        self.assertEqual(summary["required_ready"], 3)
+        self.assertFalse(summary["all_ready"])
+
+    def test_readiness_marks_a_running_worker_with_an_error_as_attention(self):
+        values = {
+            "OLLAMA_URL": "http://127.0.0.1:11434",
+            "OLLAMA_MODEL": "qwen2.5:3b",
+            "EMAIL_SYNC_INTERVAL_MINUTES": "10",
+        }
+        with mock.patch(
+            "app.services.readiness._service_status",
+            return_value={
+                "running": True,
+                "last_error": "Gmail quota temporarily exceeded",
+            },
+        ):
+            summary = readiness_summary(values)
+
+        item = next(item for item in summary["items"] if item["id"] == "email_worker")
+        self.assertFalse(item["ok"])
+        self.assertIn("quota temporarily exceeded", item["detail"])
+        self.assertIn("review the last error", item["action"])
 
     def test_settings_ollama_check_rejects_non_loopback_url(self):
         response = self.client.post(
@@ -1831,6 +2073,59 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(len(json.loads(repo.discussions_json)), 1)
         self.assertEqual(len(json.loads(repo.workflows_json)), 1)
         self.assertEqual(len(json.loads(repo.contributors_json)), 1)
+
+    def test_github_discussions_and_workflows_follow_pagination(self):
+        class Response:
+            def __init__(self, payload):
+                self.payload = json.dumps(payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return self.payload
+
+        def open_url(request, timeout=4.0):
+            if request.full_url.endswith("graphql"):
+                body = json.loads(request.data.decode("utf-8"))
+                after = body["variables"]["after"]
+                if after is None:
+                    return Response({
+                        "data": {
+                            "repository": {
+                                "discussions": {
+                                    "nodes": [{"title": "First"}],
+                                    "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                                }
+                            }
+                        }
+                    })
+                return Response({
+                    "data": {
+                        "repository": {
+                            "discussions": {
+                                "nodes": [{"title": "Second"}],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            }
+                        }
+                    }
+                })
+            page = int(urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)["page"][0])
+            return Response({"workflows": ([{"name": str(index)} for index in range(50)] if page == 1 else [{"name": "last"}])})
+
+        with mock.patch("app.services.github_intelligence.urllib.request.urlopen", side_effect=open_url):
+            discussions = fetch_discussions("example/project", {"Accept": "application/json"})
+            workflows = github_object_list(
+                "https://api.github.com/repos/example/project/actions/workflows",
+                "workflows",
+                per_page=50,
+            )
+
+        self.assertEqual([item["title"] for item in discussions], ["First", "Second"])
+        self.assertEqual(len(workflows), 51)
 
     def test_github_intelligence_updates_all_repositories_and_daily_summary(self):
         item = LifeItem(

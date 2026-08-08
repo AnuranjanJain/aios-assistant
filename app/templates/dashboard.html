@@ -21,6 +21,32 @@
         </div>
       </header>
 
+      {% if not readiness.all_ready %}
+        <section class="panel glass readiness-banner" data-dashboard-tab-panel="overview" aria-labelledby="readiness-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">First-run checklist</p>
+              <h2 id="readiness-title">{{ readiness.required_ready }}/{{ readiness.required_total }} core systems ready</h2>
+            </div>
+            <a class="secondary-action link-action" href="{{ url_for('main.settings', _anchor='readiness') }}">Open setup</a>
+          </div>
+          <p class="readiness-copy">Finish the few items below and AiOS can keep your mail, deadlines, and daily plan useful in the background.</p>
+          <div class="readiness-items">
+            {% for item in readiness["items"] if not item.ok %}
+              {% if loop.index <= 3 %}
+                <div class="readiness-item">
+                  <span class="readiness-icon" aria-hidden="true">!</span>
+                  <div>
+                    <strong>{{ item.label }}</strong>
+                    <small>{{ item.action }}</small>
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
       <section id="overview" class="stats-grid" aria-label="Dashboard stats" data-dashboard-tab-panel="overview">
         <article class="stat-card">
           <span>Tracked</span>

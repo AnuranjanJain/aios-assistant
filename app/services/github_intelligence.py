@@ -3,6 +3,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import time
 from datetime import date, datetime, timedelta
 
 from flask import current_app
@@ -52,8 +53,53 @@ def github_headers():
 
 def github_json(url, headers=None, timeout=4.0):
     request = urllib.request.Request(url, headers=headers or github_headers())
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            remaining = (exc.headers or {}).get("X-RateLimit-Remaining")
+            transient = exc.code in {429, 500, 502, 503, 504} or (exc.code == 403 and remaining == "0")
+            if not transient or attempt == 2:
+                raise
+            time.sleep(0.25 * (2**attempt))
+
+
+def github_list(url, headers=None, per_page=100, max_pages=10):
+    """Fetch bounded pages so large repositories do not silently look empty."""
+    parsed = urllib.parse.urlsplit(url)
+    query = [(key, value) for key, value in urllib.parse.parse_qsl(parsed.query) if key not in {"page", "per_page"}]
+    items = []
+    for page in range(1, max_pages + 1):
+        page_query = urllib.parse.urlencode([*query, ("page", page), ("per_page", per_page)])
+        page_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, page_query, parsed.fragment))
+        payload = github_json(page_url, headers)
+        if not isinstance(payload, list):
+            break
+        items.extend(payload)
+        if len(payload) < per_page:
+            break
+    return items
+
+
+def github_object_list(url, key, headers=None, per_page=100, max_pages=10):
+    """Fetch a bounded paginated list nested inside a GitHub response object."""
+    parsed = urllib.parse.urlsplit(url)
+    query = [(name, value) for name, value in urllib.parse.parse_qsl(parsed.query) if name not in {"page", "per_page"}]
+    items = []
+    for page in range(1, max_pages + 1):
+        page_query = urllib.parse.urlencode([*query, ("page", page), ("per_page", per_page)])
+        page_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, page_query, parsed.fragment))
+        payload = github_json(page_url, headers)
+        if not isinstance(payload, dict):
+            break
+        page_items = payload.get(key) or []
+        if not isinstance(page_items, list):
+            break
+        items.extend(page_items)
+        if len(page_items) < per_page:
+            break
+    return items
 
 
 def discover_repository_urls():
@@ -104,14 +150,19 @@ def fetch_repository_snapshot(repo_full_name):
     headers = github_headers()
     encoded = urllib.parse.quote(repo_full_name, safe="/")
     repo = github_json(f"https://api.github.com/repos/{encoded}", headers)
-    commits = github_json(f"https://api.github.com/repos/{encoded}/commits?per_page=10", headers)
-    pulls = github_json(f"https://api.github.com/repos/{encoded}/pulls?state=all&per_page=10", headers)
-    issues = github_json(f"https://api.github.com/repos/{encoded}/issues?state=all&per_page=20", headers)
-    branches = github_json(f"https://api.github.com/repos/{encoded}/branches?per_page=20", headers)
-    releases = github_json(f"https://api.github.com/repos/{encoded}/releases?per_page=10", headers)
+    commits = github_list(f"https://api.github.com/repos/{encoded}/commits", headers)
+    pulls = github_list(f"https://api.github.com/repos/{encoded}/pulls?state=all", headers)
+    issues = github_list(f"https://api.github.com/repos/{encoded}/issues?state=all", headers)
+    branches = github_list(f"https://api.github.com/repos/{encoded}/branches", headers)
+    releases = github_list(f"https://api.github.com/repos/{encoded}/releases", headers)
     discussions = fetch_discussions(repo_full_name, headers)
-    workflows = github_json(f"https://api.github.com/repos/{encoded}/actions/workflows?per_page=20", headers)
-    contributors = github_json(f"https://api.github.com/repos/{encoded}/contributors?per_page=20", headers)
+    workflows = github_object_list(
+        f"https://api.github.com/repos/{encoded}/actions/workflows",
+        "workflows",
+        headers,
+        per_page=50,
+    )
+    contributors = github_list(f"https://api.github.com/repos/{encoded}/contributors", headers)
     return {
         "repo": repo,
         "commits": commits,
@@ -120,33 +171,45 @@ def fetch_repository_snapshot(repo_full_name):
         "branches": branches,
         "releases": releases,
         "discussions": discussions,
-        "workflows": workflows.get("workflows", []) if isinstance(workflows, dict) else workflows,
+        "workflows": workflows,
         "contributors": contributors,
     }
 
 
 def fetch_discussions(repo_full_name, headers):
     owner, repo = repo_full_name.split("/", 1)
-    query = {
-        "query": (
-            "query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){"
-            "discussions(first:10,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{title,url,createdAt,updatedAt,answerChosenAt}}}}"
-        ),
-        "variables": {"owner": owner, "repo": repo},
-    }
-    request = urllib.request.Request(
-        "https://api.github.com/graphql",
-        data=json.dumps(query).encode("utf-8"),
-        headers={**headers, "Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=4.0) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
-        return []
-    nodes = payload.get("data", {}).get("repository", {}).get("discussions", {}).get("nodes", [])
-    return nodes or []
+    nodes = []
+    cursor = None
+    for _ in range(5):
+        query = {
+            "query": (
+                "query($owner:String!,$repo:String!,$after:String){repository(owner:$owner,name:$repo){"
+                "discussions(first:50,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){"
+                "nodes{title,url,createdAt,updatedAt,answerChosenAt}"
+                "pageInfo{hasNextPage,endCursor}}}}"
+            ),
+            "variables": {"owner": owner, "repo": repo, "after": cursor},
+        }
+        request = urllib.request.Request(
+            "https://api.github.com/graphql",
+            data=json.dumps(query).encode("utf-8"),
+            headers={**headers, "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=4.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
+            return nodes
+        if payload.get("errors"):
+            return nodes
+        discussion_data = payload.get("data", {}).get("repository", {}).get("discussions", {})
+        nodes.extend(discussion_data.get("nodes") or [])
+        page_info = discussion_data.get("pageInfo") or {}
+        if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+            break
+        cursor = page_info["endCursor"]
+    return nodes
 
 
 def apply_repository_snapshot(row, snapshot):

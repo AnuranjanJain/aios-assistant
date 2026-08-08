@@ -2,8 +2,8 @@ import os
 import secrets
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
-from sqlalchemy import text
+from flask import Flask, current_app, jsonify, render_template, request
+from sqlalchemy import event
 
 from config import Config
 from app.models import db
@@ -22,6 +22,14 @@ def create_app(config_class=Config):
 
     with app.app_context():
         if str(app.config.get("SQLALCHEMY_DATABASE_URI", "")).startswith("sqlite"):
+            @event.listens_for(db.engine, "connect")
+            def _configure_sqlite_connection(connection, _record):
+                cursor = connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.close()
+
             with db.engine.connect() as connection:
                 connection.exec_driver_sql("PRAGMA journal_mode=WAL")
                 connection.exec_driver_sql("PRAGMA busy_timeout=30000")
@@ -139,74 +147,15 @@ def configure_secret_key(app):
 
 
 def apply_lightweight_migrations():
-    inspector = db.inspect(db.engine)
-    if "reminder" not in inspector.get_table_names():
-        return
+    from app.services.migrations import apply_migrations
 
-    migrations = []
-    reminder_columns = {column["name"] for column in inspector.get_columns("reminder")}
+    return apply_migrations(db.session, db.engine, current_app.logger)
 
-    if "is_read" not in reminder_columns:
-        migrations.append("ALTER TABLE reminder ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT 0")
-    if "notified_at" not in reminder_columns:
-        migrations.append("ALTER TABLE reminder ADD COLUMN notified_at DATETIME")
-    if "notification_type" not in reminder_columns:
-        migrations.append("ALTER TABLE reminder ADD COLUMN notification_type VARCHAR(60) NOT NULL DEFAULT 'reminder'")
-    if "priority" not in reminder_columns:
-        migrations.append("ALTER TABLE reminder ADD COLUMN priority VARCHAR(40) NOT NULL DEFAULT 'normal'")
-    if "source_key" not in reminder_columns:
-        migrations.append("ALTER TABLE reminder ADD COLUMN source_key VARCHAR(240)")
-    if "snoozed_until" not in reminder_columns:
-        migrations.append("ALTER TABLE reminder ADD COLUMN snoozed_until DATETIME")
-    if "metadata_json" not in reminder_columns:
-        migrations.append("ALTER TABLE reminder ADD COLUMN metadata_json TEXT")
 
-    if "setting" in inspector.get_table_names():
-        setting_columns = {column["name"] for column in inspector.get_columns("setting")}
-        if "updated_at" not in setting_columns:
-            migrations.append("ALTER TABLE setting ADD COLUMN updated_at DATETIME")
+def backup_sqlite_database():
+    from app.services.migrations import create_sqlite_backup
 
-    if "email_insight" in inspector.get_table_names():
-        email_insight_columns = {column["name"] for column in inspector.get_columns("email_insight")}
-        if "life_item_id" not in email_insight_columns:
-            migrations.append("ALTER TABLE email_insight ADD COLUMN life_item_id INTEGER")
-        if "required_documents_json" not in email_insight_columns:
-            migrations.append("ALTER TABLE email_insight ADD COLUMN required_documents_json TEXT")
-        if "repositories_json" not in email_insight_columns:
-            migrations.append("ALTER TABLE email_insight ADD COLUMN repositories_json TEXT")
-        if "suggested_actions_json" not in email_insight_columns:
-            migrations.append("ALTER TABLE email_insight ADD COLUMN suggested_actions_json TEXT")
-
-    if "opportunity" in inspector.get_table_names():
-        opportunity_columns = {column["name"] for column in inspector.get_columns("opportunity")}
-        if "source_key" not in opportunity_columns:
-            migrations.append("ALTER TABLE opportunity ADD COLUMN source_key VARCHAR(240)")
-        if "email_message_id" not in opportunity_columns:
-            migrations.append("ALTER TABLE opportunity ADD COLUMN email_message_id INTEGER")
-
-    if "inbox_item" in inspector.get_table_names():
-        inbox_columns = {column["name"] for column in inspector.get_columns("inbox_item")}
-        if "source_key" not in inbox_columns:
-            migrations.append("ALTER TABLE inbox_item ADD COLUMN source_key VARCHAR(240)")
-        if "email_message_id" not in inbox_columns:
-            migrations.append("ALTER TABLE inbox_item ADD COLUMN email_message_id INTEGER")
-        if "summary" not in inbox_columns:
-            migrations.append("ALTER TABLE inbox_item ADD COLUMN summary TEXT")
-        if "next_action" not in inbox_columns:
-            migrations.append("ALTER TABLE inbox_item ADD COLUMN next_action TEXT")
-        if "occurred_at" not in inbox_columns:
-            migrations.append("ALTER TABLE inbox_item ADD COLUMN occurred_at DATETIME")
-
-    if "life_item" in inspector.get_table_names():
-        life_item_columns = {column["name"] for column in inspector.get_columns("life_item")}
-        if "working_directory" not in life_item_columns:
-            migrations.append("ALTER TABLE life_item ADD COLUMN working_directory VARCHAR(1000)")
-
-    for statement in migrations:
-        db.session.execute(text(statement))
-
-    if migrations:
-        db.session.commit()
+    return create_sqlite_backup(db.engine.url.database)
 
 
 def ensure_memory_user(name):

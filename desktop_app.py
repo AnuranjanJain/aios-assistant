@@ -262,17 +262,32 @@ class PollingWorker(threading.Thread):
 
     def run(self):
         while not self.stop_event.is_set():
+            started = time.monotonic()
             try:
                 self.callback(self.state)
                 self.save_callback(self.state)
                 from app.services.background_services import record_service_run
 
-                record_service_run(self.service_id)
+                record_service_run(
+                    self.service_id,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                )
+                delay = self.interval
             except Exception as exc:
                 from app.services.background_services import record_service_run
 
-                record_service_run(self.service_id, exc)
-            self.stop_event.wait(self.interval)
+                failures = int(getattr(self, "failure_count", 0)) + 1
+                self.failure_count = failures
+                delay = min(self.interval * (2 ** min(failures, 3)), self.interval * 8)
+                record_service_run(
+                    self.service_id,
+                    exc,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                    retry_after=delay,
+                )
+            else:
+                self.failure_count = 0
+            self.stop_event.wait(delay)
 
     def shutdown(self):
         self.stop_event.set()
@@ -286,7 +301,9 @@ class RuntimeDescriptor(threading.Thread):
         self.stop_event = threading.Event()
 
     def write(self):
-        self.path.write_text(json.dumps(self.payload, indent=2), encoding="utf-8")
+        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
+        temporary.write_text(json.dumps(self.payload, indent=2), encoding="utf-8")
+        temporary.replace(self.path)
         try:
             os.chmod(self.path, 0o600)
         except OSError:
@@ -391,7 +408,6 @@ def main():
         {
             "service": "aios-assistant",
             "base_url": base_url,
-            "api_token": api_token,
             "pid": os.getpid(),
             "started_at": datetime.now(timezone.utc).isoformat(),
             "capabilities": {"wdyd_snapshot": 1},
@@ -405,8 +421,8 @@ def main():
     register_service("watch_imports", "Import watcher", "Imports files added to watch folders.", watch_worker)
     register_service(
         "opportunities",
-        "Opportunity monitor",
-        "Refreshes Gmail, hackathon, NeoPat, and placement updates.",
+        "Hackathon and job source monitor",
+        "Refreshes hackathon and job portal imports without duplicating Gmail sync.",
         opportunity_worker,
     )
     register_service(
