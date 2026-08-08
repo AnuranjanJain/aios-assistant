@@ -23,6 +23,10 @@ and live connector checks have passed.
 - Release verification script for manifest provenance, payload hashes, file
   sizes, required files, credential-like filenames, and Authenticode status.
 - Windows privacy-check script for local ownership and broad-write ACL checks.
+- First-run readiness panel with essential versus optional setup checks and
+  direct navigation to Gmail, worker, Settings, and Memory setup.
+- Native core contract handshake that rejects stale local backends instead of
+  silently pairing a newer client with an older installed core.
 
 ### Changed
 
@@ -49,6 +53,8 @@ and live connector checks have passed.
   tests.
 - Native installer smoke coverage now checks startup launcher creation,
   upgrade behavior, and uninstall cleanup.
+- A running background worker with a failed last cycle is now surfaced as an
+  attention state instead of being reported as healthy.
 
 ### Verification
 

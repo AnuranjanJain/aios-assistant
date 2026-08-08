@@ -161,6 +161,7 @@ class UiModernizationTestCase(unittest.TestCase):
         self.assertEqual(pairing.status_code, 409)
         pairing_payload = pairing.get_json()
         self.assertEqual(pairing_payload["error"], "pairing_required")
+        self.assertEqual(pairing_payload["native_contract_version"], 2)
         self.assertNotIn("api_token", pairing_payload)
         self.assertEqual(pairing_payload["capabilities"]["wdyd_snapshot"], 1)
         self.assertEqual(pairing_payload["snapshot_path"], "/api/wdyd/snapshot")

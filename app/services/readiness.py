@@ -30,11 +30,14 @@ def readiness_summary(values):
     email_worker = _service_status("email_intelligence")
     ollama_url = values.get("OLLAMA_URL") or "http://localhost:11434"
     sync_interval = values.get("EMAIL_SYNC_INTERVAL_MINUTES") or "10"
+    worker_error = (email_worker or {}).get("last_error")
+    worker_running = bool(email_worker and email_worker.get("running"))
 
     items = [
         {
             "id": "privacy",
             "label": "Local-only privacy",
+            "required": True,
             "ok": _is_loopback_url(ollama_url),
             "detail": "Ollama and client APIs stay on loopback. Email content is not sent to cloud AI.",
             "action": (
@@ -46,6 +49,7 @@ def readiness_summary(values):
         {
             "id": "gmail_account",
             "label": "Gmail account",
+            "required": True,
             "ok": bool(accounts),
             "detail": (
                 f"{len(accounts)} account connected, {len(enabled_accounts)} syncing"
@@ -61,6 +65,7 @@ def readiness_summary(values):
         {
             "id": "gmail_sync",
             "label": "Gmail sync",
+            "required": True,
             "ok": bool(enabled_accounts),
             "detail": f"Background sync interval: {sync_interval} minutes.",
             "action": (
@@ -72,21 +77,28 @@ def readiness_summary(values):
         {
             "id": "email_worker",
             "label": "Email worker",
-            "ok": bool(email_worker and email_worker.get("running")),
+            "required": True,
+            "ok": worker_running and not worker_error,
             "detail": (
-                "Worker is running in the desktop app."
-                if email_worker and email_worker.get("running")
+                f"Worker is running, but the last cycle failed: {str(worker_error)[:180]}"
+                if worker_error and worker_running
+                else "Worker is running in the desktop app."
+                if worker_running
                 else "Starts automatically when the installed desktop app is open."
             ),
             "action": (
+                "Open Workers to review the last error, then retry the local email service."
+                if worker_error and worker_running
+                else
                 "Keep AiOS running in tray so new email can become planner rows."
-                if email_worker and email_worker.get("running")
+                if worker_running
                 else "Open the installed AiOS desktop app, or enable startup from Settings."
             ),
         },
         {
             "id": "ollama",
             "label": "Ollama loopback",
+            "required": False,
             "ok": _is_loopback_url(ollama_url),
             "detail": f"{ollama_url} using {values.get('OLLAMA_MODEL') or 'selected local model'}.",
             "action": "For a 4GB RTX 3050, run: ollama pull qwen2.5:3b, then Test Ollama in AiOS Settings.",
@@ -94,6 +106,7 @@ def readiness_summary(values):
         {
             "id": "github",
             "label": "GitHub repo tracking",
+            "required": False,
             "ok": bool(values.get("GITHUB_TOKEN")),
             "detail": (
                 "Token saved for private repos and higher rate limits."
@@ -109,6 +122,7 @@ def readiness_summary(values):
         {
             "id": "planner",
             "label": "Planner rows",
+            "required": False,
             "ok": planner_count > 0,
             "detail": (
                 f"{planner_count} real-life rows ready, {questions_waiting} waiting for your answer."
@@ -124,9 +138,15 @@ def readiness_summary(values):
     ]
 
     ready = sum(1 for item in items if item["ok"])
+    required_items = [item for item in items if item["required"]]
+    required_ready = sum(1 for item in required_items if item["ok"])
     return {
         "ready": ready,
         "total": len(items),
+        "required_ready": required_ready,
+        "required_total": len(required_items),
+        "optional_ready": ready - required_ready,
+        "optional_total": len(items) - len(required_items),
         "items": items,
-        "all_ready": ready == len(items),
+        "all_ready": required_ready == len(required_items),
     }

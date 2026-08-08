@@ -755,6 +755,11 @@ class _OverviewPage extends StatelessWidget {
           connectedAccounts: _maps(controller.accounts['accounts']).length,
         ),
         const SizedBox(height: 16),
+        _ReadinessPanel(
+          controller: controller,
+          readiness: _map(controller.live['readiness']),
+        ),
+        const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 820;
@@ -949,6 +954,159 @@ class _MetricGrid extends StatelessWidget {
       );
     },
   );
+}
+
+class _ReadinessPanel extends StatelessWidget {
+  const _ReadinessPanel({required this.controller, required this.readiness});
+
+  final AiosController controller;
+  final Map<String, dynamic> readiness;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _maps(readiness['items']);
+    final requiredReady = readiness['required_ready'] ?? 0;
+    final requiredTotal = readiness['required_total'] ?? 0;
+    final optionalReady = readiness['optional_ready'] ?? 0;
+    final optionalTotal = readiness['optional_total'] ?? 0;
+    final coreReady = requiredTotal > 0 && requiredReady == requiredTotal;
+    return _Panel(
+      eyebrow: 'SETUP CHECK',
+      title: '$requiredReady/$requiredTotal core systems ready',
+      action: _MiniButton(
+        label: controller.syncing ? 'Syncing...' : 'Sync now',
+        onTap: controller.syncing ? null : controller.syncAll,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            coreReady
+                ? 'AiOS can keep your daily workflow current in the background.'
+                : 'Finish the items below before relying on AiOS for live planning.',
+            style: TextStyle(color: _Palette.of(context).muted, height: 1.45),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '$optionalReady/$optionalTotal optional integrations ready',
+            style: TextStyle(
+              color: _Palette.of(context).muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (items.isEmpty)
+            const _Empty(
+              'Readiness details will appear after the local core connects.',
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 800 ? 2 : 1;
+                final width =
+                    (constraints.maxWidth - ((columns - 1) * 12)) / columns;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: items.map((item) {
+                    return SizedBox(
+                      width: width,
+                      child: _ReadinessItem(
+                        item: item,
+                        onOpen: _readinessDestination(
+                          controller,
+                          _string(item['id']),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReadinessItem extends StatelessWidget {
+  const _ReadinessItem({required this.item, required this.onOpen});
+
+  final Map<String, dynamic> item;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = item['ok'] == true;
+    final isRequired = item['required'] == true;
+    final palette = _Palette.of(context);
+    final statusColor = ok
+        ? _Palette.success
+        : isRequired
+        ? _Palette.warning
+        : palette.muted;
+    return _HoverSurface(
+      color: palette.surfaceRaised,
+      borderColor: ok ? palette.border : statusColor.withValues(alpha: 0.5),
+      padding: const EdgeInsets.all(13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                ok ? Icons.check_circle_outline : Icons.info_outline,
+                size: 18,
+                color: statusColor,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _string(item['label'], fallback: 'System check'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              _MetaPill(
+                ok
+                    ? 'Ready'
+                    : isRequired
+                    ? 'Setup'
+                    : 'Optional',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _string(item['detail']),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: palette.muted, fontSize: 12, height: 1.45),
+          ),
+          if (!ok && onOpen != null) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _MiniButton(label: 'Open setup', onTap: onOpen),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+VoidCallback? _readinessDestination(AiosController controller, String id) {
+  final destination = switch (id) {
+    'gmail_account' || 'gmail_sync' => 'sources',
+    'email_worker' => 'workers',
+    'planner' => 'memory',
+    'privacy' || 'ollama' || 'github' => 'settings',
+    _ => null,
+  };
+  return destination == null ? null : () => controller.selectPage(destination);
 }
 
 class _LeadSection extends StatelessWidget {

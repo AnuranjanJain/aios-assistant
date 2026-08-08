@@ -106,6 +106,28 @@ void main() {
             ],
           },
         },
+        'readiness': {
+          'required_ready': 2,
+          'required_total': 4,
+          'optional_ready': 1,
+          'optional_total': 3,
+          'items': [
+            {
+              'id': 'gmail_account',
+              'label': 'Gmail account',
+              'required': true,
+              'ok': false,
+              'detail': 'Connect your first account.',
+            },
+            {
+              'id': 'email_worker',
+              'label': 'Email worker',
+              'required': true,
+              'ok': true,
+              'detail': 'Worker is running.',
+            },
+          ],
+        },
       };
     addTearDown(controller.dispose);
 
@@ -118,6 +140,8 @@ void main() {
     expect(find.byType(Semantics), findsWidgets);
     expect(find.text('WORKSPACE'), findsOneWidget);
     expect(find.text('Latest application updates'), findsOneWidget);
+    expect(find.text('2/4 core systems ready'), findsOneWidget);
+    expect(find.text('Open setup'), findsOneWidget);
     expect(find.text('Applied'), findsOneWidget);
     expect(find.text('14'), findsOneWidget);
     expect(find.text('Hackathons'), findsOneWidget);

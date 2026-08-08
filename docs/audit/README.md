@@ -25,6 +25,7 @@ Audit date: 2026-08-08
 | Packaged core pairing/live smoke | Passed: authenticated `/api/live`, no leftover process/port/temp data |
 | Isolated installer lifecycle smoke | Passed: full UI/core payload copied to `%TEMP%`, exact uninstaller removed it |
 | Native installer startup path | Passed directly against the current native build output under `%TEMP%`; the checked-in smoke script will verify the same path after a fresh release rebuild |
+| Native first-run readiness | Essential and optional setup checks are surfaced in the native Overview, with direct links to Gmail, Workers, Settings, and Memory |
 | Release metadata | Historical candidate has an 18-file manifest, SHA-256 checksums, CycloneDX SBOM, and explicit unsigned marker; the current verifier rejects that stale manifest because it lacks source provenance |
 | Gmail/GitHub/browser live E2E | Not run: no external test credentials or fixtures used |
 
@@ -42,6 +43,12 @@ Audit date: 2026-08-08
 - OAuth JSON stays external in `%APPDATA%\AiOS Assistant\credentials`; it is never embedded in a release executable.
 - The Windows build produces a manifest, SHA-256 file, CycloneDX SBOM when `pip-audit` is installed, and an explicit unsigned-build marker.
 - The native bearer token is stored in Windows secure storage; JSON preferences retain only non-secret UI/API metadata. Legacy JSON tokens migrate on the next successful start.
+- The native client now requires the current core contract version before
+  accepting an existing local runtime, preventing a newer shell from silently
+  using a stale installed backend.
+- Essential readiness checks now distinguish optional Ollama/GitHub setup from
+  the Gmail and worker path required for live daily planning. Worker failures
+  are surfaced as attention states.
 
 ## Remaining release gates
 

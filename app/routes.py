@@ -131,6 +131,9 @@ from app.services.wellbeing import summarize_activity
 from app.services.workers import list_worker_status, start_worker, stop_worker
 
 
+NATIVE_CONTRACT_VERSION = 2
+
+
 bp = Blueprint("main", __name__)
 _EMAIL_VIEW_REFRESH_AT = 0.0
 _WDYD_SNAPSHOT_CACHE = {}
@@ -1291,6 +1294,7 @@ def build_dashboard_context():
         "plan": plan,
         "stats": stats,
         "application_portfolio": application_portfolio,
+        "readiness": readiness_summary(get_effective_config(current_app.config)),
         "profile": get_user_profile(),
     }
 
@@ -1935,6 +1939,7 @@ def _live_api_payload():
     latest_connector = context["connector_runs"][0] if context["connector_runs"] else None
 
     return {
+        "native_contract_version": NATIVE_CONTRACT_VERSION,
         "plan": context["plan"],
         "stats": context["stats"],
         "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
@@ -2349,6 +2354,7 @@ def api_local_pairing():
             {
                 "ok": bool(token),
                 "service": "aios-assistant",
+                "native_contract_version": NATIVE_CONTRACT_VERSION,
                 "base_url": request.host_url.rstrip("/"),
                 "api_token": token,
                 "capabilities": {"wdyd_snapshot": 1},
@@ -2364,6 +2370,7 @@ def api_local_pairing():
             {
                 "ok": True,
                 "service": "aios-assistant",
+                "native_contract_version": NATIVE_CONTRACT_VERSION,
                 "base_url": request.host_url.rstrip("/"),
                 "api_token": token,
                 "capabilities": {"wdyd_snapshot": 1},
@@ -2376,6 +2383,7 @@ def api_local_pairing():
             "ok": False,
             "error": "pairing_required",
             "service": "aios-assistant",
+            "native_contract_version": NATIVE_CONTRACT_VERSION,
             "base_url": request.host_url.rstrip("/"),
             "challenge": pairing_challenge,
             "expires_in": 120,

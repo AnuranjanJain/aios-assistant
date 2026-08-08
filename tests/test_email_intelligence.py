@@ -1216,6 +1216,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("readiness", payload)
+        self.assertEqual(payload["native_contract_version"], 2)
         self.assertEqual(payload["readiness"]["total"], 7)
         self.assertIn("items", payload["readiness"])
 
@@ -1353,6 +1354,30 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertIn("Answer waiting questions", items["planner"]["action"])
         self.assertIn("ollama pull qwen2.5:3b", items["ollama"]["action"])
         self.assertEqual(summary["total"], 7)
+        self.assertEqual(summary["required_total"], 4)
+        self.assertEqual(summary["optional_total"], 3)
+        self.assertEqual(summary["required_ready"], 3)
+        self.assertFalse(summary["all_ready"])
+
+    def test_readiness_marks_a_running_worker_with_an_error_as_attention(self):
+        values = {
+            "OLLAMA_URL": "http://127.0.0.1:11434",
+            "OLLAMA_MODEL": "qwen2.5:3b",
+            "EMAIL_SYNC_INTERVAL_MINUTES": "10",
+        }
+        with mock.patch(
+            "app.services.readiness._service_status",
+            return_value={
+                "running": True,
+                "last_error": "Gmail quota temporarily exceeded",
+            },
+        ):
+            summary = readiness_summary(values)
+
+        item = next(item for item in summary["items"] if item["id"] == "email_worker")
+        self.assertFalse(item["ok"])
+        self.assertIn("quota temporarily exceeded", item["detail"])
+        self.assertIn("review the last error", item["action"])
 
     def test_settings_ollama_check_rejects_non_loopback_url(self):
         response = self.client.post(

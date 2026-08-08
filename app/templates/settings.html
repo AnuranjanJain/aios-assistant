@@ -113,7 +113,10 @@
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Real-life readiness</p>
-          <h2>{{ readiness.ready }}/{{ readiness.total }} systems ready</h2>
+          <h2>{{ readiness.required_ready }}/{{ readiness.required_total }} core systems ready</h2>
+          <p class="section-note">
+            Optional integrations: {{ readiness.optional_ready }}/{{ readiness.optional_total }} ready.
+          </p>
         </div>
         <span class="status-pill {{ 'on' if readiness.all_ready else '' }}">
           {{ "Ready" if readiness.all_ready else "Setup needed" }}
