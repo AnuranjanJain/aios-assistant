@@ -15,6 +15,7 @@ class AiosController extends ChangeNotifier {
     CoreManager? core,
     File? preferencesFile,
     File? snapshotFile,
+    this.startupRetryDelay = const Duration(seconds: 3),
   }) : api = api ?? AiosApi(),
        _preferencesFileOverride = preferencesFile,
        _snapshotFileOverride = snapshotFile {
@@ -24,6 +25,7 @@ class AiosController extends ChangeNotifier {
   final AiosApi api;
   final File? _preferencesFileOverride;
   final File? _snapshotFileOverride;
+  final Duration startupRetryDelay;
   static const _apiTokenKey = 'aios.core.api_token';
   static const _secureStorage = FlutterSecureStorage();
   late final CoreManager core;
@@ -48,6 +50,7 @@ class AiosController extends ChangeNotifier {
   Timer? _startupRetryTimer;
   Timer? _signInTimer;
   Completer<void>? _refreshCompleter;
+  bool _disposed = false;
 
   Future<void> initialize() async {
     _lifecycle.setMethodCallHandler((call) async {
@@ -67,8 +70,12 @@ class AiosController extends ChangeNotifier {
       // Persist only the bearer token in the OS credential store after the
       // first one-time native pairing succeeds.
       await _savePreferences();
-      await refresh();
-      await refreshPageData(activePage, silent: true);
+      // Dashboard aggregation can be slow while local workers process a
+      // sizeable mailbox. Pairing and account actions must remain usable
+      // immediately, especially the Google OAuth recovery flow.
+      unawaited(refresh(silent: true));
+      unawaited(refreshPageData(activePage, silent: true));
+      message = 'Private core connected. Loading your local dashboard...';
     } catch (error) {
       final detail = _friendly(error);
       message = restoredSnapshot ? 'Showing saved local data. $detail' : detail;
@@ -79,12 +86,26 @@ class AiosController extends ChangeNotifier {
       );
       if (!api.connected) {
         _startupRetryTimer ??= Timer(
-          const Duration(seconds: 3),
-          () => unawaited(refresh(silent: true)),
+          startupRetryDelay,
+          () => unawaited(_retryCoreConnection()),
         );
       }
       loading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _retryCoreConnection() async {
+    if (api.connected) return;
+    try {
+      await core.ensureRunning();
+      await _savePreferences();
+      await refresh(silent: true);
+      await refreshPageData(activePage, silent: true);
+    } catch (error) {
+      message = _friendly(error);
+    } finally {
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -132,6 +153,7 @@ class AiosController extends ChangeNotifier {
       accounts = values[2];
       workers = values[3]['items'] as List<dynamic>? ?? const [];
       message = 'Private core connected at ${api.baseUrl}';
+      if (_disposed) return;
       await _saveSnapshot();
     } catch (error) {
       message = _friendly(error);
@@ -141,7 +163,7 @@ class AiosController extends ChangeNotifier {
       if (identical(_refreshCompleter, refreshCompleter)) {
         _refreshCompleter = null;
       }
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -216,10 +238,13 @@ class AiosController extends ChangeNotifier {
       signIn = result['sign_in'] as Map<String, dynamic>?;
       message = signIn?['message']?.toString() ?? message;
       if (signIn?['terminal'] == true) {
+        final completionMessage = message;
         _signInTimer?.cancel();
+        signIn = null;
         await refresh(silent: true);
+        message = completionMessage;
       }
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     } catch (error) {
       message = _friendly(error);
       _signInTimer?.cancel();
@@ -638,15 +663,32 @@ class AiosController extends ChangeNotifier {
 
   Future<void> _savePreferences() async {
     await _preferencesFile.parent.create(recursive: true);
-    if (api.token.isNotEmpty) {
-      await _secureStorage.write(key: _apiTokenKey, value: api.token);
-    }
     await _preferencesFile.writeAsString(
       jsonEncode({
         'darkMode': darkMode,
         if (api.baseUrl.isNotEmpty) 'apiBaseUrl': api.baseUrl,
       }),
     );
+    if (api.token.isNotEmpty) {
+      try {
+        await _secureStorage
+            .write(key: _apiTokenKey, value: api.token)
+            .timeout(const Duration(seconds: 2));
+      } catch (_) {
+        // Keep the bearer token out of the JSON settings file. The app can
+        // still retain its non-sensitive UI preferences and retry secure
+        // persistence on the next successful local pairing.
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _refreshTimer?.cancel();
+    _startupRetryTimer?.cancel();
+    _signInTimer?.cancel();
+    super.dispose();
   }
 
   Future<bool> _loadSnapshot() async {
@@ -726,11 +768,4 @@ class AiosController extends ChangeNotifier {
     '',
   );
 
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    _startupRetryTimer?.cancel();
-    _signInTimer?.cancel();
-    super.dispose();
-  }
 }

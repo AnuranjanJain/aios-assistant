@@ -21,7 +21,12 @@ class AiosApi {
       baseUrl = '';
       token = '';
     }
-    if (await _discoverFromRuntimeDescriptor()) return true;
+    if (token.isNotEmpty && await _discoverFromRuntimeDescriptor()) return true;
+
+    // A client with neither a saved token nor a one-time pairing secret cannot
+    // authenticate to an already-running core. Avoid an expensive blind scan
+    // before CoreManager starts a fresh, pairable local core.
+    if (token.isEmpty && pairingSecret.isEmpty) return false;
 
     for (var port = 5050; port <= 5069; port += 1) {
       final candidate = 'http://127.0.0.1:$port';
@@ -92,7 +97,7 @@ class AiosApi {
     try {
       final response = await _client
           .get(
-            Uri.parse('$candidateBaseUrl/api/live'),
+            Uri.parse('$candidateBaseUrl/api/native/health'),
             headers: {'X-AiOS-Token': candidateToken},
           )
           .timeout(const Duration(milliseconds: 650));

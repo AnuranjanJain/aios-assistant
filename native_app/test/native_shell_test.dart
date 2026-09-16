@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:aios_assistant/src/api.dart';
@@ -41,6 +42,7 @@ void main() {
         snapshotFile: snapshot,
       );
       await first.initialize();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
       first.dispose();
 
       final offlineApi = _SnapshotApi(const {});
@@ -51,6 +53,7 @@ void main() {
         snapshotFile: snapshot,
       );
       await restored.initialize();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
       addTearDown(restored.dispose);
 
       expect(restored.live['stats'], {
@@ -527,6 +530,89 @@ void main() {
       expect(api.paths, contains('/api/reminders/7/done'));
     },
   );
+
+  test('saves non-sensitive core preferences when secure storage is unavailable',
+      () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'aios-native-preferences-',
+    );
+    final preferences = File('${directory.path}\\preferences.json');
+    final snapshot = File('${directory.path}\\snapshot.json');
+    addTearDown(() => directory.delete(recursive: true));
+
+    final api = _SnapshotApi({
+      '/api/live': {'stats': const <String, dynamic>{}},
+      '/api/desktop/status': const <String, dynamic>{},
+      '/api/intelligence/accounts': const <String, dynamic>{},
+      '/api/workers': {'items': const <dynamic>[]},
+    });
+    final controller = AiosController(
+      api: api,
+      core: _PairingCore(api),
+      preferencesFile: preferences,
+      snapshotFile: snapshot,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final saved = jsonDecode(await preferences.readAsString()) as Map;
+    expect(saved['apiBaseUrl'], 'http://127.0.0.1:5050');
+  });
+
+  test('retries native pairing after a cold-start core delay', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'aios-native-retry-',
+    );
+    final preferences = File('${directory.path}\\preferences.json');
+    final snapshot = File('${directory.path}\\snapshot.json');
+    addTearDown(() => directory.delete(recursive: true));
+
+    final api = _SnapshotApi({
+      '/api/live': {'stats': const <String, dynamic>{}},
+      '/api/desktop/status': const <String, dynamic>{},
+      '/api/intelligence/accounts': const <String, dynamic>{},
+      '/api/workers': {'items': const <dynamic>[]},
+    });
+    final core = _RetryingPairingCore(api);
+    final controller = AiosController(
+      api: api,
+      core: core,
+      preferencesFile: preferences,
+      snapshotFile: snapshot,
+      startupRetryDelay: const Duration(milliseconds: 20),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(core.attempts, 2);
+    expect(controller.api.connected, isTrue);
+    expect(await preferences.exists(), isTrue);
+  });
+
+  test(
+    'completed Google sign-in clears the waiting state after the account refresh',
+    () async {
+      final api = _CompletedGoogleSignInApi();
+      final controller = AiosController(api: api)..loading = false;
+      addTearDown(controller.dispose);
+
+      await controller.connectGoogle();
+      expect(controller.signIn?['id'], 'completed-google-sign-in');
+
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+      expect(controller.signIn, isNull);
+      expect(controller.message, 'Connected student@example.com');
+      expect(
+        (controller.accounts['accounts'] as List).single['email'],
+        'student@example.com',
+      );
+    },
+  );
 }
 
 class _SnapshotApi extends AiosApi {
@@ -554,6 +640,81 @@ class _SnapshotCore extends CoreManager {
 
   @override
   Future<void> stop() async {}
+}
+
+class _PairingCore extends CoreManager {
+  _PairingCore(AiosApi api) : super(api: api);
+
+  @override
+  Future<void> ensureRunning() async {
+    api.baseUrl = 'http://127.0.0.1:5050';
+    api.token = 'test-local-token';
+  }
+
+  @override
+  Future<void> stop() async {}
+}
+
+class _RetryingPairingCore extends CoreManager {
+  _RetryingPairingCore(AiosApi api) : super(api: api);
+
+  int attempts = 0;
+
+  @override
+  Future<void> ensureRunning() async {
+    attempts += 1;
+    if (attempts == 1) throw StateError('Core is still starting.');
+    api.baseUrl = 'http://127.0.0.1:5050';
+    api.token = 'test-local-token';
+  }
+
+  @override
+  Future<void> stop() async {}
+}
+
+class _CompletedGoogleSignInApi extends AiosApi {
+  @override
+  Future<Map<String, dynamic>> post(
+    String path, [
+    Map<String, dynamic> body = const {},
+  ]) async {
+    expect(path, '/api/intelligence/accounts/google/connect');
+    return {
+      'ok': true,
+      'sign_in': {
+        'id': 'completed-google-sign-in',
+        'status': 'waiting',
+        'message': 'Finish choosing your Google account in the browser.',
+        'terminal': false,
+      },
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> get(String path) async {
+    if (path == '/api/oauth/google/sign-in/completed-google-sign-in') {
+      return {
+        'ok': true,
+        'sign_in': {
+          'id': 'completed-google-sign-in',
+          'status': 'succeeded',
+          'message': 'Connected student@example.com',
+          'terminal': true,
+        },
+      };
+    }
+    return switch (path) {
+      '/api/live' => {'stats': const <String, dynamic>{}},
+      '/api/desktop/status' => const <String, dynamic>{},
+      '/api/intelligence/accounts' => {
+        'accounts': [
+          {'id': 1, 'email': 'student@example.com'},
+        ],
+      },
+      '/api/workers' => {'items': const <dynamic>[]},
+      _ => throw StateError('Unexpected request: $path'),
+    };
+  }
 }
 
 class _ReminderActionApi extends AiosApi {

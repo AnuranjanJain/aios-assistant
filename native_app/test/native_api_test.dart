@@ -41,4 +41,18 @@ void main() {
     expect(await api.discover(), isFalse);
     expect(api.connected, isFalse);
   });
+
+  test('does not scan loopback ports before it has a token or pairing secret',
+      () async {
+    var requests = 0;
+    final api = AiosApi(
+      client: MockClient((_) async {
+        requests += 1;
+        return http.Response('{}', 500);
+      }),
+    );
+
+    expect(await api.discover(), isFalse);
+    expect(requests, 0);
+  });
 }
