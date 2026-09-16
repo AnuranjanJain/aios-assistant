@@ -38,6 +38,18 @@ $pyInstallerExitCode = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
 if ($pyInstallerExitCode -ne 0) { throw "AiOS Core packaging failed with exit code $pyInstallerExitCode." }
 
+$nativeApiPath = Join-Path $repo "native_app\lib\src\api.dart"
+$nativeApiSource = Get-Content -LiteralPath $nativeApiPath -Raw
+$contractMatch = [regex]::Match($nativeApiSource, 'nativeContractVersion\s*=\s*(\d+)')
+if (-not $contractMatch.Success) {
+    throw "Could not determine the native client contract version from $nativeApiPath."
+}
+$expectedNativeContract = [int]$contractMatch.Groups[1].Value
+& (Join-Path $repo "scripts\smoke-packaged-core.ps1") -CorePath (Join-Path $repo "dist\AiOS-Core.exe") -ExpectedNativeContract $expectedNativeContract
+if ($LASTEXITCODE -ne 0) {
+    throw "Packaged core smoke test failed."
+}
+
 Set-Location $nativeDir
 $ErrorActionPreference = "Continue"
 & $flutter build windows --release 2>&1

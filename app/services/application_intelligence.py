@@ -6,7 +6,8 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from email.utils import parseaddr
 
-from app.models import ConnectedAccount, EmailMessage, LifeItem, Opportunity, db
+from app.models import ApplicationRecord, ConnectedAccount, EmailMessage, LifeItem, Opportunity, db
+from app.services.application_lifecycle import upsert_application_evidence
 from app.services.email_scope import EMAIL_PORTFOLIO_LIMIT, latest_emails_combined
 from app.services.placements import is_neopat_signal
 from app.services.time_utils import mail_time_details
@@ -301,11 +302,10 @@ def classify_career_email(email, opportunity=None):
 
     if _is_hackathon_text(lowered):
         return None
-    if "complete your application to" in lowered:
-        return None
+    incomplete_application = "complete your application to" in lowered
     if _is_generic_career_broadcast(email, lowered, is_sent):
         return None
-    direct_stage = _career_stage(lowered, subject, is_sent)
+    direct_stage = "applied" if incomplete_application else _career_stage(lowered, subject, is_sent)
     if (
         not direct_stage
         and email.insight
@@ -323,6 +323,7 @@ def classify_career_email(email, opportunity=None):
         return None
     if (
         any(cue in lowered for cue in CAREER_NOISE_CUES)
+        and not incomplete_application
         and not _has_direct_application_evidence(lowered, is_sent)
     ):
         return None
@@ -331,7 +332,8 @@ def classify_career_email(email, opportunity=None):
     role = _role(email, company, opportunity)
     occurred_at = email.sent_at or email.created_at
     return {
-        "kind": "career",
+        "kind": "incomplete" if incomplete_application else "career",
+        "lifecycle_status": "to_apply" if incomplete_application else direct_stage,
         "stage": direct_stage,
         "company": company,
         "role": role,
@@ -342,6 +344,22 @@ def classify_career_email(email, opportunity=None):
         "evidence": _career_evidence(lowered, direct_stage, is_sent),
         "status": _stage_label(direct_stage),
     }
+
+
+def sync_application_records():
+    """Persist all classified career evidence independently of inbox limits."""
+
+    created_or_linked = 0
+    for email in EmailMessage.query.order_by(EmailMessage.sent_at.asc(), EmailMessage.id.asc()):
+        signal = classify_career_email(email)
+        if signal is None:
+            continue
+        record = upsert_application_evidence(email, signal)
+        if signal["lifecycle_status"] != "to_apply" and not record.decisions:
+            record.status = signal["lifecycle_status"]
+        created_or_linked += 1
+    db.session.commit()
+    return {"ok": True, "records": ApplicationRecord.query.count(), "evidence_linked": created_or_linked}
 
 
 def classify_hackathon_email(email):

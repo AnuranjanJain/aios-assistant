@@ -1,7 +1,8 @@
 param(
     [string]$CorePath = "",
     [string]$CleanupPath = "",
-    [switch]$KeepData
+    [switch]$KeepData,
+    [int]$ExpectedNativeContract = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,10 +47,16 @@ try {
     if (-not $pairing.api_token) {
         throw "Packaged core did not complete native pairing within 30 seconds."
     }
+    if ([int]$pairing.native_contract_version -ne $ExpectedNativeContract) {
+        throw "Packaged core contract $($pairing.native_contract_version) does not match native client contract $ExpectedNativeContract."
+    }
 
     $live = Invoke-RestMethod -Uri "http://127.0.0.1:5050/api/live" -Headers @{ "X-AiOS-Token" = $pairing.api_token } -TimeoutSec 5
     if (-not $live.updated_at -or $null -eq $live.plan) {
         throw "Packaged core live endpoint returned an incomplete response."
+    }
+    if ([int]$live.native_contract_version -ne $ExpectedNativeContract) {
+        throw "Packaged core live contract $($live.native_contract_version) does not match native client contract $ExpectedNativeContract."
     }
     [ordered]@{
         ok = $true

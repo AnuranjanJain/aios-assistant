@@ -121,7 +121,7 @@ if (-not $NoRegistry) {
   Remove-Item -LiteralPath $oldUninstallKey -Recurse -Force -ErrorAction SilentlyContinue
   New-Item -Path $uninstallKey -Force | Out-Null
   New-ItemProperty -Path $uninstallKey -Name "DisplayName" -Value "AiOS Assistant" -PropertyType String -Force | Out-Null
-  New-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value "0.3.0" -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value "0.3.1" -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $uninstallKey -Name "Publisher" -Value "Anu Ranjan" -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $uninstallKey -Name "DisplayIcon" -Value $installedExe -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $uninstallKey -Name "InstallLocation" -Value $installDir -PropertyType String -Force | Out-Null

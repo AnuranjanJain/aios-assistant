@@ -331,6 +331,12 @@ def wait_for_server(port, timeout=10):
 
 def main():
     paths = configure_desktop_environment()
+    pairing_secret_path = paths.data_dir / "native-pairing.secret"
+    if not os.getenv("AIOS_NATIVE_PAIRING_SECRET") and pairing_secret_path.exists():
+        try:
+            os.environ["AIOS_NATIVE_PAIRING_SECRET"] = pairing_secret_path.read_text(encoding="ascii").strip()
+        finally:
+            pairing_secret_path.unlink(missing_ok=True)
     start_path = os.getenv("AIOS_START_PATH", "/").strip()
     if start_path not in ALLOWED_START_PATHS:
         start_path = "/"

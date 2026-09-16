@@ -15,6 +15,7 @@ from werkzeug.utils import secure_filename
 
 from app.models import (
     ActivityEvent,
+    ApplicationRecord,
     ConnectorRun,
     EmailTask,
     HackathonUpdate,
@@ -111,6 +112,8 @@ from app.services.pairing import (
 from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
 from app.services.application_intelligence import application_overview
+from app.services.application_lifecycle import record_application_decision, serialize_application
+from app.services.intelligence_jobs import intelligence_jobs
 from app.services.email_scope import (
     EMAIL_PORTFOLIO_LIMIT,
     latest_email_ids_combined,
@@ -1794,6 +1797,36 @@ def api_applications():
     return jsonify(application_overview())
 
 
+@bp.get("/api/applications/<int:application_id>")
+def api_application_detail(application_id):
+    record = db.session.get(ApplicationRecord, application_id)
+    if record is None:
+        return jsonify({"ok": False, "error": "application_not_found"}), 404
+    return jsonify({"ok": True, "application": serialize_application(record)})
+
+
+@bp.post("/api/applications/<int:application_id>/decisions")
+def api_application_decision(application_id):
+    record = db.session.get(ApplicationRecord, application_id)
+    if record is None:
+        return jsonify({"ok": False, "error": "application_not_found"}), 404
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "invalid_payload"}), 400
+    try:
+        record_application_decision(
+            record,
+            str(payload.get("status") or ""),
+            "user",
+            str(payload.get("reason") or ""),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": "invalid_application_decision", "message": str(error)}), 400
+    db.session.commit()
+    _invalidate_wdyd_snapshot()
+    return jsonify({"ok": True, "application": serialize_application(record)})
+
+
 @bp.get("/api/neopat")
 def api_neopat():
     return jsonify(_neopat_payload())
@@ -1930,6 +1963,17 @@ def api_today():
 @bp.get("/api/live")
 def api_live():
     return jsonify(_live_api_payload())
+
+
+@bp.get("/api/native/health")
+def api_native_health():
+    """Fast authenticated readiness check for the native shell.
+
+    The dashboard payload performs local aggregation and can be slow during
+    the first Gmail/AI worker cycle. Native pairing must not depend on that
+    work, otherwise users cannot open settings or start Google OAuth.
+    """
+    return jsonify({"ok": True, "native_contract_version": NATIVE_CONTRACT_VERSION})
 
 
 def _live_api_payload():
@@ -2213,9 +2257,25 @@ def _invalidate_wdyd_snapshot():
 
 @bp.post("/api/intelligence/sync")
 def api_intelligence_sync():
-    result = run_email_intelligence_cycle(get_effective_config(current_app.config))
-    _invalidate_wdyd_snapshot()
-    return jsonify({"ok": True, **result})
+    app = current_app._get_current_object()
+    config = get_effective_config(app.config)
+
+    def run_sync():
+        with app.app_context():
+            result = run_email_intelligence_cycle(config)
+            _invalidate_wdyd_snapshot()
+            return result
+
+    job = intelligence_jobs.start(run_sync)
+    return jsonify({"ok": True, **job}), 202
+
+
+@bp.get("/api/intelligence/jobs/<job_id>")
+def api_intelligence_job(job_id):
+    job = intelligence_jobs.status(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "intelligence_job_not_found"}), 404
+    return jsonify({"ok": True, "job": job})
 
 
 @bp.get("/api/intelligence/today")

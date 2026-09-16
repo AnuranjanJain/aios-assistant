@@ -285,6 +285,120 @@ class EmailInsight(db.Model):
     )
 
 
+class ApplicationRecord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    source_key = db.Column(db.String(240), nullable=False, unique=True, index=True)
+    company = db.Column(db.String(180), nullable=False, index=True)
+    normalized_company = db.Column(db.String(180), nullable=False, index=True)
+    role = db.Column(db.String(180), nullable=True, index=True)
+    normalized_role = db.Column(db.String(180), nullable=True, index=True)
+    requisition_id = db.Column(db.String(180), nullable=True, index=True)
+    application_url = db.Column(db.String(1000), nullable=True)
+    status = db.Column(db.String(40), nullable=False, default="to_apply", index=True)
+    deadline = db.Column(db.DateTime, nullable=True, index=True)
+    applied_at = db.Column(db.DateTime, nullable=True, index=True)
+    last_employer_response_at = db.Column(db.DateTime, nullable=True, index=True)
+    next_follow_up_at = db.Column(db.DateTime, nullable=True, index=True)
+    next_action = db.Column(db.Text, nullable=True)
+    summary = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+    __table_args__ = (
+        db.UniqueConstraint(
+            "normalized_company",
+            "normalized_role",
+            "requisition_id",
+            name="uq_application_company_role_requisition",
+        ),
+    )
+
+
+class ApplicationEvidence(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(
+        db.Integer,
+        db.ForeignKey("application_record.id"),
+        nullable=False,
+        index=True,
+    )
+    application = db.relationship(
+        "ApplicationRecord",
+        backref=db.backref("evidence", cascade="all, delete-orphan", order_by="ApplicationEvidence.occurred_at"),
+    )
+    email_id = db.Column(db.Integer, db.ForeignKey("email_message.id"), nullable=True, unique=True, index=True)
+    email = db.relationship("EmailMessage", backref=db.backref("application_evidence", uselist=False))
+    kind = db.Column(db.String(60), nullable=False, default="opening", index=True)
+    source_account = db.Column(db.String(240), nullable=True, index=True)
+    application_url = db.Column(db.String(1000), nullable=True)
+    extracted_deadline = db.Column(db.DateTime, nullable=True, index=True)
+    confidence = db.Column(db.Float, nullable=False, default=0.0)
+    summary = db.Column(db.Text, nullable=True)
+    occurred_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ApplicationDecision(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(
+        db.Integer,
+        db.ForeignKey("application_record.id"),
+        nullable=False,
+        index=True,
+    )
+    application = db.relationship(
+        "ApplicationRecord",
+        backref=db.backref("decisions", cascade="all, delete-orphan", order_by="ApplicationDecision.created_at"),
+    )
+    status = db.Column(db.String(40), nullable=False, index=True)
+    source = db.Column(db.String(40), nullable=False, default="inference", index=True)
+    reason = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class EligibilityProfile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    degree = db.Column(db.String(120), nullable=True)
+    branch = db.Column(db.String(120), nullable=True)
+    graduation_year = db.Column(db.Integer, nullable=True)
+    cgpa = db.Column(db.Float, nullable=True)
+    cgpa_scale = db.Column(db.Float, nullable=True)
+    backlogs = db.Column(db.Integer, nullable=True)
+    skills_json = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class StudyCommitment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    source_key = db.Column(db.String(240), nullable=False, unique=True, index=True)
+    title = db.Column(db.String(240), nullable=False)
+    commitment_type = db.Column(db.String(40), nullable=False, default="study", index=True)
+    recurrence_json = db.Column(db.Text, nullable=True)
+    scheduled_for = db.Column(db.DateTime, nullable=True, index=True)
+    duration_minutes = db.Column(db.Integer, nullable=False, default=45)
+    priority = db.Column(db.String(40), nullable=False, default="normal", index=True)
+    energy_level = db.Column(db.String(40), nullable=True)
+    working_hours_json = db.Column(db.Text, nullable=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
 class LifeItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     source_key = db.Column(db.String(240), nullable=False, unique=True, index=True)

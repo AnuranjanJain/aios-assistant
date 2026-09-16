@@ -34,6 +34,9 @@ def create_app(config_class=Config):
                 connection.exec_driver_sql("PRAGMA journal_mode=WAL")
                 connection.exec_driver_sql("PRAGMA busy_timeout=30000")
         db.create_all()
+        from app.services.migrations import repair_legacy_datetime_values
+
+        repair_legacy_datetime_values(db.engine, app.logger)
         apply_lightweight_migrations()
         ensure_memory_user(app.config.get("USER_DISPLAY_NAME", "Local User"))
 

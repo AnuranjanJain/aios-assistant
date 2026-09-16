@@ -275,6 +275,42 @@ def apply_migrations(session, engine, logger: logging.Logger | None = None) -> l
     return applied_versions
 
 
+def repair_legacy_datetime_values(engine, logger: logging.Logger | None = None) -> None:
+    """Normalize invalid legacy account timestamps before ORM rows are loaded.
+
+    Older desktop builds wrote a few account IDs into ``last_sync_at``. SQLite
+    accepts those values, but SQLAlchemy's DateTime loader correctly rejects
+    them. These fields are operational metadata, so a missing timestamp is
+    safer than preventing all local email and OAuth access.
+    """
+    logger = logger or LOGGER
+    inspector = inspect(engine)
+    if "connected_account" not in set(inspector.get_table_names()):
+        return
+    columns = {item["name"] for item in inspector.get_columns("connected_account")}
+    statements = []
+    if "last_sync_at" in columns:
+        statements.append(
+            "UPDATE connected_account SET last_sync_at = NULL "
+            "WHERE last_sync_at IS NOT NULL AND "
+            "(typeof(last_sync_at) != 'text' OR datetime(last_sync_at) IS NULL)"
+        )
+    for column in ("created_at", "updated_at"):
+        if column in columns:
+            statements.append(
+                f"UPDATE connected_account SET {column} = CURRENT_TIMESTAMP "
+                f"WHERE {column} IS NULL OR typeof({column}) != 'text' "
+                f"OR datetime({column}) IS NULL"
+            )
+    if not statements:
+        return
+    with engine.begin() as connection:
+        for statement in statements:
+            result = connection.execute(text(statement))
+            if result.rowcount:
+                logger.warning("Repaired %s invalid legacy connected-account timestamps.", result.rowcount)
+
+
 def migration_status(session) -> list[dict[str, str | None]]:
     """Return the migration ledger without exposing database contents."""
     try:
