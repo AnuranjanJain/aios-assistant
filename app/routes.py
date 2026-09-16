@@ -113,6 +113,7 @@ from runtime_paths import get_runtime_paths
 from app.services.placements import ingest_placement_signal, is_neopat_signal, serialize_placement
 from app.services.application_intelligence import application_overview
 from app.services.application_lifecycle import record_application_decision, serialize_application
+from app.services.intelligence_jobs import intelligence_jobs
 from app.services.email_scope import (
     EMAIL_PORTFOLIO_LIMIT,
     latest_email_ids_combined,
@@ -2245,9 +2246,25 @@ def _invalidate_wdyd_snapshot():
 
 @bp.post("/api/intelligence/sync")
 def api_intelligence_sync():
-    result = run_email_intelligence_cycle(get_effective_config(current_app.config))
-    _invalidate_wdyd_snapshot()
-    return jsonify({"ok": True, **result})
+    app = current_app._get_current_object()
+    config = get_effective_config(app.config)
+
+    def run_sync():
+        with app.app_context():
+            result = run_email_intelligence_cycle(config)
+            _invalidate_wdyd_snapshot()
+            return result
+
+    job = intelligence_jobs.start(run_sync)
+    return jsonify({"ok": True, **job}), 202
+
+
+@bp.get("/api/intelligence/jobs/<job_id>")
+def api_intelligence_job(job_id):
+    job = intelligence_jobs.status(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "intelligence_job_not_found"}), 404
+    return jsonify({"ok": True, "job": job})
 
 
 @bp.get("/api/intelligence/today")

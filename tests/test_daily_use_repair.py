@@ -1,5 +1,6 @@
 import sqlite3
 import tempfile
+import threading
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -197,6 +198,27 @@ class DailyUseRepairTestCase(unittest.TestCase):
                     db.session.remove()
                 if engine is not None:
                     engine.dispose()
+
+    def test_intelligence_jobs_reuse_one_running_job(self):
+        from app.services.intelligence_jobs import IntelligenceJobRegistry
+
+        started = threading.Event()
+        release = threading.Event()
+        registry = IntelligenceJobRegistry()
+
+        def run_cycle():
+            started.set()
+            release.wait(timeout=2)
+            return {"sync": []}
+
+        first = registry.start(run_cycle)
+        self.assertTrue(started.wait(timeout=1))
+        second = registry.start(run_cycle)
+        release.set()
+
+        self.assertFalse(first["reused"])
+        self.assertTrue(second["reused"])
+        self.assertEqual(first["job_id"], second["job_id"])
 
 
 if __name__ == "__main__":
