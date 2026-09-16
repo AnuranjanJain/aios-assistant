@@ -1965,6 +1965,17 @@ def api_live():
     return jsonify(_live_api_payload())
 
 
+@bp.get("/api/native/health")
+def api_native_health():
+    """Fast authenticated readiness check for the native shell.
+
+    The dashboard payload performs local aggregation and can be slow during
+    the first Gmail/AI worker cycle. Native pairing must not depend on that
+    work, otherwise users cannot open settings or start Google OAuth.
+    """
+    return jsonify({"ok": True, "native_contract_version": NATIVE_CONTRACT_VERSION})
+
+
 def _live_api_payload():
     context = build_dashboard_context()
     latest_opportunity = context["opportunities"][0] if context["opportunities"] else None
