@@ -1597,6 +1597,7 @@ def serialize_suggestion(row):
 
 
 def run_email_intelligence_cycle(app_config):
+    from app.services.application_intelligence import sync_application_records
     from app.services.daily_assistant import latest_daily_assistant_summary
     from app.services.github_intelligence import update_all_repositories
     from app.services.learning_intelligence import generate_events_from_learning_items, learning_summary
@@ -1611,6 +1612,7 @@ def run_email_intelligence_cycle(app_config):
         app_config=app_config,
     )
     views = materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT)
+    applications = sync_application_records()
     github = update_all_repositories(limit=30)
     generate_events_from_learning_items()
     daily = generate_daily_plan()
@@ -1621,6 +1623,7 @@ def run_email_intelligence_cycle(app_config):
         "sync": sync_results,
         "analysis": analysis,
         "views": views,
+        "applications": applications,
         "assistant": latest_daily_assistant_summary(),
         "github": github,
         "learning": learning_summary(),

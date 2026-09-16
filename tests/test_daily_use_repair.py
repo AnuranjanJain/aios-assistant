@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 
 class DailyUseRepairTestCase(unittest.TestCase):
@@ -126,6 +127,27 @@ class DailyUseRepairTestCase(unittest.TestCase):
                     db.session.remove()
                 if engine is not None:
                     engine.dispose()
+
+    def test_incomplete_application_mail_is_retained_as_to_apply(self):
+        from app.services.application_intelligence import classify_career_email
+
+        email = SimpleNamespace(
+            sender="Myntra Careers <careers@myntra.example>",
+            subject="Complete your application to Myntra",
+            snippet="Continue your software engineering intern application.",
+            body_text="Please complete your application to Myntra before Friday.",
+            labels_json="[]",
+            insight=None,
+            account=None,
+            sent_at=datetime(2026, 9, 16, 9, 0),
+            created_at=datetime(2026, 9, 16, 9, 0),
+        )
+
+        signal = classify_career_email(email)
+
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal["kind"], "incomplete")
+        self.assertEqual(signal["lifecycle_status"], "to_apply")
 
 
 if __name__ == "__main__":
