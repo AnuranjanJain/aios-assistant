@@ -110,6 +110,41 @@ def record_application_decision(
     return decision
 
 
+def serialize_application(record: ApplicationRecord) -> dict[str, object]:
+    """Return application state suitable for a local companion UI."""
+
+    return {
+        "id": record.id,
+        "company": record.company,
+        "role": record.role or "",
+        "status": record.status,
+        "deadline": record.deadline.isoformat() if record.deadline else None,
+        "applied_at": record.applied_at.isoformat() if record.applied_at else None,
+        "next_action": record.next_action or "",
+        "summary": record.summary or "",
+        "evidence": [
+            {
+                "id": evidence.id,
+                "kind": evidence.kind,
+                "account": evidence.source_account or "",
+                "deadline": evidence.extracted_deadline.isoformat() if evidence.extracted_deadline else None,
+                "occurred_at": evidence.occurred_at.isoformat() if evidence.occurred_at else None,
+                "summary": evidence.summary or "",
+            }
+            for evidence in record.evidence
+        ],
+        "history": [
+            {
+                "status": decision.status,
+                "source": decision.source,
+                "reason": decision.reason,
+                "created_at": decision.created_at.isoformat(),
+            }
+            for decision in record.decisions
+        ],
+    }
+
+
 def _find_record(normalized_company, normalized_role, requisition_id, application_url):
     if requisition_id:
         match = ApplicationRecord.query.filter_by(requisition_id=requisition_id).one_or_none()

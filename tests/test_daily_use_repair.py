@@ -149,6 +149,55 @@ class DailyUseRepairTestCase(unittest.TestCase):
         self.assertEqual(signal["kind"], "incomplete")
         self.assertEqual(signal["lifecycle_status"], "to_apply")
 
+    def test_application_decision_api_requires_a_reason_and_persists_status(self):
+        from app import create_app
+        from app.models import ApplicationRecord, db
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "api.db"
+
+            class Config:
+                TESTING = True
+                SECRET_KEY = "test-secret"
+                SQLALCHEMY_DATABASE_URI = f"sqlite:///{database_path.as_posix()}"
+                SQLALCHEMY_TRACK_MODIFICATIONS = False
+                USER_DISPLAY_NAME = "Test User"
+
+            app = create_app(Config)
+            engine = None
+            try:
+                with app.app_context():
+                    engine = db.engine
+                    record = ApplicationRecord(
+                        source_key="application:acme:api-role",
+                        company="Acme",
+                        normalized_company="acme",
+                        role="API Intern",
+                        normalized_role="api intern",
+                    )
+                    db.session.add(record)
+                    db.session.commit()
+                    record_id = record.id
+
+                client = app.test_client()
+                rejected = client.post(
+                    f"/api/applications/{record_id}/decisions",
+                    json={"status": "on_hold", "reason": ""},
+                )
+                applied = client.post(
+                    f"/api/applications/{record_id}/decisions",
+                    json={"status": "on_hold", "reason": "Exam week"},
+                )
+
+                self.assertEqual(rejected.status_code, 400)
+                self.assertEqual(applied.status_code, 200)
+                self.assertEqual(applied.get_json()["application"]["status"], "on_hold")
+            finally:
+                with app.app_context():
+                    db.session.remove()
+                if engine is not None:
+                    engine.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()
