@@ -34,6 +34,8 @@ class FlutterWindow : public Win32Window {
 
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       lifecycle_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      native_token_store_channel_;
   bool start_hidden_ = false;
   bool exiting_ = false;
   bool tray_icon_added_ = false;
@@ -46,6 +48,7 @@ class FlutterWindow : public Win32Window {
   void ShowTrayMenu();
   void ExitApplication();
   void RegisterLifecycleChannel();
+  void RegisterNativeTokenStoreChannel();
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_
