@@ -18,6 +18,7 @@ from app.models import (
     ApplicationRecord,
     ConnectorRun,
     EmailTask,
+    EligibilityProfile,
     HackathonUpdate,
     InboxItem,
     Opportunity,
@@ -1002,6 +1003,23 @@ def save_profile():
     set_setting("PROFILE_ROLE", role[:100])
     set_setting("PROFILE_FOCUS", focus[:160])
 
+    eligibility = _read_eligibility_form(request.form)
+    profile_row = EligibilityProfile.query.order_by(EligibilityProfile.updated_at.desc()).first()
+    if profile_row is None:
+        profile_row = EligibilityProfile()
+        db.session.add(profile_row)
+    profile_row.degree = eligibility["degree"] or None
+    profile_row.branch = eligibility["branch"] or None
+    profile_row.metadata_json = json.dumps(
+        {
+            "10th_percentage": eligibility["10th_percentage"],
+            "12th_percentage": eligibility["12th_percentage"],
+            "ug_percentage": eligibility["ug_percentage"],
+            "campus": eligibility["campus"],
+        },
+        ensure_ascii=True,
+    )
+
     upload = request.files.get("profile_photo")
     if upload and upload.filename:
         suffix = Path(secure_filename(upload.filename)).suffix.lower()
@@ -1256,6 +1274,7 @@ def build_dashboard_context():
     plan = build_daily_plan(opportunities, reminders)
     stats = build_dashboard_stats(opportunities, reminders, inbox_items, activity_events)
     application_portfolio = application_overview()
+    college_summary = pat_college_summary()
 
     opportunity_cards = [serialize_opportunity(item) for item in opportunities]
     achievements = [
@@ -1297,6 +1316,7 @@ def build_dashboard_context():
         "plan": plan,
         "stats": stats,
         "application_portfolio": application_portfolio,
+        "college_summary": college_summary,
         "readiness": readiness_summary(get_effective_config(current_app.config)),
         "profile": get_user_profile(),
     }
@@ -2554,12 +2574,54 @@ def get_user_profile():
     role = get_setting("PROFILE_ROLE", "Local AI companion").strip() or "Local AI companion"
     focus = get_setting("PROFILE_FOCUS", "Build, track, and protect the local workflow.").strip()
     initials = "".join(part[:1] for part in display_name.split()[:2]).upper() or "A"
+    eligibility = get_eligibility_profile()
     return {
         "display_name": display_name,
         "role": role,
         "focus": focus,
         "initials": initials[:2],
         "photo_url": url_for("main.profile_photo"),
+        "eligibility": eligibility,
+    }
+
+
+def get_eligibility_profile():
+    row = EligibilityProfile.query.order_by(EligibilityProfile.updated_at.desc()).first()
+    metadata = {}
+    if row:
+        try:
+            value = json.loads(row.metadata_json or "{}")
+            metadata = value if isinstance(value, dict) else {}
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+    return {
+        "10th_percentage": metadata.get("10th_percentage", ""),
+        "12th_percentage": metadata.get("12th_percentage", ""),
+        "ug_percentage": metadata.get("ug_percentage", ""),
+        "degree": row.degree if row else "",
+        "branch": row.branch if row else "",
+        "campus": metadata.get("campus", ""),
+    }
+
+
+def _read_eligibility_form(form):
+    def percentage(name):
+        value = str(form.get(name, "")).strip()
+        if not value:
+            return None
+        try:
+            parsed = float(value)
+        except ValueError:
+            return None
+        return parsed if 0 <= parsed <= 100 else None
+
+    return {
+        "10th_percentage": percentage("10th_percentage"),
+        "12th_percentage": percentage("12th_percentage"),
+        "ug_percentage": percentage("ug_percentage"),
+        "degree": str(form.get("degree", "")).strip()[:120],
+        "branch": str(form.get("branch", "")).strip()[:120],
+        "campus": str(form.get("campus", "")).strip()[:80],
     }
 
 

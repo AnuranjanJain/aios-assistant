@@ -1746,6 +1746,28 @@ textarea {
   font-weight: 850;
 }
 
+.form-section-heading {
+  grid-column: 1 / -1;
+  margin-top: 0.5rem;
+}
+
+.form-section-heading .source-note {
+  margin: 0.25rem 0 0;
+}
+
+.form-grid-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 700px) {
+  .form-grid-two {
+    grid-template-columns: 1fr;
+  }
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

@@ -6,7 +6,8 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from email.utils import parseaddr
 
-from app.models import ApplicationRecord, ConnectedAccount, EmailMessage, LifeItem, Opportunity, db
+from app.models import ApplicationRecord, ConnectedAccount, EmailMessage, EligibilityProfile, LifeItem, Opportunity, db
+from app.services.account_routing import classify_source_mail, evaluate_company_eligibility
 from app.services.application_lifecycle import upsert_application_evidence
 from app.services.email_scope import EMAIL_PORTFOLIO_LIMIT, latest_emails_combined
 from app.services.placements import is_neopat_signal
@@ -197,9 +198,17 @@ def application_overview(
     grouped = {}
     career_signals = {}
     hackathon_signals = {}
+    eligibility_profile = _eligibility_profile()
 
     for email in emails:
         opportunity = opportunities.get(email.id)
+        campus = classify_campus_email(email, eligibility_profile)
+        if campus:
+            career_signals[email.id] = campus
+            key = _application_group_key(campus, email)
+            group = grouped.setdefault(key, _new_application_group(campus))
+            _add_application_signal(group, email, campus, opportunity)
+            continue
         career = classify_career_email(email, opportunity)
         if career:
             career_signals[email.id] = career
@@ -224,15 +233,18 @@ def application_overview(
 
     all_items = active + archived
     selected = sum(item["selected_for_next_step"] for item in all_items)
-    no_response = sum(item["response_status"] == "no_response" for item in all_items)
-    no_further_email = sum(not item["has_further_email"] for item in all_items)
-    applied = len(all_items)
+    to_apply = sum(item["application_state"] == "to_apply" for item in all_items)
+    applied_items = [item for item in all_items if item["application_state"] != "to_apply"]
+    no_response = sum(item["response_status"] == "no_response" for item in applied_items)
+    no_further_email = sum(not item["has_further_email"] for item in applied_items)
+    applied = len(applied_items)
     accounts_scanned = len({email.account_id for email in emails})
     stats = {
         "active": len(active),
         "archived": len(archived),
-        "total": applied,
+        "total": len(all_items),
         "applied": applied,
+        "to_apply": to_apply,
         "selected": selected,
         "selected_rate": round(selected / applied * 100) if applied else 0,
         "no_response": no_response,
@@ -286,11 +298,71 @@ def application_overview(
     }
 
 
-def classify_tracked_email(email):
+def classify_tracked_email(email, profile=None):
+    campus = classify_campus_email(email, profile or {})
+    if campus:
+        return campus
     hackathon = classify_hackathon_email(email)
     if hackathon:
         return hackathon
     return classify_career_email(email)
+
+
+def classify_campus_email(email, profile=None):
+    """Convert a VIT inbox source signal into the shared application shape."""
+
+    account_email = email.account.email if email.account else ""
+    account_label = email.account.label if email.account else ""
+    source = classify_source_mail(
+        account_email=account_email,
+        sender=email.sender,
+        subject=email.subject,
+        body=f"{email.snippet or ''} {email.body_text or ''}",
+        sent_at=email.sent_at or email.created_at,
+        account_label=account_label,
+    )
+    if not source or source["kind"] != "campus_opportunity":
+        return None
+    stage = {
+        "to_apply": "to_apply",
+        "applied": "applied",
+        "selected": "shortlisted",
+        "skipped": "rejected",
+    }.get(source["state"], "to_apply")
+    body = f"{email.subject or ''} {email.snippet or ''} {email.body_text or ''}"
+    return {
+        "kind": "campus_opportunity",
+        "lifecycle_status": stage,
+        "stage": stage,
+        "company": source["company"],
+        "role": "Campus placement",
+        "platform": "College placement",
+        "occurred_at": email.sent_at or email.created_at,
+        "deadline": _email_deadline(email),
+        "confidence": 0.9,
+        "evidence": source["summary"],
+        "status": source["state"],
+        "source_role": source["source_role"],
+        "eligibility": evaluate_company_eligibility(body, profile or {}),
+        "requirements": source.get("requirements", []),
+        "campus_details": source.get("details", {}),
+        "next_action": source["next_action"],
+    }
+
+
+def _eligibility_profile():
+    profile = EligibilityProfile.query.order_by(EligibilityProfile.updated_at.desc()).first()
+    if profile is None:
+        return {}
+    metadata = _json_object(profile.metadata_json)
+    return {
+        "10th_percentage": metadata.get("10th_percentage"),
+        "12th_percentage": metadata.get("12th_percentage"),
+        "ug_percentage": metadata.get("ug_percentage"),
+        "degree": profile.degree,
+        "branch": profile.branch,
+        "campus": metadata.get("campus"),
+    }
 
 
 def classify_career_email(email, opportunity=None):
@@ -350,13 +422,16 @@ def sync_application_records():
     """Persist all classified career evidence independently of inbox limits."""
 
     created_or_linked = 0
+    profile = _eligibility_profile()
     for email in EmailMessage.query.order_by(EmailMessage.sent_at.asc(), EmailMessage.id.asc()):
-        signal = classify_career_email(email)
+        signal = classify_campus_email(email, profile) or classify_career_email(email)
         if signal is None:
             continue
         record = upsert_application_evidence(email, signal)
         if signal["lifecycle_status"] != "to_apply" and not record.decisions:
             record.status = signal["lifecycle_status"]
+            if record.applied_at is None:
+                record.applied_at = signal.get("occurred_at")
         created_or_linked += 1
     db.session.commit()
     return {"ok": True, "records": ApplicationRecord.query.count(), "evidence_linked": created_or_linked}
@@ -424,12 +499,26 @@ def _new_application_group(signal):
         "emails": [],
         "summaries": [],
         "opportunity_ids": [],
+        "eligibility": None,
+        "requirements": [],
+        "source_roles": [],
+        "next_actions": [],
+        "campus_details": {},
     }
 
 
 def _add_application_signal(group, email, signal, opportunity):
     _append_unique(group["roles"], signal["role"])
     _append_unique(group["platforms"], signal["platform"])
+    _append_unique(group["source_roles"], signal.get("source_role") or "career")
+    for requirement in signal.get("requirements") or []:
+        _append_unique(group["requirements"], requirement)
+    if signal.get("eligibility"):
+        group["eligibility"] = signal["eligibility"]
+    if signal.get("campus_details"):
+        group["campus_details"] = signal["campus_details"]
+    if signal.get("next_action"):
+        _append_unique(group["next_actions"], signal["next_action"])
     if email.account:
         _append_unique(group["accounts"], email.account.email)
     if opportunity:
@@ -459,6 +548,10 @@ def _serialize_group(key, group, projects):
     latest = signals[-1]
     stage = latest["stage"]
     applied_at = min(
+        (item["occurred_at"] for item in signals if item["occurred_at"] and item["stage"] != "to_apply"),
+        default=None,
+    )
+    received_at = min(
         (item["occurred_at"] for item in signals if item["occurred_at"]),
         default=None,
     )
@@ -507,6 +600,7 @@ def _serialize_group(key, group, projects):
         "role": role,
         "roles": group["roles"],
         "stage": stage,
+        "application_state": stage,
         "stage_label": _stage_label(stage),
         "response_status": response_status,
         "response_label": _response_label(response_status),
@@ -515,6 +609,9 @@ def _serialize_group(key, group, projects):
         "has_further_email": has_further_email,
         "mail_count": len(emails),
         "days_waiting": days_waiting,
+        "received_at": received_at.isoformat() if received_at else None,
+        "days_since_received": max(0, (date.today() - received_at.date()).days) if received_at else None,
+        "days_since_applied": max(0, (date.today() - applied_at.date()).days) if applied_at else None,
         "confidence": confidence,
         "applied_at": applied_at.isoformat() if applied_at else None,
         "applied_date_inferred": stage != "applied",
@@ -527,13 +624,15 @@ def _serialize_group(key, group, projects):
         "source_email": emails[0] if emails else None,
         "source_emails": emails[:20],
         "summary": _portfolio_summary(group, stage, response_status),
-        "next_action": _next_action(
-            stage,
-            response_status,
-            group["company"],
-            role,
-            days_waiting,
+        "next_action": (
+            group["next_actions"][-1]
+            if group["next_actions"] and stage == "to_apply"
+            else _next_action(stage, response_status, group["company"], role, days_waiting)
         ),
+        "eligibility": group["eligibility"],
+        "requirements": group["requirements"],
+        "campus_details": group["campus_details"],
+        "source_roles": group["source_roles"],
         "timeline": [
             {
                 "at": item["occurred_at"].isoformat(),
@@ -885,6 +984,8 @@ def _platform(email, text):
 
 
 def _response_status(stage, has_further_email, days_waiting):
+    if stage == "to_apply":
+        return "to_apply"
     if stage in SELECTED_STAGES:
         return "selected"
     if stage == "rejected":
@@ -898,6 +999,7 @@ def _response_status(stage, has_further_email, days_waiting):
 
 def _response_label(value):
     return {
+        "to_apply": "Not applied yet",
         "selected": "Selected / next round",
         "rejected": "Closed / rejected",
         "no_response": f"No response for {NO_RESPONSE_DAYS}+ days",
@@ -908,6 +1010,7 @@ def _response_label(value):
 
 def _stage_label(stage):
     return {
+        "to_apply": "Opportunity / not applied",
         "assessment": "Assessment / test",
         "project": "Project submission",
         "interview": "Interview scheduled",
@@ -1279,7 +1382,7 @@ def _opportunity_deadline(opportunity):
 def _email_deadline(email):
     deadlines = [
         task.due_at
-        for task in email.tasks
+        for task in getattr(email, "tasks", [])
         if task.due_at
     ]
     if deadlines:
@@ -1402,6 +1505,14 @@ def _json_list(value):
     except (TypeError, json.JSONDecodeError):
         return []
     return parsed if isinstance(parsed, list) else []
+
+
+def _json_object(value):
+    try:
+        parsed = json.loads(value or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _append_unique(values, value):

@@ -45,6 +45,7 @@ They communicate only through loopback APIs. Raw activity and email content stay
 - Tracks hackathons, job updates, Gmail signals, and reminders.
 - Owns Email Intelligence: multi-account Gmail OAuth, encrypted local tokens, local email sync, AI understanding, semantic search, and daily/weekly planning.
 - Classifies the latest 500 emails across all enabled accounts as one combined portfolio, then groups related application updates by company.
+- Uses each connected mailbox's role to separate career mail, VIT campus eligibility/PAT mail, and general hackathon mail; campus opportunities expose local eligibility, package, round, location, and applied/not-applied timelines.
 - Separates applied, selected, no-response, no-further-email, and rejected states while filtering generic alerts, newsletters, and public selection lists.
 - Exposes planning and project intelligence to WDYD over a paired loopback API.
 - Connects with Gmail OAuth and local import folders.

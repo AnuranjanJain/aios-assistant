@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.utils import parseaddr
 
+from app.services.account_routing import classify_source_mail
+
 
 CATEGORY_LABELS = {
     "internship": "Applications",
@@ -36,11 +38,26 @@ class EmailTriage:
     signals: tuple[str, ...] = ()
 
 
-def classify_email_category(sender="", subject="", body=""):
+def classify_email_category(sender="", subject="", body="", account_email="", account_label=""):
     """Classify by the strongest source signal, keeping generic mail out of action views."""
     address = parseaddr(sender or "")[1].lower()
     subject_text = _clean(subject)
     text = _clean(f"{subject} {body} {address}")[:5000]
+
+    source_signal = classify_source_mail(
+        account_email=account_email,
+        sender=sender,
+        subject=subject,
+        body=body,
+        account_label=account_label,
+    ) if account_email else None
+    if source_signal:
+        if source_signal["kind"] == "campus_meeting":
+            return "meeting"
+        if source_signal["kind"] == "campus_opportunity":
+            return "college"
+        if source_signal["kind"] == "hackathon_mail":
+            return "hackathon"
 
     if _has(
         text,
@@ -145,6 +162,8 @@ def triage_email(
     has_action=False,
     has_meeting=False,
     sent_at=None,
+    account_email="",
+    account_label="",
 ):
     """Return a stable, explainable attention score for the local inbox.
 
@@ -154,7 +173,13 @@ def triage_email(
     """
     text = _decision_text(subject, body)
     address = parseaddr(sender or "")[1].lower()
-    detected = classify_email_category(sender, subject, body)
+    detected = classify_email_category(
+        sender,
+        subject,
+        body,
+        account_email=account_email,
+        account_label=account_label,
+    )
     category = detected if detected != "general" else _valid_category(preferred_category)
     labels = {str(value).upper() for value in labels or []}
     reasons = []

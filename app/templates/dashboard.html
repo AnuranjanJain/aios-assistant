@@ -186,6 +186,29 @@
         </aside>
       </section>
 
+      <section class="data-grid dashboard-detail-grid" data-dashboard-tab-panel="overview">
+        <article class="panel college-snapshot-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Campus inbox</p>
+              <h2>PAT and placement pulse</h2>
+            </div>
+            <a class="mini-link" href="{{ url_for('main.connectors') }}">Refresh mail</a>
+          </div>
+          <div class="mail-funnel-grid compact">
+            <article class="mail-funnel-card {% if college_summary.has_class_today %}success{% else %}quiet{% endif %}">
+              <span>Today</span>
+              <strong>{{ 'Class / event' if college_summary.has_event_today else 'No class found' }}</strong>
+            </article>
+            <article class="mail-funnel-card accent"><span>Time</span><strong>{{ college_summary.time or 'Not found' }}</strong></article>
+            <article class="mail-funnel-card quiet"><span>Place</span><strong>{{ college_summary.location or 'Not found' }}</strong></article>
+          </div>
+          <p class="list-summary mail-summary">{{ college_summary.headline }}. {{ college_summary.latest_summary }}</p>
+          {% if college_summary.bring %}<small>Bring: {{ college_summary.bring|join(', ') }}</small>{% endif %}
+          {% if college_summary.previous_event %}<small>Previous: {{ college_summary.previous_event.event_date }} · {{ college_summary.previous_event.subject }}</small>{% endif %}
+        </article>
+      </section>
+
       <section class="main-grid" data-dashboard-tab-panel="overview">
         <article class="panel plan-panel">
           <div class="panel-heading">
@@ -310,6 +333,7 @@
             </section>
           {% endif %}
           <div class="mail-funnel-grid compact">
+            <article class="mail-funnel-card quiet"><span>To apply</span><strong>{{ application_portfolio.stats.to_apply }}</strong></article>
             <article class="mail-funnel-card accent"><span>Applied</span><strong>{{ application_portfolio.stats.applied }}</strong></article>
             <article class="mail-funnel-card success"><span>Selected</span><strong>{{ application_portfolio.stats.selected }}</strong></article>
             <article class="mail-funnel-card warning"><span>No response</span><strong>{{ application_portfolio.stats.no_response }}</strong></article>
@@ -327,6 +351,9 @@
                     <span>{{ item.platform }}</span>
                     <span>{{ item.mail_count }} grouped mail{% if item.mail_count != 1 %}s{% endif %}</span>
                   </small>
+                  {% if item.received_at %}<small>Received {{ item.received_at[:10] }} · {{ item.days_since_received }} day{% if item.days_since_received != 1 %}s{% endif %} ago{% if item.days_since_applied is not none %} · applied {{ item.days_since_applied }} day{% if item.days_since_applied != 1 %}s{% endif %} ago{% endif %}</small>{% endif %}
+                  {% if item.eligibility %}<small>Eligibility: {{ item.eligibility.status|replace('_', ' ')|title }}{% if item.eligibility.reasons %} · {{ item.eligibility.reasons[0] }}{% endif %}</small>{% endif %}
+                  {% if item.campus_details and (item.campus_details.package_lpa or item.campus_details.mode != 'unspecified' or item.campus_details.location or item.campus_details.round) %}<small>{% if item.campus_details.package_lpa %}{{ item.campus_details.package_lpa }} LPA · {% endif %}{{ item.campus_details.mode|title }}{% if item.campus_details.location %} · {{ item.campus_details.location }}{% endif %}{% if item.campus_details.round %} · {{ item.campus_details.round }}{% endif %}</small>{% endif %}
                   <p class="list-summary mail-summary">{{ item.summary }}</p>
                   <small class="list-next-action">Next: {{ item.next_action }}</small>
                   <small>{{ item.source_accounts|join(", ") }} - updated {{ item.latest_activity_at[:16]|replace('T', ' ') }}</small>

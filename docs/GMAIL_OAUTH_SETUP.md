@@ -53,6 +53,30 @@ and offer appear as one timeline rather than four separate opportunities. Older
 mail remains local and can be synchronized incrementally; it is simply outside
 the current fast dashboard scope.
 
+## Account-aware classification
+
+The local classifier uses the mailbox role as context. VIT addresses are
+recognized automatically by their `@vitbhopal.ac.in` domain. Other roles can be
+configured locally with `AIOS_PRIMARY_ACCOUNT` and `AIOS_GENERAL_ACCOUNT`, or
+by renaming a connected account with a label such as `Career` or `General`.
+These values stay in local configuration and are not committed. The roles are:
+
+- **Primary career inbox:** career, freelance, project, assessment, interview,
+  and off-campus application mail.
+- **VIT campus inbox:** campus eligibility, placement drives, round updates,
+  PAT/class notices, and placement meetings.
+- **General inbox:** general mail, Devpost, Unstop, job platforms, hackathons,
+  and PromptWars.
+
+Campus opportunity messages are grouped with application mail by company and
+show `not applied yet`, `applied`, `selected/next round`, or `rejected` states,
+received/applied age, parsed percentage/degree/branch/campus requirements,
+round mode/location, and package when present. Add the 10th, 12th, UG,
+degree, branch, and campus values under **Profile -> Placement profile** to get
+local eligibility explanations. Meeting and PAT signals remain separate from
+application records and surface today's time, location, preparation items, and
+the previous detected event.
+
 Background synchronization is controlled by `EMAIL_SYNC_INTERVAL_MINUTES` in
 Settings. A failure on one account does not stop other connected accounts.
 

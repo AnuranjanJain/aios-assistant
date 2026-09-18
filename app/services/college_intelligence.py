@@ -96,6 +96,12 @@ def pat_college_summary(today=None, limit=40):
         key=lambda item: (item["event_date"], item["timestamp"] or ""),
     )
     next_event = upcoming[0] if upcoming else None
+    previous = sorted(
+        [item for item in updates if item["event_date"] and item["event_date"] < today.isoformat()],
+        key=lambda item: (item["event_date"], item["timestamp"] or ""),
+        reverse=True,
+    )
+    previous_event = previous[0] if previous else None
     primary = (active_today or cancelled_today or ([next_event] if next_event else []) or updates or [None])[0]
     preparation_updates = active_today[:5] or upcoming[:5]
     bring = _unique(item for update in preparation_updates for item in update["bring"])
@@ -151,6 +157,7 @@ def pat_college_summary(today=None, limit=40):
         "emails_scanned": len(candidates),
         "next_event": next_event,
         "next_event_days": (date.fromisoformat(next_event["event_date"]) - today).days if next_event else None,
+        "previous_event": previous_event,
         "updates": updates[:12],
     }
 

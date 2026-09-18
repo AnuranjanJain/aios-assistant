@@ -80,6 +80,8 @@ def upsert_application_evidence(email, signal: dict) -> ApplicationRecord:
         record.deadline = signal["deadline"]
     if signal.get("summary"):
         record.summary = str(signal["summary"]).strip()
+    if signal.get("next_action"):
+        record.next_action = str(signal["next_action"]).strip()
     return record
 
 

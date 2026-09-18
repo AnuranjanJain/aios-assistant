@@ -69,7 +69,7 @@ GMAIL_SCOPES = [
 ]
 
 EMAIL_CATEGORIES = set(CATEGORY_LABELS)
-ANALYSIS_MODEL_VERSION = "local_triage_v4"
+ANALYSIS_MODEL_VERSION = "local_triage_v5_account_routing"
 MAIL_TIME_VERSION = 1
 
 IMPORTANT_CATEGORIES = {
@@ -870,6 +870,8 @@ def normalize_insight(raw, email=None):
         has_action=bool(action_items or _as_list(raw.get("suggested_actions"))),
         has_meeting=bool(meetings),
         sent_at=email.sent_at if email else None,
+        account_email=getattr(getattr(email, "account", None), "email", "") if email else "",
+        account_label=getattr(getattr(email, "account", None), "label", "") if email else "",
     )
     return {
         "priority": triage.priority,
@@ -899,7 +901,13 @@ def heuristic_insight(email):
     text = full_text.lower()
     action = detect_action_signal(email.subject, f"{email.snippet} {email.body_text or ''}")
     deadlines = extract_deadlines(text)
-    category = classify_email_category(email.sender, email.subject, f"{email.snippet} {email.body_text or ''}")
+    category = classify_email_category(
+        email.sender,
+        email.subject,
+        f"{email.snippet} {email.body_text or ''}",
+        account_email=getattr(getattr(email, "account", None), "email", ""),
+        account_label=getattr(getattr(email, "account", None), "label", ""),
+    )
     meetings = [email.subject] if category == "meeting" or (
         category == "internship" and any(word in text for word in ["zoom interview", "google meet", "interview scheduled"])
     ) else []
@@ -919,6 +927,8 @@ def heuristic_insight(email):
         has_action=action,
         has_meeting=bool(meetings),
         sent_at=email.sent_at,
+        account_email=getattr(getattr(email, "account", None), "email", ""),
+        account_label=getattr(getattr(email, "account", None), "label", ""),
     )
     suggested_actions = suggest_email_actions(
         email,
@@ -1117,6 +1127,8 @@ def upsert_email_insight(email, insight):
         has_action=bool(insight.get("action_items")),
         has_meeting=bool(insight.get("meetings")),
         sent_at=email.sent_at,
+        account_email=getattr(getattr(email, "account", None), "email", ""),
+        account_label=getattr(getattr(email, "account", None), "label", ""),
     )
     insight = {
         **insight,
