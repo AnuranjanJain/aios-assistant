@@ -4,10 +4,10 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
 import 'core_manager.dart';
+import 'native_token_store.dart';
 
 class AiosController extends ChangeNotifier {
   AiosController({
@@ -15,19 +15,20 @@ class AiosController extends ChangeNotifier {
     CoreManager? core,
     File? preferencesFile,
     File? snapshotFile,
+    NativeTokenStore? tokenStore,
     this.startupRetryDelay = const Duration(seconds: 3),
   }) : api = api ?? AiosApi(),
        _preferencesFileOverride = preferencesFile,
-       _snapshotFileOverride = snapshotFile {
+       _snapshotFileOverride = snapshotFile,
+       _tokenStore = tokenStore ?? const NativeTokenStore() {
     this.core = core ?? CoreManager(api: this.api);
   }
 
   final AiosApi api;
   final File? _preferencesFileOverride;
   final File? _snapshotFileOverride;
+  final NativeTokenStore _tokenStore;
   final Duration startupRetryDelay;
-  static const _apiTokenKey = 'aios.core.api_token';
-  static const _secureStorage = FlutterSecureStorage();
   late final CoreManager core;
   static const _lifecycle = MethodChannel('aios/window_lifecycle');
 
@@ -141,22 +142,30 @@ class AiosController extends ChangeNotifier {
       loading = true;
       notifyListeners();
     }
+    Object? accountError;
+    try {
+      // Account visibility cannot depend on the dashboard aggregation path.
+      // Gmail settings remain useful while local analysis is still rebuilding.
+      accounts = await api.get('/api/intelligence/accounts');
+    } catch (error) {
+      accountError = error;
+    }
     try {
       final values = await Future.wait([
         api.get('/api/live'),
         api.get('/api/desktop/status'),
-        api.get('/api/intelligence/accounts'),
         api.get('/api/workers'),
       ]);
       live = values[0];
       desktop = values[1];
-      accounts = values[2];
-      workers = values[3]['items'] as List<dynamic>? ?? const [];
+      workers = values[2]['items'] as List<dynamic>? ?? const [];
       message = 'Private core connected at ${api.baseUrl}';
       if (_disposed) return;
       await _saveSnapshot();
     } catch (error) {
-      message = _friendly(error);
+      message = accountError == null
+          ? _friendly(error)
+          : _friendly(accountError);
     } finally {
       loading = false;
       refreshCompleter.complete();
@@ -643,17 +652,12 @@ class AiosController extends ChangeNotifier {
     darkMode = data['darkMode'] != false;
     api.baseUrl = data['apiBaseUrl']?.toString() ?? '';
 
-    String? storedToken;
-    try {
-      storedToken = await _secureStorage.read(key: _apiTokenKey);
-    } catch (_) {
-      // Widget tests and unsupported platforms may not expose a secure store.
-    }
+    final storedToken = await _tokenStore.read();
     final legacyToken = data['apiToken']?.toString() ?? '';
     api.token = storedToken?.isNotEmpty == true ? storedToken! : legacyToken;
     if (storedToken?.isNotEmpty != true && legacyToken.isNotEmpty) {
       try {
-        await _secureStorage.write(key: _apiTokenKey, value: legacyToken);
+        await _tokenStore.write(legacyToken);
       } catch (_) {
         // Keep the legacy token in memory for this run; the next successful
         // native startup will migrate it to the OS credential store.
@@ -671,9 +675,7 @@ class AiosController extends ChangeNotifier {
     );
     if (api.token.isNotEmpty) {
       try {
-        await _secureStorage
-            .write(key: _apiTokenKey, value: api.token)
-            .timeout(const Duration(seconds: 2));
+        await _tokenStore.write(api.token).timeout(const Duration(seconds: 2));
       } catch (_) {
         // Keep the bearer token out of the JSON settings file. The app can
         // still retain its non-sensitive UI preferences and retry secure
@@ -767,5 +769,4 @@ class AiosController extends ChangeNotifier {
     RegExp(r'^(Exception|StateError|FormatException): '),
     '',
   );
-
 }

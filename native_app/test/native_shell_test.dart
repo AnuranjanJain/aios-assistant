@@ -531,35 +531,37 @@ void main() {
     },
   );
 
-  test('saves non-sensitive core preferences when secure storage is unavailable',
-      () async {
-    final directory = await Directory.systemTemp.createTemp(
-      'aios-native-preferences-',
-    );
-    final preferences = File('${directory.path}\\preferences.json');
-    final snapshot = File('${directory.path}\\snapshot.json');
-    addTearDown(() => directory.delete(recursive: true));
+  test(
+    'saves non-sensitive core preferences when secure storage is unavailable',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'aios-native-preferences-',
+      );
+      final preferences = File('${directory.path}\\preferences.json');
+      final snapshot = File('${directory.path}\\snapshot.json');
+      addTearDown(() => directory.delete(recursive: true));
 
-    final api = _SnapshotApi({
-      '/api/live': {'stats': const <String, dynamic>{}},
-      '/api/desktop/status': const <String, dynamic>{},
-      '/api/intelligence/accounts': const <String, dynamic>{},
-      '/api/workers': {'items': const <dynamic>[]},
-    });
-    final controller = AiosController(
-      api: api,
-      core: _PairingCore(api),
-      preferencesFile: preferences,
-      snapshotFile: snapshot,
-    );
-    addTearDown(controller.dispose);
+      final api = _SnapshotApi({
+        '/api/live': {'stats': const <String, dynamic>{}},
+        '/api/desktop/status': const <String, dynamic>{},
+        '/api/intelligence/accounts': const <String, dynamic>{},
+        '/api/workers': {'items': const <dynamic>[]},
+      });
+      final controller = AiosController(
+        api: api,
+        core: _PairingCore(api),
+        preferencesFile: preferences,
+        snapshotFile: snapshot,
+      );
+      addTearDown(controller.dispose);
 
-    await controller.initialize();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+      await controller.initialize();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-    final saved = jsonDecode(await preferences.readAsString()) as Map;
-    expect(saved['apiBaseUrl'], 'http://127.0.0.1:5050');
-  });
+      final saved = jsonDecode(await preferences.readAsString()) as Map;
+      expect(saved['apiBaseUrl'], 'http://127.0.0.1:5050');
+    },
+  );
 
   test('retries native pairing after a cold-start core delay', () async {
     final directory = await Directory.systemTemp.createTemp(
@@ -611,6 +613,30 @@ void main() {
         (controller.accounts['accounts'] as List).single['email'],
         'student@example.com',
       );
+    },
+  );
+
+  test(
+    'keeps connected Gmail accounts visible when dashboard refresh fails',
+    () async {
+      final api = _SnapshotApi({
+        '/api/intelligence/accounts': {
+          'accounts': [
+            {'id': 365, 'email': 'first@example.com'},
+            {'id': 366, 'email': 'second@example.com'},
+            {'id': 367, 'email': 'third@example.com'},
+          ],
+        },
+        '/api/desktop/status': const <String, dynamic>{},
+        '/api/workers': {'items': const <dynamic>[]},
+      });
+      final controller = AiosController(api: api);
+      addTearDown(controller.dispose);
+
+      await controller.refresh();
+
+      expect((controller.accounts['accounts'] as List), hasLength(3));
+      expect(controller.message, contains('API unavailable'));
     },
   );
 }
