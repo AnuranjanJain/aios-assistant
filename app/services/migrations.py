@@ -40,8 +40,20 @@ class MigrationSpec:
         payload = self.version + "\n" + "\n".join(
             f"{item.table}.{item.column}:{item.statement}" for item in self.additions
         )
-        payload += "\n" + "\n".join(self.statements)
+        if self.statements:
+            payload += "\n" + "\n".join(self.statements)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def accepts_checksum(self, checksum: str) -> bool:
+        if checksum == self.checksum:
+            return True
+        if self.statements:
+            return False
+        # v0.3.2 appended an empty SQL section to column-only migrations.
+        payload = self.version + "\n" + "\n".join(
+            f"{item.table}.{item.column}:{item.statement}" for item in self.additions
+        ) + "\n"
+        return checksum == hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 MIGRATIONS: tuple[MigrationSpec, ...] = (
@@ -279,7 +291,7 @@ def apply_migrations(session, engine, logger: logging.Logger | None = None) -> l
     applied = {row[0] for row in applied_rows}
     for version, checksum in applied_rows:
         spec = known_specs.get(version)
-        if spec and checksum and checksum != spec.checksum:
+        if spec and checksum and not spec.accepts_checksum(checksum):
             raise RuntimeError(
                 f"Migration checksum mismatch for {version}; refusing to continue."
             )
