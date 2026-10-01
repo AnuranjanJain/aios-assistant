@@ -234,6 +234,8 @@ function renderInboxItems(item) {
         <strong>${escapeHtml(item.subject)}</strong>
         <small class="list-meta">
           <span>${escapeHtml(item.category)}</span>
+          <span>${escapeHtml((item.mail_kind || "unrelated").replaceAll("_", " "))}</span>
+          <span>${escapeHtml((item.relationship_status || "unrelated").replaceAll("_", " "))}</span>
           <span>${escapeHtml(item.sender || "Manual input")}</span>
         </small>
         ${item.summary ? `<p class="list-summary mail-summary">${escapeHtml(item.summary)}</p>` : ""}

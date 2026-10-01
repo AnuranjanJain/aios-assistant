@@ -260,14 +260,16 @@ def application_overview(
         "emails_scanned": len(emails),
         "emails_available": EmailMessage.query.count(),
         "scan_limit": EMAIL_PORTFOLIO_LIMIT,
+        "scan_limit_scope": "per_connected_account",
         "accounts": ConnectedAccount.query.filter_by(provider="google").count(),
         "accounts_scanned": accounts_scanned,
     }
     return {
         "ok": True,
         "scope": {
-            "label": f"Latest {EMAIL_PORTFOLIO_LIMIT} combined emails",
+            "label": f"Latest {EMAIL_PORTFOLIO_LIMIT} emails per connected account",
             "limit": EMAIL_PORTFOLIO_LIMIT,
+            "limit_scope": "per_connected_account",
             "emails_scanned": len(emails),
             "accounts_scanned": accounts_scanned,
         },

@@ -40,12 +40,22 @@ def notification_center(now=None, send=False):
     generated = generate_notifications(now)
     dispatched = dispatch_due_notifications(now, send=send)
     upcoming = Reminder.query.filter(Reminder.is_done.is_(False)).order_by(Reminder.due_at.asc()).limit(50).all()
+    history = (
+        Reminder.query.filter(db.or_(Reminder.is_read.is_(True), Reminder.is_done.is_(True)))
+        .order_by(
+            db.func.coalesce(Reminder.completed_at, Reminder.read_at, Reminder.created_at).desc(),
+            Reminder.id.desc(),
+        )
+        .limit(100)
+        .all()
+    )
     return {
         "ok": True,
         "generated": generated,
         "dispatched": dispatched,
         "quiet_hours": quiet_hours_status(now),
         "notifications": [serialize_notification(item) for item in upcoming],
+        "history": [serialize_notification(item) for item in history],
     }
 
 
@@ -301,6 +311,7 @@ def dispatch_due_notifications(now=None, send=False):
         if ok:
             item.notified_at = now
             item.is_read = True
+            item.read_at = item.read_at or now
             item.snoozed_until = None
             item.notification_claim_id = None
             item.notification_claimed_until = None
@@ -322,6 +333,9 @@ def snooze_notification(reminder_id, minutes=30, now=None):
     reminder.snoozed_until = reminder.due_at
     reminder.is_read = False
     reminder.is_done = False
+    reminder.read_at = None
+    reminder.completed_at = None
+    reminder.time_taken_seconds = None
     db.session.commit()
     return {"ok": True, "notification": serialize_notification(reminder)}
 
@@ -339,6 +353,9 @@ def reschedule_notification(reminder_id, due_at):
     reminder.snoozed_until = None
     reminder.is_read = False
     reminder.is_done = False
+    reminder.read_at = None
+    reminder.completed_at = None
+    reminder.time_taken_seconds = None
     reminder.metadata_json = json.dumps(metadata, ensure_ascii=False)
     db.session.commit()
     return {"ok": True, "notification": serialize_notification(reminder)}
@@ -440,6 +457,10 @@ def serialize_notification(item):
         "source_key": item.source_key,
         "is_done": item.is_done,
         "is_read": item.is_read,
+        "created_at": (item.created_at or item.due_at).isoformat() if (item.created_at or item.due_at) else None,
+        "read_at": item.read_at.isoformat() if item.read_at else None,
+        "completed_at": item.completed_at.isoformat() if item.completed_at else None,
+        "time_taken_seconds": item.time_taken_seconds,
         "notified_at": item.notified_at.isoformat() if item.notified_at else None,
         "snoozed_until": item.snoozed_until.isoformat() if item.snoozed_until else None,
         "metadata": load_metadata(item),

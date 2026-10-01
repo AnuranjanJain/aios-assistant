@@ -87,7 +87,7 @@ class UiModernizationTestCase(unittest.TestCase):
     def test_dashboard_detail_tabs_use_full_width_readable_layout(self):
         html = self.get_text("/?tab=opportunities")
         template = Path("app/templates/dashboard.html").read_text(encoding="utf-8")
-        self.assertIn("Latest 500 combined emails", html)
+        self.assertIn("Latest 1000 emails per connected account", html)
         self.assertIn("Application intelligence", html)
         self.assertNotIn("Test Email Intake", html)
         self.assertIn('class="data-grid dashboard-detail-grid"', html)
@@ -196,7 +196,7 @@ class UiModernizationTestCase(unittest.TestCase):
         )
         self.assertNotIn("body_plain", response.get_data(as_text=True))
         self.assertNotIn("refresh_token", response.get_data(as_text=True))
-        self.assertEqual(payload["applications"]["stats"]["scan_limit"], 500)
+        self.assertEqual(payload["applications"]["stats"]["scan_limit"], 1000)
         self.assertIn("selected", payload["applications"]["stats"])
         self.assertIn("no_response", payload["applications"]["stats"])
         self.assertIn("hackathons", payload["applications"])

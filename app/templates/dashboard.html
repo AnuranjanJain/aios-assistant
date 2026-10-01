@@ -103,7 +103,7 @@
           <section class="lead-section">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Latest 500 combined emails</p>
+                <p class="eyebrow">Latest 1000 emails per connected account</p>
                 <h2>Application pipeline</h2>
               </div>
               <a class="mini-link" href="{{ url_for('main.connectors') }}">Run scan</a>
@@ -368,7 +368,7 @@
         <article id="reminders" class="panel dashboard-detail-panel" data-dashboard-tab-panel="reminders">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Latest 500 combined emails</p>
+              <p class="eyebrow">Latest 1000 emails per connected account</p>
               <h2>Today's tasks</h2>
             </div>
           </div>
@@ -402,7 +402,7 @@
         <article id="inbox" class="panel dashboard-detail-panel" data-dashboard-tab-panel="inbox">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Latest 500 combined emails</p>
+              <p class="eyebrow">Latest 1000 emails per connected account</p>
               <h2>Recent inbox intelligence</h2>
             </div>
           </div>
@@ -414,6 +414,8 @@
                   <strong>{{ item.subject }}</strong>
                   <small class="list-meta">
                     <span>{{ item.category }}</span>
+                    <span>{{ item.mail_kind|replace('_', ' ') }}</span>
+                    <span>{{ item.relationship_status|replace('_', ' ') }}</span>
                     <span>{{ item.sender or "Manual input" }}</span>
                   </small>
                   {% if item.summary %}<p class="list-summary mail-summary">{{ item.summary }}</p>{% endif %}

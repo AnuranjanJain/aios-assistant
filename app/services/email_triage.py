@@ -26,6 +26,19 @@ CATEGORY_LABELS = {
     "general": "Other",
 }
 
+MAIL_KIND_LABELS = {
+    "primary_action": "Action needed",
+    "reply": "Reply / thread update",
+    "reminder": "Reminder",
+    "update": "Status update",
+    "join_notification": "Join notification",
+    "promotional": "Promotional",
+    "spam": "Spam",
+    "transactional": "Transactional",
+    "newsletter": "Newsletter",
+    "unrelated": "Unrelated",
+}
+
 
 @dataclass(frozen=True)
 class EmailTriage:
@@ -35,6 +48,10 @@ class EmailTriage:
     attention_score: int
     priority_reason: str
     is_actionable: bool
+    mail_kind: str = "unrelated"
+    importance: str = "normal"
+    needs_response: bool = False
+    is_bulk: bool = False
     signals: tuple[str, ...] = ()
 
 
@@ -150,6 +167,83 @@ def classify_email_category(sender="", subject="", body="", account_email="", ac
     return "general"
 
 
+def classify_mail_kind(sender="", subject="", body="", labels=None, category="general", action=False):
+    """Classify delivery intent separately from the user's work category.
+
+    Gmail labels and sender/header signals are stronger than a small local
+    model for bulk mail. This deterministic layer runs first and keeps spam or
+    marketing messages out of the action queue even when their copy says
+    “urgent”.
+    """
+    address = parseaddr(sender or "")[1].lower()
+    subject_text = _clean(subject)
+    text = _decision_text(subject, body)
+    label_set = {str(value).upper() for value in labels or []}
+    if "SPAM" in label_set or _has(address, "spam", "mailer-daemon"):
+        return "spam"
+    if "CATEGORY_PROMOTIONS" in label_set or _has(
+        text,
+        "unsubscribe",
+        "manage preferences",
+        "limited time offer",
+        "special offer",
+        "shop now",
+        "save up to",
+        "sponsored",
+    ):
+        return "promotional"
+    if re.match(r"^(re|fw|fwd)\s*:", subject_text, re.I) or _has(
+        text,
+        "in reply to",
+        "following up on your",
+        "thanks for your reply",
+        "as discussed",
+    ):
+        return "reply"
+    if _has(text, "friendly reminder", "this is a reminder", "don't forget", "do not forget", "reminder:"):
+        return "reminder"
+    if _has(
+        text,
+        "join meeting",
+        "join us",
+        "join the call",
+        "google meet",
+        "zoom meeting",
+        "microsoft teams",
+        "calendar invitation",
+        "you are invited",
+    ):
+        return "join_notification"
+    if _has(
+        text,
+        "status update",
+        "application status",
+        "selection list",
+        "next round",
+        "your application has",
+        "updated information",
+        "changes to your",
+        "result announcement",
+    ):
+        return "update"
+    if category == "newsletter" or _has(text, "weekly digest", "monthly digest", "newsletter"):
+        return "newsletter"
+    if _has(
+        text,
+        "order confirmation",
+        "payment received",
+        "invoice",
+        "receipt",
+        "delivery update",
+        "password reset",
+        "verification code",
+    ):
+        return "transactional"
+    if action or _has(text, "action required", "please reply", "please confirm", "deadline"):
+        return "primary_action"
+    return "unrelated"
+
+
 def triage_email(
     *,
     sender="",
@@ -182,6 +276,14 @@ def triage_email(
     )
     category = detected if detected != "general" else _valid_category(preferred_category)
     labels = {str(value).upper() for value in labels or []}
+    mail_kind = classify_mail_kind(
+        sender,
+        subject,
+        body,
+        labels=labels,
+        category=category,
+        action=bool(has_action or detect_action_signal(subject, body)),
+    )
     reasons = []
     signals = []
     score = {
@@ -248,6 +350,8 @@ def triage_email(
         category in {"general", "finance", "travel", "learning", "personal"}
         and _has(address, "noreply", "no-reply", "notifications")
     )
+    if mail_kind in {"spam", "promotional", "newsletter"}:
+        bulk_signal = True
 
     # Generic job-alert mail may contain "apply" and "interview" but does not
     # represent a commitment unless it is addressed to an existing application.
@@ -326,7 +430,14 @@ def triage_email(
         or positive_outcome_signal
         or category in {"security", "meeting", "assignment"}
         or (category in {"internship", "hackathon", "college"} and score >= 55)
-    ) and not informational_bulk
+    ) and not informational_bulk and mail_kind not in {"spam", "promotional", "newsletter"}
+
+    if mail_kind == "spam":
+        score = 0
+        reasons = ["Gmail or sender signals mark this as spam"]
+    elif mail_kind == "promotional":
+        score = min(score, 12)
+        reasons = ["Promotional or marketing mail without a personal action"]
 
     if score >= 70 and immediate_signal and actionable:
         priority = "urgent"
@@ -354,6 +465,12 @@ def triage_email(
             if score >= 25
             else "Low-priority informational mail"
         )
+    importance = "high" if score >= 70 else "normal" if score >= 28 else "low"
+    needs_response = bool(
+        actionable
+        and mail_kind not in {"spam", "promotional", "newsletter", "transactional"}
+        and (action_signal or mail_kind in {"reply", "primary_action"})
+    )
     return EmailTriage(
         category=category,
         priority=priority,
@@ -361,6 +478,10 @@ def triage_email(
         attention_score=score,
         priority_reason=". ".join(dict.fromkeys(reasons[:3])) + ".",
         is_actionable=actionable,
+        mail_kind=mail_kind,
+        importance=importance,
+        needs_response=needs_response,
+        is_bulk=bulk_signal,
         signals=tuple(dict.fromkeys(signals)),
     )
 

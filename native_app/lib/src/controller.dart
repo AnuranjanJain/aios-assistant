@@ -17,6 +17,7 @@ class AiosController extends ChangeNotifier {
     File? snapshotFile,
     NativeTokenStore? tokenStore,
     this.startupRetryDelay = const Duration(seconds: 3),
+    this.intelligencePollInterval = const Duration(seconds: 1),
   }) : api = api ?? AiosApi(),
        _preferencesFileOverride = preferencesFile,
        _snapshotFileOverride = snapshotFile,
@@ -29,6 +30,7 @@ class AiosController extends ChangeNotifier {
   final File? _snapshotFileOverride;
   final NativeTokenStore _tokenStore;
   final Duration startupRetryDelay;
+  final Duration intelligencePollInterval;
   late final CoreManager core;
   static const _lifecycle = MethodChannel('aios/window_lifecycle');
 
@@ -182,21 +184,64 @@ class AiosController extends ChangeNotifier {
     message = 'Syncing Gmail and rebuilding local plans...';
     notifyListeners();
     try {
-      final result = await api.post('/api/intelligence/sync');
+      final started = await api.post('/api/intelligence/sync');
+      final result = await _waitForIntelligenceJob(started);
+      final status = result['status']?.toString() ?? 'completed';
+      if (status == 'failed') {
+        throw StateError(
+          result['error']?.toString() ??
+              'Local intelligence sync failed. Check account status and retry once.',
+        );
+      }
+      if (status != 'completed') {
+        await refresh(silent: true);
+        message =
+            'AiOS is still syncing in the background. Your saved local data is available.';
+        return;
+      }
       final analysis = result['analysis'] as Map<String, dynamic>? ?? const {};
       final views = result['views'] as Map<String, dynamic>? ?? const {};
-      message =
+      final syncMessage =
           'Sync complete. ${views['emails_scanned'] ?? 0} recent emails from '
           '${views['accounts_scanned'] ?? 0} accounts; '
           '${analysis['analyzed'] ?? 0} analyzed locally.';
       await refresh(silent: true);
       await refreshPageData(activePage, silent: true);
+      message = syncMessage;
     } catch (error) {
       message = _friendly(error);
     } finally {
       syncing = false;
       notifyListeners();
     }
+  }
+
+  Future<Map<String, dynamic>> _waitForIntelligenceJob(
+    Map<String, dynamic> started,
+  ) async {
+    final jobId = started['job_id']?.toString() ?? '';
+    if (jobId.isEmpty) return started;
+
+    final deadline = DateTime.now().add(const Duration(minutes: 2));
+    var latest = started;
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(intelligencePollInterval);
+      final response = await api.get('/api/intelligence/jobs/$jobId');
+      final job = _cachedMap(response['job']);
+      final status = job['status']?.toString() ?? 'running';
+      final result = _cachedMap(job['result']);
+      latest = result.isEmpty
+          ? {...started, 'job_id': jobId, 'status': status}
+          : {...result, 'job_id': jobId, 'status': status};
+      if (status == 'completed' || status == 'failed') return latest;
+
+      final phase = job['phase']?.toString();
+      message = phase == null || phase.isEmpty
+          ? 'AiOS is syncing Gmail and rebuilding local plans...'
+          : 'AiOS is syncing Gmail: ${phase.replaceAll('_', ' ')}...';
+      if (!_disposed) notifyListeners();
+    }
+    return {...latest, 'status': 'timeout'};
   }
 
   Future<void> rebuildInboxTriage() async {

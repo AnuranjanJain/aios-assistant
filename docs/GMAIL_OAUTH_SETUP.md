@@ -46,12 +46,12 @@ use Gmail History API cursors, including message additions and label changes. If
 Google expires a history cursor, AiOS automatically performs a fresh bounded
 sync. Duplicate messages are prevented by the account and Gmail message ID pair.
 
-Application intelligence then combines every enabled account into one
-timestamp-ordered scope of the latest 500 locally stored emails. Related updates
-are grouped by company, so an application confirmation, assessment, interview,
-and offer appear as one timeline rather than four separate opportunities. Older
-mail remains local and can be synchronized incrementally; it is simply outside
-the current fast dashboard scope.
+Application intelligence processes the latest 1,000 locally stored emails from
+each enabled account, ordered by the machine-normalized timestamp. Related
+updates are grouped by company, so an application confirmation, assessment,
+interview, and offer appear as one timeline rather than four separate
+opportunities. Older mail remains local and can be synchronized incrementally;
+it is simply outside the current fast dashboard scope.
 
 ## Account-aware classification
 

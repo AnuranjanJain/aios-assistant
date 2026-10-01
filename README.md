@@ -44,7 +44,7 @@ They communicate only through loopback APIs. Raw activity and email content stay
 - Remembers projects, goals, learning paths, notes, checkpoints, and next actions.
 - Tracks hackathons, job updates, Gmail signals, and reminders.
 - Owns Email Intelligence: multi-account Gmail OAuth, encrypted local tokens, local email sync, AI understanding, semantic search, and daily/weekly planning.
-- Classifies the latest 500 emails across all enabled accounts as one combined portfolio, then groups related application updates by company.
+- Classifies the latest 1,000 emails per connected account, merges them by local date for planning, and groups related application updates by company.
 - Uses each connected mailbox's role to separate career mail, VIT campus eligibility/PAT mail, and general hackathon mail; campus opportunities expose local eligibility, package, round, location, and applied/not-applied timelines.
 - Separates applied, selected, no-response, no-further-email, and rejected states while filtering generic alerts, newsletters, and public selection lists.
 - Exposes planning and project intelligence to WDYD over a paired loopback API.
@@ -99,11 +99,11 @@ endpoints.
 
 Email content is never sent to cloud AI providers by this module. Analysis uses Ollama when available and a deterministic local fallback otherwise.
 
-The portfolio scope is global, not 500 messages per inbox. AiOS orders locally
-stored mail from every enabled account by timestamp, analyzes the newest 500,
-and retains older synchronized mail in SQLite. The dashboard exposes aggregate
-counts and short approved summaries; WDYD never receives raw bodies or OAuth
-tokens.
+The analysis window is 1,000 messages per connected inbox. AiOS orders each
+account's locally stored mail by the machine-normalized timestamp, analyzes the
+newest 1,000 from each enabled account, and retains older synchronized mail in
+SQLite. The dashboard exposes aggregate counts and short approved summaries;
+WDYD never receives raw bodies or OAuth tokens.
 
 Google sign-in runs as a cancellable background job. AiOS stays responsive,
 shows the browser handoff state, and returns HTTP `202` plus polling URLs to API
@@ -120,7 +120,7 @@ For private GitHub repos or fewer rate-limit headaches, set `GITHUB_TOKEN` in Se
 Use smaller or quantized local models first:
 
 ```powershell
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:1.5b
 ollama pull llama3.2:3b
 ollama pull gemma2:2b
 ```
@@ -130,7 +130,7 @@ Recommended settings:
 ```text
 AI_PROVIDER=ollama
 OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:3b
+OLLAMA_MODEL=qwen2.5:1.5b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
@@ -234,7 +234,7 @@ tar -xzf release/AiOS-Assistant-arch-x86_64.tar.gz -C /tmp/aios
 AiOS works without a model by using deterministic local rules. For local LLM planning/classification:
 
 ```powershell
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:1.5b
 ollama pull nomic-embed-text
 ```
 
@@ -242,7 +242,7 @@ Set in `.env`:
 
 ```env
 AI_PROVIDER=ollama
-OLLAMA_MODEL=qwen2.5:3b
+OLLAMA_MODEL=qwen2.5:1.5b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 

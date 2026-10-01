@@ -1156,7 +1156,7 @@ def test_ollama_status(values):
         base_url = safe_ollama_url(values)
     except LocalSecurityError as exc:
         return {"ok": False, "message": str(exc)}
-    model = values.get("OLLAMA_MODEL") or "qwen2.5:3b"
+    model = values.get("OLLAMA_MODEL") or "qwen2.5:1.5b"
     try:
         parsed = urlsplit(base_url)
         if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
@@ -1349,8 +1349,8 @@ def ingest_message():
 @bp.post("/reminders/<int:reminder_id>/done")
 def complete_reminder(reminder_id):
     reminder = Reminder.query.get_or_404(reminder_id)
-    reminder.is_done = True
-    reminder.is_read = True
+    _mark_reminder_completed(reminder)
+    _complete_linked_email_work(reminder)
     db.session.commit()
     return redirect(url_for("main.dashboard"))
 
@@ -1358,7 +1358,8 @@ def complete_reminder(reminder_id):
 @bp.post("/reminders/<int:reminder_id>/read")
 def mark_reminder_read(reminder_id):
     reminder = Reminder.query.get_or_404(reminder_id)
-    reminder.is_read = True
+    _mark_reminder_read(reminder)
+    _mark_linked_email_task_read(reminder)
     db.session.commit()
     return redirect(request.referrer or url_for("main.dashboard"))
 
@@ -1366,8 +1367,7 @@ def mark_reminder_read(reminder_id):
 @bp.post("/api/reminders/<int:reminder_id>/done")
 def api_complete_reminder(reminder_id):
     reminder = Reminder.query.get_or_404(reminder_id)
-    reminder.is_done = True
-    reminder.is_read = True
+    _mark_reminder_completed(reminder)
     _complete_linked_email_work(reminder)
     db.session.commit()
     _invalidate_wdyd_snapshot()
@@ -1383,7 +1383,8 @@ def api_complete_reminder(reminder_id):
 @bp.post("/api/reminders/<int:reminder_id>/read")
 def api_mark_reminder_read(reminder_id):
     reminder = Reminder.query.get_or_404(reminder_id)
-    reminder.is_read = True
+    _mark_reminder_read(reminder)
+    _mark_linked_email_task_read(reminder)
     db.session.commit()
     _invalidate_wdyd_snapshot()
     return jsonify(
@@ -1399,6 +1400,16 @@ def api_mark_reminder_read(reminder_id):
 def api_reminders_overview():
     context = build_dashboard_context()
     items = [serialize_reminder(item) for item in context["reminders"]]
+    history_rows = (
+        Reminder.query.filter(db.or_(Reminder.is_read.is_(True), Reminder.is_done.is_(True)))
+        .order_by(
+            db.func.coalesce(Reminder.completed_at, Reminder.read_at, Reminder.created_at).desc(),
+            Reminder.id.desc(),
+        )
+        .limit(100)
+        .all()
+    )
+    history = [serialize_reminder(item) for item in history_rows]
     today = date.today()
     completed_today = Reminder.query.filter(
         Reminder.is_done.is_(True),
@@ -1409,12 +1420,15 @@ def api_reminders_overview():
         {
             "ok": True,
             "items": items,
+            "history": history,
             "stats": {
                 "open": len(items),
                 "overdue": sum(item["urgency"] == "overdue" for item in items),
                 "due_today": sum(item["urgency"] == "today" for item in items),
                 "unread": sum(not item["is_read"] for item in items),
                 "completed_today": completed_today,
+                "read": sum(item["is_read"] and not item["is_done"] for item in history),
+                "history": len(history),
             },
             "updated_at": datetime.utcnow().isoformat(),
         }
@@ -1438,10 +1452,12 @@ def api_reclassify_inbox():
         force=True,
     )
     from app.services.email_views import materialize_email_views
+    from app.services.email_linking import relink_recent_emails
 
     views = materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT)
+    relationships = relink_recent_emails(limit=EMAIL_PORTFOLIO_LIMIT)
     _invalidate_wdyd_snapshot()
-    return jsonify({**_inbox_overview_payload(), "analysis": analysis, "views": views})
+    return jsonify({**_inbox_overview_payload(), "analysis": analysis, "views": views, "relationships": relationships})
 
 
 def _inbox_overview_payload():
@@ -1496,7 +1512,8 @@ def _inbox_overview_payload():
         ],
         "scope": {
             "combined_limit": EMAIL_PORTFOLIO_LIMIT,
-            "label": f"Latest {EMAIL_PORTFOLIO_LIMIT} emails across connected accounts",
+            "per_account_limit": EMAIL_PORTFOLIO_LIMIT,
+            "label": f"Latest {EMAIL_PORTFOLIO_LIMIT} emails per connected account",
         },
         "updated_at": datetime.utcnow().isoformat(),
     }
@@ -2001,6 +2018,23 @@ def _live_api_payload():
     latest_opportunity = context["opportunities"][0] if context["opportunities"] else None
     latest_activity = context["activity_events"][0] if context["activity_events"] else None
     latest_connector = context["connector_runs"][0] if context["connector_runs"] else None
+    active_reminder_rows = (
+        Reminder.query.filter(Reminder.is_done.is_(False))
+        .order_by(Reminder.due_at.asc(), Reminder.priority.asc())
+        .limit(40)
+        .all()
+    )
+    active_reminders = {item.id: item for item in context["reminders"]}
+    active_reminders.update({item.id: item for item in active_reminder_rows})
+    reminder_history = (
+        Reminder.query.filter(db.or_(Reminder.is_read.is_(True), Reminder.is_done.is_(True)))
+        .order_by(
+            db.func.coalesce(Reminder.completed_at, Reminder.read_at, Reminder.created_at).desc(),
+            Reminder.id.desc(),
+        )
+        .limit(100)
+        .all()
+    )
 
     return {
         "native_contract_version": NATIVE_CONTRACT_VERSION,
@@ -2008,7 +2042,8 @@ def _live_api_payload():
         "stats": context["stats"],
         "latest_opportunity": serialize_opportunity(latest_opportunity) if latest_opportunity else None,
         "latest_activity": serialize_activity(latest_activity) if latest_activity else None,
-        "reminders": [serialize_reminder(item) for item in context["reminders"][:20]],
+        "reminders": [serialize_reminder(item) for item in list(active_reminders.values())[:40]],
+        "reminder_history": [serialize_reminder(item) for item in reminder_history],
         "opportunities": [serialize_opportunity(item) for item in context["opportunities"][:20]],
         "achievements": context["achievements"][:6],
         "deadline_highlights": context["deadline_highlights"],
@@ -2718,6 +2753,7 @@ def serialize_reminder(item):
     subject = metadata.get("subject", "")
     account = metadata.get("account_email", "")
     source_parts = [value for value in (account, sender, subject) if value]
+    created_at = item.created_at or item.due_at or datetime.utcnow()
     why = (
         "This task is overdue and needs a decision now."
         if urgency == "overdue"
@@ -2734,6 +2770,10 @@ def serialize_reminder(item):
         "priority": item.priority,
         "is_done": item.is_done,
         "is_read": item.is_read,
+        "created_at": created_at.isoformat(),
+        "read_at": item.read_at.isoformat() if item.read_at else None,
+        "completed_at": item.completed_at.isoformat() if item.completed_at else None,
+        "time_taken_seconds": item.time_taken_seconds,
         "notified_at": item.notified_at.isoformat() if item.notified_at else None,
         "opportunity_id": item.opportunity_id,
         "email_id": metadata.get("email_id"),
@@ -2749,6 +2789,37 @@ def serialize_reminder(item):
     }
 
 
+def _mark_reminder_read(reminder, now=None):
+    now = now or datetime.utcnow()
+    reminder.is_read = True
+    if reminder.read_at is None:
+        reminder.read_at = now
+
+
+def _mark_reminder_completed(reminder, now=None):
+    now = now or datetime.utcnow()
+    started_at = reminder.read_at or reminder.created_at or reminder.due_at or now
+    _mark_reminder_read(reminder, now)
+    reminder.is_done = True
+    if reminder.completed_at is None:
+        reminder.completed_at = now
+    if reminder.time_taken_seconds is None:
+        reminder.time_taken_seconds = max(0, int((reminder.completed_at - started_at).total_seconds()))
+
+
+def _mark_linked_email_task_read(reminder):
+    source_key = reminder.source_key or ""
+    if not source_key.startswith("email-task:"):
+        return
+    try:
+        task_id = int(source_key.split(":", 1)[1])
+    except (TypeError, ValueError):
+        return
+    task = db.session.get(EmailTask, task_id)
+    if task and task.read_at is None:
+        task.read_at = reminder.read_at or datetime.utcnow()
+
+
 def _complete_linked_email_work(reminder):
     source_key = reminder.source_key or ""
     if not source_key.startswith("email-task:"):
@@ -2760,6 +2831,9 @@ def _complete_linked_email_work(reminder):
     task = db.session.get(EmailTask, task_id)
     if task:
         task.status = "done"
+        task.read_at = task.read_at or reminder.read_at or datetime.utcnow()
+        task.completed_at = task.completed_at or reminder.completed_at or datetime.utcnow()
+        task.time_taken_seconds = reminder.time_taken_seconds
         task.updated_at = datetime.utcnow()
     event = PlanningEvent.query.filter_by(source_key=f"email_task:{task_id}").first()
     if event:
@@ -2792,6 +2866,10 @@ def serialize_inbox_item(item):
         "subject": item.subject,
         "category": item.category,
         "category_label": CATEGORY_LABELS.get(item.category, item.category.replace("_", " ").title()),
+        "mail_kind": item.mail_kind or "unrelated",
+        "relationship_status": item.relationship_status or "unrelated",
+        "is_bulk": item.is_bulk,
+        "needs_response": item.needs_response,
         "priority": item.priority,
         "urgency": item.urgency,
         "attention_score": item.attention_score,

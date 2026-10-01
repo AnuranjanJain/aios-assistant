@@ -116,6 +116,10 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
         inbox.subject = email.subject or "Untitled email"
         inbox.body = email.body_text or email.snippet
         inbox.category = insight.category if insight else "general"
+        inbox.mail_kind = insight.mail_kind if insight else "unrelated"
+        inbox.relationship_status = insight.relationship_status if insight else "unrelated"
+        inbox.is_bulk = bool(insight and insight.is_bulk)
+        inbox.needs_response = bool(insight and insight.needs_response)
         inbox.priority = insight.priority if insight else "normal"
         inbox.urgency = insight.urgency if insight else "normal"
         inbox.attention_score = insight.attention_score if insight else 0
@@ -169,10 +173,14 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
         insight = task.email.insight
         priority = task.priority or (insight.priority if insight else "normal")
         due_at = task.due_at
-        due_this_year = bool(due_at and due_at.date().year == today.year)
+        # An actionable email without a deadline belongs in Inbox AI, not in
+        # Today's tasks. Assigning it an invented same-day deadline makes a
+        # future appointment look overdue or due today.
         actionable_today = bool(
-            due_this_year and due_at.date() <= today
-        ) or (due_at is None and priority in {"high", "urgent"})
+            due_at
+            and due_at.date().year == today.year
+            and due_at.date() <= today
+        )
         task_key = re.sub(r"\W+", " ", task.title.lower()).strip()
         if not actionable_today or task_key in seen_tasks:
             continue
@@ -181,11 +189,11 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
         active_keys.add(source_key)
         reminder = Reminder.query.filter_by(source_key=source_key).first()
         if reminder is None:
-            reminder = Reminder(source_key=source_key, title=task.title[:180], due_at=_task_due_at(task, today))
+            reminder = Reminder(source_key=source_key, title=task.title[:180], due_at=due_at)
             db.session.add(reminder)
             counts["reminders"] += 1
         reminder.title = task.title[:180]
-        reminder.due_at = _task_due_at(task, today)
+        reminder.due_at = due_at
         reminder.channel = "desktop"
         reminder.notification_type = "email_action"
         reminder.priority = priority or "normal"
@@ -207,6 +215,7 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
     stale_query = Reminder.query.filter(
         Reminder.source_key.like("email-task:%"),
         Reminder.is_done.is_(False),
+        Reminder.is_read.is_(False),
     )
     if active_keys:
         stale_query = stale_query.filter(Reminder.source_key.notin_(active_keys))
@@ -221,16 +230,11 @@ def materialize_email_views(limit=EMAIL_PORTFOLIO_LIMIT):
         "emails_scanned": len(emails),
         "accounts_scanned": len({email.account_id for email in emails}),
         "combined_limit": limit,
+        "per_account_limit": limit,
+        "limit_scope": "per_connected_account",
     }
 
 
 def _first_task_due_at(email):
     due_dates = [task.due_at for task in email.tasks if task.due_at]
     return min(due_dates) if due_dates else None
-
-
-def _task_due_at(task, today=None):
-    if task.due_at:
-        return task.due_at
-    today = today or local_today()
-    return datetime.combine(today, time(18, 0))

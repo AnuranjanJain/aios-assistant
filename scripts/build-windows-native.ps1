@@ -27,6 +27,11 @@ if (-not $flutter -or -not (Test-Path -LiteralPath $flutter)) {
     throw "Flutter was not found. Pass -FlutterPath or set AIOS_FLUTTER_PATH, or put flutter.bat on PATH."
 }
 Set-Location $repo
+$pythonPath = Get-Command $PythonCommand -ErrorAction SilentlyContinue
+if (-not $pythonPath) {
+    throw "Python was not found. Pass -PythonCommand with an executable path or put python on PATH."
+}
+$PythonCommand = $pythonPath.Source
 $ErrorActionPreference = "Continue"
 & $PythonCommand -m pip install -r requirements-desktop.txt 2>&1
 $pipExitCode = $LASTEXITCODE

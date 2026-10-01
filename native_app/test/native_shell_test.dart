@@ -341,10 +341,10 @@ void main() {
             'selected_rate': 100,
             'no_response': 0,
             'no_further_email': 0,
-            'emails_scanned': 500,
+            'emails_scanned': 1000,
             'accounts_scanned': 1,
           },
-          'scope': {'label': 'Latest 500 combined emails'},
+          'scope': {'label': 'Latest 1,000 emails per connected account'},
           'active': [
             {
               'company': 'Example Labs',
@@ -423,7 +423,7 @@ void main() {
         {'id': 'github', 'label': 'GitHub', 'count': 1},
         {'id': 'career', 'label': 'Job discovery', 'count': 1},
       ],
-      'scope': {'label': 'Latest 500 emails across connected accounts'},
+      'scope': {'label': 'Latest 1,000 emails per connected account'},
       'items': [
         {
           'subject': '[Example/project] Run failed: Test Suite',
@@ -530,6 +530,22 @@ void main() {
       expect(api.paths, contains('/api/reminders/7/done'));
     },
   );
+
+  test('waits for the background intelligence job before refreshing', () async {
+    final api = _BackgroundSyncApi();
+    final controller = AiosController(
+      api: api,
+      intelligencePollInterval: Duration.zero,
+    )..loading = false;
+    addTearDown(controller.dispose);
+
+    await controller.syncAll();
+
+    expect(api.paths, contains('/api/intelligence/sync'));
+    expect(api.paths, contains('/api/intelligence/jobs/job-1'));
+    expect(controller.message, contains('1000 recent emails'));
+    expect(controller.syncing, isFalse);
+  });
 
   test(
     'saves non-sensitive core preferences when secure storage is unavailable',
@@ -651,6 +667,48 @@ class _SnapshotApi extends AiosApi {
     final response = responses[path];
     if (response == null) throw StateError('API unavailable');
     return response;
+  }
+}
+
+class _BackgroundSyncApi extends AiosApi {
+  final List<String> paths = [];
+
+  @override
+  Future<Map<String, dynamic>> post(
+    String path, [
+    Map<String, dynamic> body = const {},
+  ]) async {
+    paths.add(path);
+    if (path == '/api/intelligence/sync') {
+      return {'ok': true, 'job_id': 'job-1', 'status': 'running'};
+    }
+    throw StateError('Unexpected POST: $path');
+  }
+
+  @override
+  Future<Map<String, dynamic>> get(String path) async {
+    paths.add(path);
+    if (path == '/api/intelligence/jobs/job-1') {
+      return {
+        'ok': true,
+        'job': {
+          'id': 'job-1',
+          'status': 'completed',
+          'phase': 'completed',
+          'result': {
+            'analysis': {'analyzed': 7},
+            'views': {'emails_scanned': 1000, 'accounts_scanned': 1},
+          },
+        },
+      };
+    }
+    return switch (path) {
+      '/api/intelligence/accounts' => {'accounts': const <dynamic>[]},
+      '/api/live' => {'stats': const <String, dynamic>{}},
+      '/api/desktop/status' => const <String, dynamic>{},
+      '/api/workers' => {'items': const <dynamic>[]},
+      _ => throw StateError('Unexpected GET: $path'),
+    };
   }
 }
 

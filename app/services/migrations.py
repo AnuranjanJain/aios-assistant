@@ -33,12 +33,14 @@ class ColumnAddition:
 class MigrationSpec:
     version: str
     additions: tuple[ColumnAddition, ...]
+    statements: tuple[str, ...] = ()
 
     @property
     def checksum(self) -> str:
         payload = self.version + "\n" + "\n".join(
             f"{item.table}.{item.column}:{item.statement}" for item in self.additions
         )
+        payload += "\n" + "\n".join(self.statements)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -113,6 +115,47 @@ MIGRATIONS: tuple[MigrationSpec, ...] = (
                 "mail_time_version",
                 "ALTER TABLE connected_account ADD COLUMN mail_time_version INTEGER NOT NULL DEFAULT 0",
             ),
+        ),
+    ),
+    MigrationSpec(
+        "2026-10-01-email-history-and-classification-v1",
+        (
+            ColumnAddition("reminder", "created_at", "ALTER TABLE reminder ADD COLUMN created_at DATETIME"),
+            ColumnAddition("reminder", "read_at", "ALTER TABLE reminder ADD COLUMN read_at DATETIME"),
+            ColumnAddition("reminder", "completed_at", "ALTER TABLE reminder ADD COLUMN completed_at DATETIME"),
+            ColumnAddition("reminder", "time_taken_seconds", "ALTER TABLE reminder ADD COLUMN time_taken_seconds INTEGER"),
+            ColumnAddition("inbox_item", "mail_kind", "ALTER TABLE inbox_item ADD COLUMN mail_kind VARCHAR(60) NOT NULL DEFAULT 'unrelated'"),
+            ColumnAddition("inbox_item", "relationship_status", "ALTER TABLE inbox_item ADD COLUMN relationship_status VARCHAR(30) NOT NULL DEFAULT 'unrelated'"),
+            ColumnAddition("inbox_item", "is_bulk", "ALTER TABLE inbox_item ADD COLUMN is_bulk BOOLEAN NOT NULL DEFAULT 0"),
+            ColumnAddition("inbox_item", "needs_response", "ALTER TABLE inbox_item ADD COLUMN needs_response BOOLEAN NOT NULL DEFAULT 0"),
+            ColumnAddition("email_insight", "mail_kind", "ALTER TABLE email_insight ADD COLUMN mail_kind VARCHAR(60) NOT NULL DEFAULT 'unrelated'"),
+            ColumnAddition("email_insight", "relationship_status", "ALTER TABLE email_insight ADD COLUMN relationship_status VARCHAR(30) NOT NULL DEFAULT 'unrelated'"),
+            ColumnAddition("email_insight", "relationship_hint", "ALTER TABLE email_insight ADD COLUMN relationship_hint VARCHAR(60)"),
+            ColumnAddition("email_insight", "related_email_ids_json", "ALTER TABLE email_insight ADD COLUMN related_email_ids_json TEXT"),
+            ColumnAddition("email_insight", "importance", "ALTER TABLE email_insight ADD COLUMN importance VARCHAR(30) NOT NULL DEFAULT 'normal'"),
+            ColumnAddition("email_insight", "needs_response", "ALTER TABLE email_insight ADD COLUMN needs_response BOOLEAN NOT NULL DEFAULT 0"),
+            ColumnAddition("email_insight", "is_bulk", "ALTER TABLE email_insight ADD COLUMN is_bulk BOOLEAN NOT NULL DEFAULT 0"),
+            ColumnAddition("email_task", "read_at", "ALTER TABLE email_task ADD COLUMN read_at DATETIME"),
+            ColumnAddition("email_task", "completed_at", "ALTER TABLE email_task ADD COLUMN completed_at DATETIME"),
+            ColumnAddition("email_task", "time_taken_seconds", "ALTER TABLE email_task ADD COLUMN time_taken_seconds INTEGER"),
+        ),
+        statements=(
+            """CREATE TABLE IF NOT EXISTS email_message_link (
+                id INTEGER PRIMARY KEY,
+                source_email_id INTEGER NOT NULL,
+                target_email_id INTEGER NOT NULL,
+                relation_type VARCHAR(60) NOT NULL,
+                confidence FLOAT NOT NULL DEFAULT 0,
+                reason TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                CONSTRAINT uq_email_message_link UNIQUE (source_email_id, target_email_id, relation_type),
+                FOREIGN KEY(source_email_id) REFERENCES email_message(id),
+                FOREIGN KEY(target_email_id) REFERENCES email_message(id)
+            )""",
+            "CREATE INDEX IF NOT EXISTS ix_email_message_link_source_email_id ON email_message_link(source_email_id)",
+            "CREATE INDEX IF NOT EXISTS ix_email_message_link_target_email_id ON email_message_link(target_email_id)",
+            "CREATE INDEX IF NOT EXISTS ix_email_message_link_relation_type ON email_message_link(relation_type)",
         ),
     ),
 )
@@ -255,6 +298,8 @@ def apply_migrations(session, engine, logger: logging.Logger | None = None) -> l
                     logger.info("Created SQLite migration backup at %s", backup_path)
             for addition in missing:
                 session.execute(text(addition.statement))
+            for statement in spec.statements:
+                session.execute(text(statement))
             session.execute(
                 text(
                     f"INSERT INTO {LEDGER_TABLE}(version, applied_at, checksum, backup_path) "

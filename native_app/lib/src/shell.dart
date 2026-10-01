@@ -1570,7 +1570,7 @@ class _OpportunitiesPageState extends State<_OpportunitiesPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${scope['label'] ?? 'Latest 500 combined emails'} across '
+                '${scope['label'] ?? 'Latest 1,000 emails per connected account'} across '
                 '${stats['accounts_scanned'] ?? 0} accounts. Generic alerts, newsletters, and public selection lists are excluded.',
                 style: TextStyle(
                   color: _Palette.of(context).muted,
@@ -2014,7 +2014,7 @@ class _RemindersPageState extends State<_RemindersPage> {
     return _PageColumn(
       children: [
         _Panel(
-          eyebrow: 'ACTION CENTER · LATEST 100 EMAILS PER ACCOUNT',
+          eyebrow: 'ACTION CENTER · LATEST 1,000 EMAILS PER ACCOUNT',
           title: 'Clear reminders, not vague alerts.',
           action: _ActionButton(
             label: controller.syncing ? 'Scanning...' : 'Refresh tasks',

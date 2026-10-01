@@ -14,6 +14,7 @@ from app.models import (
     EmailAttachment,
     EmailInsight,
     EmailMessage,
+    EmailMessageLink,
     EmailTask,
     GitHubDailySummary,
     GitHubRepository,
@@ -52,6 +53,7 @@ from app.services.email_triage import classify_email_category, triage_email
 from app.services.college_intelligence import pat_college_summary
 from app.services.email_scope import latest_email_ids_combined
 from app.services.email_views import materialize_email_views
+from app.services.email_linking import relink_recent_emails
 from app.services.application_intelligence import application_overview
 from app.routes import build_dashboard_context
 from app.services.project_context import create_project, project_context, update_project
@@ -316,6 +318,41 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(stale_countdown.urgency, "normal")
         self.assertTrue(stale_countdown.is_actionable)
 
+    def test_relationship_linking_uses_date_window_for_unrelated_repeated_subjects(self):
+        account = ConnectedAccount(
+            provider="google",
+            email="relationships@example.com",
+            label="Relationships",
+        )
+        now = datetime.now().replace(microsecond=0)
+        old = EmailMessage(
+            account=account,
+            provider_message_id="old-weekly-update",
+            sender="updates@service.example",
+            subject="Weekly project update",
+            snippet="A routine digest from the service.",
+            sent_at=now - timedelta(days=180),
+        )
+        recent = EmailMessage(
+            account=account,
+            provider_message_id="recent-weekly-update",
+            sender="updates@service.example",
+            subject="Weekly project update",
+            snippet="A routine digest from the service.",
+            sent_at=now,
+        )
+        db.session.add_all([account, old, recent])
+        db.session.flush()
+        db.session.add_all([EmailInsight(email=old), EmailInsight(email=recent)])
+        db.session.commit()
+
+        result = relink_recent_emails(limit=1000)
+
+        self.assertEqual(result["linked"], 0)
+        self.assertEqual(EmailMessageLink.query.count(), 0)
+        self.assertEqual(old.insight.relationship_status, "unrelated")
+        self.assertEqual(recent.insight.relationship_status, "unrelated")
+
     def test_inbox_overview_exposes_priority_filters_and_accounts(self):
         account = ConnectedAccount(provider="google", email="triage@example.com", label="Triage")
         github = EmailMessage(
@@ -467,8 +504,9 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         db.session.flush()
         db.session.add_all(
             [
-                EmailTask(email=emails[0], title="Do this today", priority="high", due_at=None),
+                EmailTask(email=emails[0], title="Do this today", priority="high", due_at=anchor),
                 EmailTask(email=emails[1], title="Do this tomorrow", priority="high", due_at=anchor + timedelta(days=1)),
+                EmailTask(email=emails[2], title="Undated high priority mail", priority="urgent", due_at=None),
                 EmailTask(email=emails[250], title="Old mail task", priority="urgent", due_at=anchor),
             ]
         )
@@ -480,6 +518,46 @@ class EmailIntelligenceTestCase(unittest.TestCase):
         self.assertEqual(result["emails_scanned"], 250)
         self.assertEqual([item.title for item in reminders], ["Do this today"])
         self.assertEqual(reminders[0].due_at.date(), date.today())
+
+    def test_future_and_undated_email_tasks_are_not_labeled_due_today(self):
+        account = ConnectedAccount(provider="google", email="schedule@example.com", label="Schedule")
+        email = EmailMessage(
+            account=account,
+            provider_message_id="scheduled-task",
+            sender="calendar@example.com",
+            subject="Interview scheduled for next week",
+            snippet="Your interview is scheduled for next week.",
+            sent_at=datetime.now(),
+        )
+        db.session.add_all([account, email])
+        db.session.flush()
+        future_task = EmailTask(
+            email=email,
+            title="Prepare for the interview",
+            priority="high",
+            due_at=datetime.combine(date.today() + timedelta(days=7), time(10)),
+        )
+        undated_task = EmailTask(
+            email=email,
+            title="Review the interview details",
+            priority="urgent",
+        )
+        db.session.add_all([future_task, undated_task])
+        db.session.flush()
+        db.session.add(
+            Reminder(
+                source_key=f"email-task:{future_task.id}",
+                title=future_task.title,
+                due_at=datetime.combine(date.today(), time(18)),
+                notification_type="email_action",
+            )
+        )
+        db.session.commit()
+
+        materialize_email_views(limit=100)
+
+        self.assertIsNone(Reminder.query.filter_by(source_key=f"email-task:{future_task.id}").first())
+        self.assertIsNone(Reminder.query.filter_by(source_key=f"email-task:{undated_task.id}").first())
 
     def test_latest_emails_are_combined_across_connected_accounts(self):
         first = ConnectedAccount(provider="google", email="first@example.com", label="First")
@@ -511,6 +589,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
                     email=email,
                     title=f"Account task {index}",
                     priority="urgent",
+                    due_at=anchor,
                 )
             )
         for index, email in enumerate(oldest):
@@ -531,10 +610,10 @@ class EmailIntelligenceTestCase(unittest.TestCase):
             ).all()
         }
 
-        self.assertEqual(result["emails_scanned"], 100)
+        self.assertEqual(result["emails_scanned"], 200)
         self.assertEqual(result["accounts_scanned"], 2)
-        self.assertEqual(result["combined_limit"], 100)
-        self.assertEqual(len(latest_email_ids_combined(100)), 100)
+        self.assertEqual(result["per_account_limit"], 100)
+        self.assertEqual(len(latest_email_ids_combined(100)), 200)
         self.assertEqual(reminder_titles, {"Account task 0", "Account task 1"})
 
     def test_dashboard_reminders_and_stats_only_use_recent_email_actions(self):
@@ -554,6 +633,7 @@ class EmailIntelligenceTestCase(unittest.TestCase):
                 email=email,
                 title="Submit project update",
                 priority="urgent",
+                due_at=datetime.combine(date.today(), time(17)),
             )
         )
         db.session.add(

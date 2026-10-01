@@ -29,6 +29,7 @@ def readiness_summary(values):
     ).count()
     email_worker = _service_status("email_intelligence")
     ollama_url = values.get("OLLAMA_URL") or "http://localhost:11434"
+    ollama_model = values.get("OLLAMA_MODEL") or "qwen2.5:1.5b"
     sync_interval = values.get("EMAIL_SYNC_INTERVAL_MINUTES") or "10"
     worker_error = (email_worker or {}).get("last_error")
     worker_running = bool(email_worker and email_worker.get("running"))
@@ -100,8 +101,8 @@ def readiness_summary(values):
             "label": "Ollama loopback",
             "required": False,
             "ok": _is_loopback_url(ollama_url),
-            "detail": f"{ollama_url} using {values.get('OLLAMA_MODEL') or 'selected local model'}.",
-            "action": "For a 4GB RTX 3050, run: ollama pull qwen2.5:3b, then Test Ollama in AiOS Settings.",
+            "detail": f"{ollama_url} using {ollama_model}.",
+            "action": f"Run: ollama pull {ollama_model}, then Test Ollama in AiOS Settings.",
         },
         {
             "id": "github",

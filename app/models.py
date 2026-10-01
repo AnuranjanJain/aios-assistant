@@ -36,6 +36,10 @@ class Reminder(db.Model):
     source_key = db.Column(db.String(240), nullable=True, unique=True, index=True)
     is_done = db.Column(db.Boolean, default=False, nullable=False)
     is_read = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    read_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    time_taken_seconds = db.Column(db.Integer, nullable=True)
     notified_at = db.Column(db.DateTime, nullable=True)
     snoozed_until = db.Column(db.DateTime, nullable=True, index=True)
     notification_claim_id = db.Column(db.String(80), nullable=True, index=True)
@@ -53,6 +57,10 @@ class InboxItem(db.Model):
     subject = db.Column(db.String(240), nullable=False)
     body = db.Column(db.Text, nullable=True)
     category = db.Column(db.String(80), nullable=False, default="general")
+    mail_kind = db.Column(db.String(60), nullable=False, default="unrelated", index=True)
+    relationship_status = db.Column(db.String(30), nullable=False, default="unrelated", index=True)
+    is_bulk = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    needs_response = db.Column(db.Boolean, nullable=False, default=False, index=True)
     priority = db.Column(db.String(40), nullable=False, default="normal", index=True)
     urgency = db.Column(db.String(40), nullable=False, default="normal", index=True)
     attention_score = db.Column(db.Integer, nullable=False, default=0, index=True)
@@ -238,6 +246,35 @@ class EmailMessage(db.Model):
     )
 
 
+class EmailMessageLink(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    source_email_id = db.Column(db.Integer, db.ForeignKey("email_message.id"), nullable=False, index=True)
+    target_email_id = db.Column(db.Integer, db.ForeignKey("email_message.id"), nullable=False, index=True)
+    source_email = db.relationship(
+        "EmailMessage",
+        foreign_keys=[source_email_id],
+        backref=db.backref("outgoing_links", cascade="all, delete-orphan"),
+    )
+    target_email = db.relationship(
+        "EmailMessage",
+        foreign_keys=[target_email_id],
+        backref=db.backref("incoming_links", cascade="all, delete-orphan"),
+    )
+    relation_type = db.Column(db.String(60), nullable=False, index=True)
+    confidence = db.Column(db.Float, nullable=False, default=0.0)
+    reason = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        db.UniqueConstraint(
+            "source_email_id",
+            "target_email_id",
+            "relation_type",
+            name="uq_email_message_link",
+        ),
+    )
+
+
 class EmailAttachment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email_id = db.Column(db.Integer, db.ForeignKey("email_message.id"), nullable=False, index=True)
@@ -261,6 +298,13 @@ class EmailInsight(db.Model):
     priority_reason = db.Column(db.Text, nullable=True)
     is_actionable = db.Column(db.Boolean, nullable=False, default=False, index=True)
     category = db.Column(db.String(80), nullable=False, default="general", index=True)
+    mail_kind = db.Column(db.String(60), nullable=False, default="unrelated", index=True)
+    relationship_status = db.Column(db.String(30), nullable=False, default="unrelated", index=True)
+    relationship_hint = db.Column(db.String(60), nullable=True)
+    related_email_ids_json = db.Column(db.Text, nullable=True)
+    importance = db.Column(db.String(30), nullable=False, default="normal", index=True)
+    needs_response = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_bulk = db.Column(db.Boolean, nullable=False, default=False, index=True)
     summary = db.Column(db.Text, nullable=True)
     action_items_json = db.Column(db.Text, nullable=True)
     deadlines_json = db.Column(db.Text, nullable=True)
@@ -539,6 +583,9 @@ class EmailTask(db.Model):
     priority = db.Column(db.String(40), nullable=False, default="normal")
     due_at = db.Column(db.DateTime, nullable=True, index=True)
     source = db.Column(db.String(80), nullable=False, default="email")
+    read_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    time_taken_seconds = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime,
